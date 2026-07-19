@@ -1,0 +1,33 @@
+# Life OS configuration.
+# Values of the form "env:NAME" are resolved from environment variables at load time,
+# so secrets never live in this file.
+
+env: sqlite            # sqlite | postgres (v0.1 runs sqlite; postgres schema is provided)
+
+sqlite:
+  path: ./data/lifeos.db
+
+postgres:
+  dsn: env:LIFEOS_PG_DSN
+
+owner:
+  id: b0b00000-0000-4000-8000-000000000001
+  name: Bob
+  timezone: UTC        # set your IANA timezone before ticket 4 (Monday 07:00 push)
+
+gateway:
+  host: 127.0.0.1
+  port: 8787
+  auth_token: env:LIFEOS_GATEWAY_TOKEN   # empty = auth disabled (local dev only)
+
+telegram:
+  token: env:TELEGRAM_BOT_TOKEN
+  # Once you know your Telegram numeric user id, pin it here so only you can talk
+  # to the bot (privacy is existential — risk register #5). Empty = accept all,
+  # but every accepted chat id is logged so you can pin it after first contact.
+  allowed_user_ids: []
+
+anthropic:
+  api_key: env:ANTHROPIC_API_KEY
+  model_heavy: claude-opus-4-8    # planning, vision intake
+  model_light: claude-haiku-4-5   # classification / intent routing (COGS: small-model routing)
