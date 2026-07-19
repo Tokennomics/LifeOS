@@ -154,8 +154,10 @@ class GraphSession:
         drow = self._fetch_entity(dst)
         if srow is None or drow is None:
             raise GraphError(f"edge endpoints must exist: src={src} dst={dst}")
+        # Authoring an edge mutates the src side of the relationship but only
+        # references the dst — so: write scope on src kind, read scope on dst kind.
         self._need(srow["kind"], "write")
-        self._need(drow["kind"], "write")
+        self._need(drow["kind"], "read")
         g = self.graph
         edge_id = new_id()
         g._execute(

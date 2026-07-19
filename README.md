@@ -10,11 +10,14 @@ See the master build document for mission, laws, and roadmap.
 | 1. Substrate schema + graph.py (scope/provenance enforcement) + tests | ✅ |
 | 2. Gateway skeleton + Telegram bot echo | ✅ |
 | 3. Horizon vision_intake → life_plan in graph | ✅ (Claude path + offline fallback) |
-| 4. Planner + Monday push + /log | next |
-| 5. Sunday retro | next |
-| 6. VoiceOS /capture → entities | next |
-| 7. Google Calendar free/busy ingest | next |
-| 8. NucBox deploy scripts | next |
+| 4. Planner + Monday 07:00 push + /log | ✅ |
+| 5. Sunday retro (score → metric → reflection) | ✅ |
+| 6. VoiceOS /capture → entities + feeds edges | ✅ |
+| 7. Calendar free/busy ingest | ✅ via secret ICS URL (zero-OAuth; Google OAuth deferred) |
+| 8. NucBox deploy scripts | ✅ docker-compose + Windows scheduled tasks |
+
+**v0.1 gate (D11–14):** self-use. `/vision` → Monday push → obey → `/log` → Sunday retro.
+If you won't use it daily for 4 weeks, stop before any social code (risk register #2).
 
 ## Quickstart (Windows)
 
@@ -36,8 +39,10 @@ Try the vision intake end-to-end without any API keys:
 
 | Variable | Enables |
 |---|---|
-| `ANTHROPIC_API_KEY` | Real Claude interview in `/vision` + light-model intent routing. Without it, intake uses the deterministic offline parser. |
+| `ANTHROPIC_API_KEY` | Real Claude paths: `/vision` interview, weekly planner, retro reflection, capture extraction, intent routing. Without it, every command still works via deterministic offline fallbacks. |
 | `TELEGRAM_BOT_TOKEN` | The Telegram bot (create one via @BotFather). |
+| `TELEGRAM_OWNER_CHAT_ID` | Monday-plan / Sunday-retro pushes (bot logs your id on first message). |
+| `LIFEOS_CALENDAR_ICS` | Free/busy ingest from your calendar's secret ICS URL (daily 06:30). |
 | `LIFEOS_GATEWAY_TOKEN` | Bearer auth on the HTTP gateway (leave unset for localhost dev). |
 | `LIFEOS_PG_DSN` | Postgres instead of SQLite (set `env: postgres` in config.yaml; needs pgvector). |
 
@@ -47,7 +52,7 @@ After the bot's first accepted message it logs your Telegram user id — pin it 
 ## Run
 
 ```powershell
-# Telegram bot (echo + /vision)
+# Telegram bot: /vision /plan /log /retro /capture (+ Mon 07:00 & Sun 19:00 pushes)
 .venv\Scripts\python -m surfaces.bot.telegram
 
 # HTTP gateway
@@ -55,6 +60,22 @@ After the bot's first accepted message it logs your Telegram user id — pin it 
 ```
 
 Gateway endpoints: `GET /health`, `POST /v1/route {"text": ...}`, `POST /v1/vision {"text": ...}`.
+
+Every module also runs standalone (all support `--offline`):
+
+```powershell
+.venv\Scripts\python -m modules.horizon.planner
+.venv\Scripts\python -m modules.horizon.retro
+.venv\Scripts\python -m modules.voiceos.capture "the thought"
+.venv\Scripts\python -m modules.calendars.freebusy
+```
+
+## Deploy (NucBox)
+
+- **Windows-native:** `powershell -ExecutionPolicy Bypass -File deploy\nucbox-install.ps1` —
+  venv + migrate + tests, then registers `LifeOS-Bot` and `LifeOS-Gateway` scheduled tasks
+  (ONLOGON, short command lines — WinError 206 safe). Logs land in `data\*.log`.
+- **Docker:** `cd deploy; docker compose up -d --build`.
 
 ## Architecture (v0.1 slice)
 

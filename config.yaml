@@ -26,6 +26,14 @@ telegram:
   # to the bot (privacy is existential — risk register #5). Empty = accept all,
   # but every accepted chat id is logged so you can pin it after first contact.
   allowed_user_ids: []
+  # Where Monday-plan / Sunday-retro pushes go. Same numeric id as above.
+  owner_chat_id: env:TELEGRAM_OWNER_CHAT_ID
+
+calendar:
+  # Secret ICS URL (Google Calendar -> Settings -> "Secret address in iCal format").
+  ics_url: env:LIFEOS_CALENDAR_ICS
+  # Privacy default: free/busy only. Set true to also store event titles.
+  store_titles: false
 
 anthropic:
   api_key: env:ANTHROPIC_API_KEY

@@ -64,13 +64,17 @@ def test_update_merges_attrs_and_records_provenance(graph):
     assert cur.fetchone()["n"] == 2
 
 
-def test_edge_requires_scope_on_both_endpoints(graph):
+def test_edge_requires_src_write_and_dst_read(graph):
     infra = graph.session("infra", {"*"})
     goal = infra.create_entity("goal", {}, source="seed")
     event = infra.create_entity("event", {}, source="seed")
-    s = graph.session("horizon", {"goals:write", "tasks:write"})
-    with pytest.raises(ScopeError):
-        s.create_edge(goal, event, "feeds", source="test")
+    with pytest.raises(ScopeError):  # can't read the dst kind
+        graph.session("m", {"goals:write"}).create_edge(goal, event, "feeds", source="t")
+    with pytest.raises(ScopeError):  # can't write the src kind
+        graph.session("m", {"events:read", "goals:read"}).create_edge(event, goal, "feeds", source="t")
+    # write on src + read on dst is sufficient
+    edge = graph.session("m", {"goals:write", "events:read"}).create_edge(goal, event, "feeds", source="t")
+    assert edge
 
 
 def test_edge_unknown_rel_rejected(graph):

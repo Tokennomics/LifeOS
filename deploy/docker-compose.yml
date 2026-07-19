@@ -1,0 +1,30 @@
+# Life OS on the NucBox (docker path).
+#   cd deploy && docker compose up -d --build
+# Secrets come from the host environment (or a .env file next to this compose file).
+
+services:
+  bot:
+    build:
+      context: ..
+    command: sh -c "python -m substrate.migrate && python -m surfaces.bot.telegram"
+    environment:
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_OWNER_CHAT_ID
+      - ANTHROPIC_API_KEY
+      - LIFEOS_CALENDAR_ICS
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: ..
+    command: sh -c "python -m substrate.migrate && uvicorn gateway.main:create_app --factory --host 0.0.0.0 --port 8787"
+    environment:
+      - ANTHROPIC_API_KEY
+      - LIFEOS_GATEWAY_TOKEN
+    ports:
+      - "8787:8787"
+    volumes:
+      - ../data:/app/data
+    restart: unless-stopped

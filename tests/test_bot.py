@@ -33,6 +33,23 @@ def test_unauthorized_user_ignored(cfg, graph):
     assert bot.handle_update(_update("hi", user_id=7)) is not None
 
 
+def test_week_loop_commands(cfg, graph):
+    bot = TelegramBot(cfg, graph=graph)
+    s = graph.session("horizon", {"tasks:write"})
+    s.create_entity("task", {"title": "Ship it", "status": "open", "if_then": ""}, source="seed")
+
+    _, plan = bot.handle_update(_update("/plan"))
+    assert "1. [ ] Ship it" in plan
+    _, logged = bot.handle_update(_update("/log 1"))
+    assert "Done: Ship it" in logged
+    _, retro_text = bot.handle_update(_update("/retro"))
+    assert "1/1 tasks done (100%)" in retro_text
+    _, captured = bot.handle_update(_update("/capture remember the milk"))
+    assert captured == "Captured."
+    _, bad = bot.handle_update(_update("/log x"))
+    assert bad.startswith("Usage:")
+
+
 def test_non_message_updates_ignored(cfg, graph):
     bot = TelegramBot(cfg, graph=graph)
     assert bot.handle_update({"update_id": 1}) is None

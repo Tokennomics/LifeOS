@@ -10,17 +10,23 @@ import time
 import httpx
 
 from gateway.claude import ClaudeGateway
-from modules.horizon import vision_intake
+from modules.horizon import planner, retro, vision_intake
+from modules.voiceos import capture as voice_capture
 from substrate import load_config
 from substrate.bus import Bus
 from substrate.graph import Graph
 from substrate.migrate import migrate
+from surfaces.bot.scheduler import Scheduler
 
 HELP = (
     "Life OS v0.1\n"
-    "/vision <your vision + goals> — turn it into a life plan in the graph\n"
+    "/vision <vision + goals> — backcast it into a life plan in the graph\n"
+    "/plan — plan this week (3-7 if-then tasks)\n"
+    "/log <n> — mark task n of this week done\n"
+    "/retro — score the week + reflection\n"
+    "/capture <thought> — capture into the graph (tasks/people/interests extracted)\n"
     "/help — this message\n"
-    "Anything else is echoed back (gateway wiring check)."
+    "Anything else is echoed back (wiring check)."
 )
 
 
@@ -61,6 +67,26 @@ class TelegramBot:
                 return chat_id, "Usage: /vision <where you want to be, and the goals that get you there>"
             result = vision_intake.intake(payload, self._ensure_graph(), claude=self.claude)
             return chat_id, vision_intake.format_summary(result)
+        if text.startswith("/plan"):
+            result = planner.plan_week(self._ensure_graph(), claude=self.claude)
+            return chat_id, planner.format_week(self._ensure_graph(), result["week"])
+        if text.startswith("/log"):
+            arg = text[len("/log"):].strip()
+            if not arg.isdigit():
+                return chat_id, "Usage: /log <task number from /plan>"
+            try:
+                title = planner.log_done(self._ensure_graph(), int(arg))
+            except ValueError as exc:
+                return chat_id, str(exc)
+            return chat_id, f"Done: {title} ✔"
+        if text.startswith("/retro"):
+            return chat_id, retro.run_retro(self._ensure_graph(), claude=self.claude)["text"]
+        if text.startswith("/capture"):
+            payload = text[len("/capture"):].strip()
+            if not payload:
+                return chat_id, "Usage: /capture <the thought>"
+            result = voice_capture.capture(payload, self._ensure_graph(), claude=self.claude)
+            return chat_id, voice_capture.format_summary(result)
         return chat_id, f"echo: {text}"
 
     # ---- transport -------------------------------------------------------
@@ -74,6 +100,11 @@ class TelegramBot:
     def run(self):
         if not self.token:
             sys.exit("Set TELEGRAM_BOT_TOKEN (create a bot via @BotFather) and retry.")
+        if self.cfg.get("telegram", {}).get("owner_chat_id"):
+            Scheduler(self, self.cfg, self._ensure_graph(), self.claude).start()
+        else:
+            print("[telegram] no owner_chat_id — Monday plan / Sunday retro pushes disabled. "
+                  "Message the bot once, copy the logged id into TELEGRAM_OWNER_CHAT_ID.")
         print("[telegram] long-polling started")
         offset = 0
         while True:
