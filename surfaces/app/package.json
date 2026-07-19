@@ -1,0 +1,21 @@
+{
+  "name": "lifeos-app",
+  "version": "0.2.0",
+  "private": true,
+  "description": "LifeOS mobile shell — Capacitor wrapper around the zero-build PWA in www/",
+  "scripts": {
+    "sync": "cap sync",
+    "add:android": "cap add android",
+    "add:ios": "cap add ios",
+    "open:android": "cap open android",
+    "open:ios": "cap open ios"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/ios": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}

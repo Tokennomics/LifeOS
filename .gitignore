@@ -7,3 +7,9 @@ data/
 *.db-wal
 *.db-shm
 .env
+surfaces/app/node_modules/
+surfaces/app/android/.gradle/
+surfaces/app/android/build/
+surfaces/app/android/app/build/
+surfaces/app/android/local.properties
+surfaces/app/android/.idea/

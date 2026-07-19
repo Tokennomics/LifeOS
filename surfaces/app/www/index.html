@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>LifeOS</title>
+  <meta name="theme-color" content="#0F1420">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LifeOS">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="dot"></span> LifeOS</div>
+    <div class="header-right">
+      <span id="mode-badge" class="badge">…</span>
+      <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <nav>
+    <button data-tab="today" class="tab active">Today</button>
+    <button data-tab="capture" class="tab">Capture</button>
+    <button data-tab="graph" class="tab">Graph</button>
+  </nav>
+
+  <dialog id="settings">
+    <h2>Settings</h2>
+    <label>Gateway URL <small>(empty = this server)</small>
+      <input id="set-base" placeholder="http://nucbox:8787" autocapitalize="off">
+    </label>
+    <label>Bearer token <small>(only if the gateway sets one)</small>
+      <input id="set-token" placeholder="optional" autocapitalize="off">
+    </label>
+    <div class="row">
+      <button id="set-save" class="primary">Save</button>
+      <button id="set-export">Export my graph</button>
+      <button id="set-close">Close</button>
+    </div>
+    <p class="hint">Your data lives on your own gateway. Export is always available — the graph is yours.</p>
+  </dialog>
+
+  <div id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

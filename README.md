@@ -19,6 +19,29 @@ See the master build document for mission, laws, and roadmap.
 **v0.1 gate (D11–14):** self-use. `/vision` → Monday push → obey → `/log` → Sunday retro.
 If you won't use it daily for 4 weeks, stop before any social code (risk register #2).
 
+## v0.2 — the app (iOS + Android, no tokens required)
+
+The mobile app lives at `surfaces/app/www` (zero-build PWA: Today / Capture / Graph tabs)
+and is served by the gateway at **`/app/`**. Every feature works with **no API key and no
+Telegram token** — the gateway's offline fallbacks handle vision intake, planning, retro,
+and capture; `ANTHROPIC_API_KEY` upgrades all of them in place (badge flips to "AI mode").
+
+**Install on your phone today (no app store, no toolchain):**
+1. Run the gateway bound to your LAN: `deploy\run_gateway.ps1` (binds 0.0.0.0).
+2. On the phone, open `http://<pc-name-or-ip>:8787/app/`.
+3. iOS Safari: Share → *Add to Home Screen*. Android Chrome: menu → *Install app*.
+It launches standalone (own icon, no browser chrome); the shell works offline via a
+service worker, actions need the gateway reachable (your hardware — Law 6).
+
+**Native shells (Capacitor):** `surfaces/app/android` is generated and synced. Building
+the APK needs Android Studio: `deploy\build-mobile.ps1` then `npx cap open android`.
+iOS requires a Mac: `cd surfaces/app && npm i && npx cap add ios && npx cap open ios`.
+In native builds, set the gateway URL in the app's ⚙ Settings on first run.
+
+**API for the app:** `GET /v1/vision|/v1/week|/v1/today|/v1/graph|/v1/export`,
+`POST /v1/vision|/v1/plan|/v1/log|/v1/retro|/v1/capture`. Full graph export is one tap
+in Settings (Law 2).
+
 ## Quickstart (Windows)
 
 ```powershell
