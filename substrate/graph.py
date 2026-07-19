@@ -170,6 +170,27 @@ class GraphSession:
         g.bus.publish("observation.created", {"target": "edge", "id": edge_id, "rel": rel, "module": self.module})
         return edge_id
 
+    def grant(self, subject: str, scope: str, space: str, *, source: str,
+              confidence: float = 1.0) -> None:
+        """ACL write for shared spaces (Hearth/crews). Spaces are content entities,
+        so granting requires content:write. Provenance is recorded against the space."""
+        self._need("content", "write")
+        g = self.graph
+        g._execute(
+            f"INSERT INTO grants (subject, scope, space, granted_at) "
+            f"VALUES ({g.ph}, {g.ph}, {g.ph}, {g.ph})",
+            (subject, scope, space, now_iso()),
+        )
+        self._record_provenance(space, source, confidence)
+        g.conn.commit()
+
+    def grants_for(self, space: str) -> list[dict]:
+        self._need("content", "read")
+        g = self.graph
+        cur = g._execute(f"SELECT * FROM grants WHERE space = {g.ph}", (space,))
+        return [{"subject": r["subject"], "scope": r["scope"], "space": r["space"],
+                 "granted_at": r["granted_at"]} for r in cur.fetchall()]
+
     # ---- reads ----------------------------------------------------------
 
     def _fetch_entity(self, entity_id: str):

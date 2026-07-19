@@ -1,5 +1,5 @@
 // LifeOS service worker: cache the shell, never cache the API.
-const CACHE = "lifeos-shell-v2";
+const CACHE = "lifeos-shell-v3";
 const SHELL = ["./", "./index.html", "./style.css", "./app.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 

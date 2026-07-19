@@ -39,3 +39,7 @@ anthropic:
   api_key: env:ANTHROPIC_API_KEY
   model_heavy: claude-opus-4-8    # planning, vision intake
   model_light: claude-haiku-4-5   # classification / intent routing (COGS: small-model routing)
+
+billing:
+  # OFF by default — everything is entitled while empty (master doc §4).
+  stripe_key: env:STRIPE_KEY

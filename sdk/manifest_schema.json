@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://lifeos.dev/sdk/module.schema.json",
+  "title": "Life OS module manifest (module.yaml)",
+  "type": "object",
+  "required": ["name", "version", "scopes"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+    "version": { "type": "string" },
+    "description": { "type": "string", "maxLength": 200 },
+    "scopes": {
+      "description": "Graph scopes the module is granted at install (OAuth-style consent).",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(people|interests|goals|tasks|events|places|memories|content|metrics|decisions|admin):(read|write)$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "subscribes": {
+      "description": "Bus topics the module listens to.",
+      "type": "array",
+      "items": {
+        "enum": ["observation.created", "plan.updated", "event.attended",
+                 "capsule.dropped", "energy.updated", "admin.detected"]
+      },
+      "uniqueItems": true
+    },
+    "publishes": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "ui_cards": {
+      "description": "Declarative cards the app renders for this module.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "endpoint"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "endpoint": { "type": "string", "pattern": "^/v1/" },
+          "tab": { "enum": ["today", "capture", "people", "map", "graph", "more"] },
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "endpoint", "method"],
+              "additionalProperties": false,
+              "properties": {
+                "label": { "type": "string" },
+                "endpoint": { "type": "string" },
+                "method": { "enum": ["GET", "POST"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ai_budget": {
+      "description": "Per-module Claude spend controls (COGS discipline).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "monthly_usd": { "type": "number", "minimum": 0 },
+        "default_model": { "enum": ["heavy", "light"] }
+      }
+    }
+  }
+}

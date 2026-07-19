@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from gateway.auth import make_auth_dependency
 from gateway.claude import ClaudeGateway
+from gateway.modules_api import build_router
 from gateway.router import route
 from modules.horizon import planner, retro, vision_intake
 from modules.voiceos import capture as voice_capture
@@ -71,6 +72,7 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     app.state.graph = graph
     app.state.claude = claude
     auth = make_auth_dependency(cfg.get("gateway", {}).get("auth_token", ""))
+    app.include_router(build_router(auth))  # reconnect/convoy/memento/steward/vitals/ledger/calibre/hearth
 
     @app.get("/health")
     def health():

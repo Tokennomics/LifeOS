@@ -45,7 +45,7 @@ PLANNER_SCHEMA = {
     "additionalProperties": False,
 }
 
-_FALLBACK_SLOTS = ["Monday 17:00", "Tuesday 17:00", "Wednesday 17:00", "Thursday 17:00", "Friday 17:00"]
+_FALLBACK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
 
 def week_id(dt: datetime.datetime | datetime.date | None = None) -> str:
@@ -66,6 +66,8 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
     open_tasks = [t for t in session.find_entities("task", {"status": "open"}, limit=200)
                   if t["attrs"].get("week") != week]
 
+    from modules.vitals import energy  # Vitals is a layer: schedulers consume its windows
+
     if claude is not None and claude.available:
         method = "claude"
         busy = _busy_this_week(session, week)
@@ -75,11 +77,13 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
             "goals": [{"id": g["id"], "title": g["attrs"].get("title"), "why": g["attrs"].get("why", "")} for g in goals],
             "open_tasks": [{"id": t["id"], "title": t["attrs"].get("title")} for t in open_tasks],
             "busy_blocks": busy,
+            "energy_windows": energy.windows(graph),
         })
         data = claude.complete_json(PLANNER_SYSTEM, context, schema=PLANNER_SCHEMA)
         proposals = data["tasks"][:7]
     else:
         method = "offline"
+        peak = energy.phase_start(graph, "peak", "17:00")
         proposals = [
             {"title": t["attrs"].get("title", ""), "if_then": t["attrs"].get("if_then", ""),
              "existing_task_id": t["id"], "goal_title": ""}
@@ -92,7 +96,8 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
             title = goal["attrs"].get("title", "goal")
             proposals.append({
                 "title": f"Advance: {title}",
-                "if_then": f"If it's {_FALLBACK_SLOTS[slot % len(_FALLBACK_SLOTS)]}, then I spend 45 min on '{title}'",
+                "if_then": f"If it's {_FALLBACK_DAYS[slot % len(_FALLBACK_DAYS)]} {peak}, "
+                           f"then I spend 45 min on '{title}'",
                 "existing_task_id": "", "goal_title": title,
             })
             slot += 1

@@ -1,0 +1,254 @@
+"""REST surface for the module suite (Reconnect, Convoy, Memento, Steward, Vitals,
+Ledger, Calibre, Hearth). Mounted by gateway.main; handlers pull graph/claude off
+app.state. Every endpoint works with zero API keys (offline fallbacks in the modules)."""
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
+
+from modules.calibre import decisions as calibre
+from modules.convoy import concierge, events_ingest, match_v1
+from modules.hearth import spaces as hearth
+from modules.ledger import ledger
+from modules.memento import capsules, quests
+from modules.reconnect import decay, invite
+from modules.steward import actions as steward_actions
+from modules.steward import scanners as steward_scanners
+from modules.vitals import energy
+
+
+class PersonIn(BaseModel):
+    name: str
+    cadence_days: int = 30
+
+
+class PersonRef(BaseModel):
+    person_id: str
+
+
+class ConvoyEventIn(BaseModel):
+    title: str
+    start: str
+    place: str = ""
+    url: str = ""
+
+
+class InviteIn(BaseModel):
+    event_id: str
+    person_ids: list[str]
+
+
+class RsvpIn(BaseModel):
+    event_id: str
+    person_id: str
+    going: bool
+
+
+class EventRef(BaseModel):
+    event_id: str
+
+
+class CapsuleIn(BaseModel):
+    text: str
+    lat: float
+    lon: float
+    place: str = ""
+    radius_m: float = 75.0
+    event_id: str = ""
+
+
+class CoordsIn(BaseModel):
+    lat: float
+    lon: float
+
+
+class AdminActIn(BaseModel):
+    item_id: str
+    action: str  # approve | dismiss
+
+
+class WindowsIn(BaseModel):
+    windows: list[dict]
+
+
+class SpendIn(BaseModel):
+    amount: float
+    category: str
+    note: str = ""
+
+
+class DecisionIn(BaseModel):
+    title: str
+    choice: str
+    confidence: float
+    predicted: str
+    review_days: int = 30
+
+
+class ResolveIn(BaseModel):
+    decision_id: str
+    happened: bool
+
+
+class SpaceIn(BaseModel):
+    name: str
+    member_ids: list[str] = []
+
+
+def _graph(request: Request):
+    return request.app.state.graph
+
+
+def _claude(request: Request):
+    return request.app.state.claude
+
+
+def _serialize_event(session, event: dict) -> dict:
+    a = event["attrs"]
+    yes_names = []
+    for pid in a.get("yes", []):
+        person = session.get_entity(pid)
+        if person:
+            yes_names.append(person["attrs"].get("name", "?"))
+    return {"id": event["id"], "title": a.get("title", ""), "start": a.get("start", ""),
+            "place": a.get("place", ""), "url": a.get("url", ""), "status": a.get("status", ""),
+            "invited": len(a.get("invited", [])), "yes": yes_names, "no": len(a.get("no", []))}
+
+
+def build_router(auth) -> APIRouter:
+    router = APIRouter(prefix="/v1", dependencies=[Depends(auth)])
+
+    def guard(fn):
+        try:
+            return fn()
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    # ---- Reconnect / People ---------------------------------------------
+
+    @router.get("/people")
+    def people(request: Request):
+        return {"people": decay.ranked(_graph(request))}
+
+    @router.post("/people")
+    def add_person(request: Request, body: PersonIn):
+        return {"person_id": decay.add_person(_graph(request), body.name, body.cadence_days)}
+
+    @router.post("/reconnect/draft")
+    def reconnect_draft(request: Request, body: PersonRef):
+        return guard(lambda: invite.draft(_graph(request), body.person_id, claude=_claude(request)))
+
+    @router.post("/reconnect/touch")
+    def reconnect_touch(request: Request, body: PersonRef):
+        return guard(lambda: decay.touch(_graph(request), body.person_id))
+
+    # ---- Convoy ----------------------------------------------------------
+
+    @router.get("/convoy")
+    def convoy_events(request: Request):
+        graph = _graph(request)
+        session = graph.session("convoy", events_ingest.SCOPES)
+        return {"events": [_serialize_event(session, e) for e in events_ingest.upcoming(graph)]}
+
+    @router.post("/convoy/event")
+    def convoy_add(request: Request, body: ConvoyEventIn):
+        return guard(lambda: {"event_id": events_ingest.add_social_event(
+            _graph(request), body.title, body.start, body.place, body.url)})
+
+    @router.post("/convoy/invite")
+    def convoy_invite(request: Request, body: InviteIn):
+        return guard(lambda: match_v1.invite(_graph(request), body.event_id, body.person_ids,
+                                             claude=_claude(request)))
+
+    @router.post("/convoy/rsvp")
+    def convoy_rsvp(request: Request, body: RsvpIn):
+        return guard(lambda: match_v1.rsvp(_graph(request), body.event_id, body.person_id, body.going))
+
+    @router.post("/convoy/attended")
+    def convoy_attended(request: Request, body: EventRef):
+        return guard(lambda: match_v1.attended(_graph(request), body.event_id))
+
+    @router.get("/convoy/digest")
+    def convoy_digest(request: Request):
+        return concierge.digest(_graph(request), claude=_claude(request))
+
+    # ---- Memento ---------------------------------------------------------
+
+    @router.get("/capsules")
+    def capsules_list(request: Request, lat: float | None = None, lon: float | None = None):
+        return {"capsules": capsules.nearby(_graph(request), lat, lon),
+                "quests": quests.suggestions(_graph(request))}
+
+    @router.post("/capsules")
+    def capsules_drop(request: Request, body: CapsuleIn):
+        return guard(lambda: capsules.drop(_graph(request), body.text, body.lat, body.lon,
+                                           body.place, body.radius_m, body.event_id))
+
+    @router.post("/capsules/unlock")
+    def capsules_unlock(request: Request, body: CoordsIn):
+        return capsules.unlock(_graph(request), body.lat, body.lon)
+
+    # ---- Steward ---------------------------------------------------------
+
+    @router.get("/admin")
+    def admin_items(request: Request):
+        return {"items": steward_actions.open_items(_graph(request))}
+
+    @router.post("/admin/scan")
+    def admin_scan(request: Request):
+        return steward_scanners.scan(_graph(request))
+
+    @router.post("/admin/act")
+    def admin_act(request: Request, body: AdminActIn):
+        if body.action not in ("approve", "dismiss"):
+            raise HTTPException(status_code=400, detail="action must be approve or dismiss")
+        fn = steward_actions.approve if body.action == "approve" else steward_actions.dismiss
+        return guard(lambda: fn(_graph(request), body.item_id))
+
+    # ---- Vitals ----------------------------------------------------------
+
+    @router.get("/vitals")
+    def vitals_get(request: Request):
+        return {"windows": energy.windows(_graph(request))}
+
+    @router.post("/vitals")
+    def vitals_set(request: Request, body: WindowsIn):
+        return guard(lambda: energy.set_windows(_graph(request), body.windows))
+
+    # ---- Ledger ----------------------------------------------------------
+
+    @router.get("/ledger")
+    def ledger_summary(request: Request):
+        return ledger.summary(_graph(request))
+
+    @router.post("/ledger")
+    def ledger_add(request: Request, body: SpendIn):
+        return guard(lambda: {"spend_id": ledger.log_spend(
+            _graph(request), body.amount, body.category, body.note)})
+
+    # ---- Calibre ---------------------------------------------------------
+
+    @router.get("/decisions")
+    def decisions_list(request: Request):
+        graph = _graph(request)
+        return {"decisions": calibre.open_decisions(graph), "calibration": calibre.calibration(graph)}
+
+    @router.post("/decisions")
+    def decisions_log(request: Request, body: DecisionIn):
+        return guard(lambda: {"decision_id": calibre.log(
+            _graph(request), body.title, body.choice, body.confidence, body.predicted, body.review_days)})
+
+    @router.post("/decisions/resolve")
+    def decisions_resolve(request: Request, body: ResolveIn):
+        return guard(lambda: calibre.resolve(_graph(request), body.decision_id, body.happened))
+
+    # ---- Hearth ----------------------------------------------------------
+
+    @router.get("/spaces")
+    def spaces_list(request: Request):
+        return {"spaces": hearth.spaces(_graph(request))}
+
+    @router.post("/spaces")
+    def spaces_create(request: Request, body: SpaceIn):
+        return guard(lambda: hearth.create_space(_graph(request), body.name, body.member_ids))
+
+    return router

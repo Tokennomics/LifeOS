@@ -3,6 +3,26 @@
 One context graph. Many agents. Compounding value on hardware you own.
 See the master build document for mission, laws, and roadmap.
 
+## Module registry status
+
+| Module | What ships today (P0) |
+|---|---|
+| **VoiceOS** | /capture → content entity + light-model extraction (tasks/people/interests, `feeds` edges) |
+| **Horizon** | vision intake → plan graph; weekly if-then planner (energy-aware); /log; Sunday retro → metric |
+| **Reconnect** | decay radar (cadence vs last_contact), one-tap invite drafts, executed-touch logging |
+| **Convoy** | manual social events, crew invites + RSVP, attendance → refreshes friendships + fires quests |
+| **Memento** | capsules drop/lock at coordinates, check-in unlock (haversine), quests from attended events |
+| **Steward** | graph scanners (stale tasks, admin-keyword captures, ghosted people) → approve-to-schedule |
+| **Vitals** | energy windows layer (defaults; planner schedules deep work into peaks) |
+| **Ledger** | spend log + monthly by-category shape |
+| **Calibre** | decision journal with confidence → Brier calibration on resolve |
+| **Hearth** | shared spaces on the grants ACL (membership model; sync later) |
+| **SDK** | `sdk/manifest_schema.json` + `module_spec.md` (dogfooded; opens at 2K WAU) |
+| **Billing** | scaffolding, OFF by default — everything entitled until STRIPE_KEY exists |
+
+Deferred honestly: Ticketmaster ingest (needs API key), email/calendar OAuth scanners,
+sleep import, AR lens, Seasons arcs, multi-user sync — each has its seam ready.
+
 ## Sprint 1 status
 
 | Ticket | Status |
