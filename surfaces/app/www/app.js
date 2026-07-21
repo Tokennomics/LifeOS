@@ -5,7 +5,7 @@ const $ = (sel) => document.querySelector(sel);
 const state = {
   tab: "today", health: null, today: null, visions: [], admin: [], graph: null,
   people: [], map: null, more: null, retro: null, draft: null, invite: null,
-  questEvent: "", busy: false,
+  questEvent: "", busy: false, enter: true,
 };
 
 /* ---------- API ---------- */
@@ -79,7 +79,8 @@ async function refresh() {
        <p class="hint">Set the gateway URL in ⚙ Settings (e.g. http://nucbox:8787), and make sure it's running on your network.</p></div>`;
     return;
   }
-  $("#mode-badge").textContent = state.health.claude ? "AI mode" : "offline mode";
+  // Local-first is a feature (Law 6), not a downgrade — show it with pride.
+  $("#mode-badge").textContent = state.health.claude ? "AI" : "Local";
   $("#mode-badge").className = "badge" + (state.health.claude ? " ai" : "");
   try {
     if (state.tab === "today") {
@@ -113,6 +114,9 @@ function render() {
   const view = $("#view");
   const views = { today: todayView, capture: captureView, people: peopleView, map: mapView, graph: graphView, more: moreView };
   view.innerHTML = views[state.tab]();
+  // Entrance animation only on tab change — never on in-tab updates (no flashing).
+  view.classList.toggle("enter", state.enter);
+  state.enter = false;
   wire(view);
 }
 
@@ -519,6 +523,7 @@ document.querySelectorAll("nav .tab").forEach((b) => b.addEventListener("click",
   state.tab = b.dataset.tab;
   state.draft = null;
   state.invite = null;
+  state.enter = true;
   document.querySelectorAll("nav .tab").forEach((x) => x.classList.toggle("active", x === b));
   refresh();
 }));
