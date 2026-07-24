@@ -36,6 +36,11 @@ class LogIn(BaseModel):
     n: int
 
 
+class FocusIn(BaseModel):
+    goal_id: str
+    focus: bool = True
+
+
 def _count(graph: Graph, sql: str, params: tuple = ()) -> int:
     row = graph._execute(sql, params).fetchone()
     return row["n"] if hasattr(row, "keys") or isinstance(row, dict) else row[0]
@@ -99,6 +104,15 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     @app.get("/v1/week", dependencies=[Depends(auth)])
     def week():
         return _week_payload(graph)
+
+    @app.get("/v1/goals", dependencies=[Depends(auth)])
+    def goals():
+        return {"goals": planner.list_goals(graph)}
+
+    @app.post("/v1/focus", dependencies=[Depends(auth)])
+    def focus(body: FocusIn):
+        """Gate-first (T3): the focused goal leads next week's plan."""
+        return planner.set_goal_focus(graph, body.goal_id, body.focus)
 
     @app.post("/v1/plan", dependencies=[Depends(auth)])
     def plan():

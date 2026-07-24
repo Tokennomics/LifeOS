@@ -27,6 +27,7 @@ HELP = (
     "/capture <thought> — capture into the graph (tasks/people/interests extracted)\n"
     "/parked — new-project ideas you parked (captured, not abandoned)\n"
     "/gate — v0.1 gate progress: days used, logs, retros\n"
+    "/focus [n] — show goals, or make goal n lead the week (gate-first)\n"
     "/help — this message\n"
     "Anything else is echoed back (wiring check)."
 )
@@ -99,6 +100,20 @@ class TelegramBot:
             return chat_id, "\n".join(lines)
         if text.startswith("/gate"):
             return chat_id, gate.gate_status(self._ensure_graph())["text"]
+        if text.startswith("/focus"):
+            graph = self._ensure_graph()
+            goals = planner.list_goals(graph)
+            if not goals:
+                return chat_id, "No goals yet — send /vision first."
+            arg = text[len("/focus"):].strip()
+            if arg.isdigit() and 1 <= int(arg) <= len(goals):
+                g = goals[int(arg) - 1]
+                planner.set_goal_focus(graph, g["id"], not g["focus"])
+                goals = planner.list_goals(graph)
+            lines = ["Goals (★ = leads the week):"]
+            lines += [f"{i}. {'★' if g['focus'] else '·'} {g['title']}" for i, g in enumerate(goals, 1)]
+            lines.append("Send /focus <n> to toggle which goal is gate-first.")
+            return chat_id, "\n".join(lines)
         return chat_id, f"echo: {text}"
 
     # ---- transport -------------------------------------------------------

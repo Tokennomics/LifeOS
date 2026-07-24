@@ -101,7 +101,8 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
         method = "offline"
         descriptors = core.offline_plan({
             "baseline": energy_baseline,
-            "goals": [{"title": g["attrs"].get("title", "")} for g in goals],
+            "goals": [{"title": g["attrs"].get("title", ""), "focus": g["attrs"].get("focus", False)}
+                      for g in goals],
             "open_tasks": [{"id": t["id"], "title": t["attrs"].get("title", ""),
                             "if_then": t["attrs"].get("if_then", ""),
                             "cycles": t["attrs"].get("cycles", 0)} for t in open_tasks],
@@ -183,6 +184,20 @@ def log_done(graph: Graph, n: int, week: str | None = None, source: str = "log")
         source=source,
     )
     return task["attrs"].get("title", "")
+
+
+def list_goals(graph: Graph) -> list[dict]:
+    """Plan-level goals with their focus flag (for /focus and the app)."""
+    session = graph.session("horizon", SCOPES)
+    return [{"id": g["id"], "title": g["attrs"].get("title", ""), "focus": bool(g["attrs"].get("focus", False))}
+            for g in session.find_entities("goal", {"level": "goal"}, limit=50)]
+
+
+def set_goal_focus(graph: Graph, goal_id: str, focus: bool = True, source: str = "focus") -> dict:
+    """Gate-first: mark (or clear) a goal as this cycle's focus so it leads the plan."""
+    session = graph.session("horizon", SCOPES | {"goals:write"})
+    session.update_entity(goal_id, {"focus": bool(focus)}, source=source)
+    return {"goal_id": goal_id, "focus": bool(focus)}
 
 
 def main():

@@ -123,9 +123,12 @@ async function doVision(text) {
     .filter(Boolean);
 
   const vision = await createEntity("goal", { level: "vision", title: visionText });
+  let idx = 0;
   for (const title of bullets) {
-    const goal = await createEntity("goal", { level: "goal", title, why: "", horizon_weeks: 12 });
+    // First goal is the default focus (gate-first) — retarget by tapping ★.
+    const goal = await createEntity("goal", { level: "goal", title, why: "", horizon_weeks: 12, focus: idx === 0 });
     await createEdge(goal.key, vision.key, "feeds");
+    idx++;
   }
   return { status: "created", vision: visionText, goals: bullets.length };
 }
@@ -140,7 +143,7 @@ async function doPlan(week) {
   const openTasks = entities("task").filter((t) => t.attrs.status === "open" && t.attrs.week !== week);
   const descriptors = Core.offlinePlan({
     baseline: BASELINE,
-    goals: goals.map((g) => ({ title: g.attrs.title || "" })),
+    goals: goals.map((g) => ({ title: g.attrs.title || "", focus: !!g.attrs.focus })),
     open_tasks: openTasks.map((t) => ({
       id: t.key, title: t.attrs.title || "", if_then: t.attrs.if_then || "", cycles: t.attrs.cycles || 0,
     })),
@@ -286,9 +289,14 @@ function todayView() {
       <p class="hint">Line 1 is the vision; each line below becomes a goal. No account, no server — it stays in this browser.</p></div>`;
   } else {
     html += `<div class="card"><h2>Your vision</h2>
-      <p class="big">${esc(v.attrs.title)}</p>
-      ${goals.length ? `<div style="margin-top:10px">` + goals.map((g) =>
-        `<div class="kv"><span>${esc(g.attrs.title)}</span><span class="v">goal</span></div>`).join("") + `</div>` : ""}</div>`;
+      <p class="big">${esc(v.attrs.title)}</p>`;
+    if (goals.length) {
+      html += `<p class="hint">Tap ★ to make a goal lead the week (gate-first).</p>`;
+      html += goals.map((g) => `
+        <div class="person"><div class="who"><div class="name">${esc(g.attrs.title)}</div></div>
+        <div class="pills"><button class="pill ${g.attrs.focus ? "warm" : ""}" data-focus="${g.key}">${g.attrs.focus ? "★ focus" : "☆"}</button></div></div>`).join("");
+    }
+    html += `</div>`;
   }
 
   html += `<div class="card"><h2>Week ${esc(week)}</h2>`;
@@ -356,6 +364,12 @@ function wire(root) {
   }, "Plan created ✔"));
 
   on("[data-act=plan]", () => act(async () => { await doPlan(weekId()); render(); }, "Week planned ✔"));
+
+  on("[data-focus]", (el) => act(async () => {
+    const g = state.items.find((i) => i.key === el.dataset.focus);
+    if (g) await patchEntity(g, { focus: !g.attrs.focus });
+    render();
+  }));
 
   root.querySelectorAll(".task:not(.done)").forEach((el) => el.addEventListener("click", () => act(async () => {
     await doLog(el.dataset.log);

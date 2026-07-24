@@ -50,6 +50,15 @@ def test_week_loop_commands(cfg, graph):
     assert bad.startswith("Usage:")
 
 
+def test_focus_command_lists_and_toggles(cfg, graph):
+    bot = TelegramBot(cfg, graph=graph)
+    bot.handle_update(_update("/vision Freedom\n- Alpha\n- Bravo"))
+    _, listing = bot.handle_update(_update("/focus"))
+    assert "Alpha" in listing and "Bravo" in listing
+    _, toggled = bot.handle_update(_update("/focus 2"))
+    assert "★ Bravo" in toggled
+
+
 def test_non_message_updates_ignored(cfg, graph):
     bot = TelegramBot(cfg, graph=graph)
     assert bot.handle_update({"update_id": 1}) is None

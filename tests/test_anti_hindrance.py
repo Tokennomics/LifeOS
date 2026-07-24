@@ -2,7 +2,7 @@
 
 import pytest
 
-from modules.horizon import gate, planner, retro
+from modules.horizon import gate, planner, retro, vision_intake
 from modules.voiceos import capture
 
 
@@ -89,6 +89,37 @@ def test_rested_baseline_lifts_the_cap(graph):
         _open_task(graph, f"task {i}")
     planner.plan_week(graph, energy_baseline="rested")
     assert len(planner.week_tasks(graph)) == 6
+
+
+# ---- gate-first goal ordering (focus) ---------------------------------------
+
+def test_vision_intake_marks_first_goal_focus(graph):
+    vision_intake.intake("Freedom\n- First goal\n- Second goal", graph)
+    s = graph.session("horizon", {"goals:read"})
+    focus = {g["attrs"]["title"]: g["attrs"].get("focus", False)
+             for g in s.find_entities("goal", {"level": "goal"})}
+    assert focus["First goal"] is True
+    assert focus["Second goal"] is False
+
+
+def test_focused_goal_leads_the_plan_over_input_order(graph):
+    _goal(graph, "Alpha")
+    _goal(graph, "Bravo")
+    charlie = _goal(graph, "Charlie")  # third by input order
+    planner.set_goal_focus(graph, charlie, True)
+    planner.plan_week(graph)
+    by_title = {t["attrs"]["title"]: t["attrs"] for t in planner.week_tasks(graph)}
+    # gate-first: the focused goal takes the earliest slot despite input order
+    assert "Monday" in by_title["Advance: Charlie"]["if_then"]
+    assert "Monday" not in by_title["Advance: Alpha"]["if_then"]
+
+
+def test_set_goal_focus_toggles_and_lists(graph):
+    gid = _goal(graph, "Keystone")
+    assert planner.set_goal_focus(graph, gid, True)["focus"] is True
+    assert {g["title"]: g["focus"] for g in planner.list_goals(graph)}["Keystone"] is True
+    planner.set_goal_focus(graph, gid, False)
+    assert {g["title"]: g["focus"] for g in planner.list_goals(graph)}["Keystone"] is False
 
 
 # ---- doubt rule (/gate) -----------------------------------------------------

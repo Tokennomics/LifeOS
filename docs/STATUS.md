@@ -32,6 +32,9 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
     retros) from real stored counts, never estimates.
   - **Energy shaping** — deep work → evening (never mornings), admin → the daytime trough, and
     a hard weekly cap (3) while `vitals.energy_baseline: tired` in config.
+  - **Gate-first ordering** — goals carry a `focus` flag; focused goals lead the week instead of
+    losing to input order. Vision intake defaults the first goal to focus; retarget via the ★
+    toggle in Travel Mode, `/focus <n>` on the bot, or `POST /v1/focus`.
   - **Anti-drift golden tests** — `tests/golden/cases.json` runs against both implementations
     (`tests/test_golden.py` + `tests/golden/run_js.mjs`) so JS↔Python drift fails CI.
 

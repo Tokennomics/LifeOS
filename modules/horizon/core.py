@@ -104,10 +104,13 @@ def offline_plan(inp: dict) -> list[dict]:
 
     Boredom rule: carry-overs come first, most-stuck first; if any carry-over is
     stale we do NOT start new goal work this cycle (finish before you start).
+    Gate-first: goals flagged focus lead the week, so the goal the current gate
+    depends on is always in the top few rather than losing to input order.
     Energy/cap: total items capped by baseline; new starts capped at the floor.
     """
     cap = weekly_cap(inp.get("baseline", "tired"))
-    goals = inp.get("goals", [])
+    # Focus goals first (stable), so the gate/keystone goal is never crowded out.
+    goals = sorted(inp.get("goals", []), key=lambda g: 0 if g.get("focus") else 1)
     open_tasks = inp.get("open_tasks", [])
 
     # Most-stuck carry-overs first (stable sort keeps input order among equals).

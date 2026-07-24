@@ -86,8 +86,10 @@ def intake(text: str, graph: Graph, claude=None, source: str = "vision_intake") 
     for goal in data["goals"]:
         gid = session.create_entity(
             "goal",
+            # First goal is the default focus (gate-first): you write the goal the
+            # current gate depends on first. Retarget later via set_goal_focus.
             {"level": "goal", "title": goal["title"], "why": goal.get("why", ""),
-             "horizon_weeks": goal.get("horizon_weeks", 12)},
+             "horizon_weeks": goal.get("horizon_weeks", 12), "focus": goal_count == 0},
             source=source,
         )
         session.create_edge(gid, vision_id, "feeds", source=source)

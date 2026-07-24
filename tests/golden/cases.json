@@ -315,6 +315,60 @@
       ]
     },
     {
+      "name": "gate-first: a focused goal leads the week over input order",
+      "input": {
+        "baseline": "tired",
+        "goals": [
+          {
+            "title": "A"
+          },
+          {
+            "title": "B"
+          },
+          {
+            "title": "C (gate)",
+            "focus": true
+          },
+          {
+            "title": "D"
+          }
+        ],
+        "open_tasks": []
+      },
+      "expected": [
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: C (gate)",
+          "if_then": "If it's Monday 20:00, then I spend 45 min on 'C (gate)'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "C (gate)"
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: A",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'A'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "A"
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: B",
+          "if_then": "If it's Wednesday 20:00, then I spend 45 min on 'B'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "B"
+        }
+      ]
+    },
+    {
       "name": "nothing to plan yields an empty week",
       "input": {
         "baseline": "tired",

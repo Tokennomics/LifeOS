@@ -60,16 +60,18 @@ the APK needs Android Studio: `deploy\build-mobile.ps1` then `npx cap open andro
 iOS requires a Mac: `cd surfaces/app && npm i && npx cap add ios && npx cap open ios`.
 In native builds, set the gateway URL in the app's ⚙ Settings on first run.
 
-**API for the app:** `GET /v1/vision|/v1/week|/v1/today|/v1/graph|/v1/parked|/v1/gate|/v1/export`,
-`POST /v1/vision|/v1/plan|/v1/log|/v1/retro|/v1/capture`. Full graph export is one tap
+**API for the app:** `GET /v1/vision|/v1/week|/v1/goals|/v1/today|/v1/graph|/v1/parked|/v1/gate|/v1/export`,
+`POST /v1/vision|/v1/plan|/v1/log|/v1/retro|/v1/capture|/v1/focus`. Full graph export is one tap
 in Settings (Law 2).
 
 **Anti-hindrance mechanics (T3).** The planner encodes the owner's three named obstacles as
 behaviour, on the server and in Travel Mode alike: new-project captures are *parked, not
 planned* (`/parked`); stuck work is finished before new work starts, with a >2-cycle task
 surfaced as its "smallest remaining piece"; `/gate` reports honest v0.1-gate progress from
-real counts; and deep work is shaped to the evening (never mornings) with a hard weekly cap
-while `vitals.energy_baseline: tired`. The shared logic lives once in
+real counts; deep work is shaped to the evening (never mornings) with a hard weekly cap
+while `vitals.energy_baseline: tired`; and a goal's `focus` flag makes it lead the week
+(gate-first) instead of losing to input order — `/focus <n>`, the ★ toggle in Travel Mode, or
+`POST /v1/focus`. The shared logic lives once in
 `modules/horizon/core.py` and its JS twin `surfaces/app/www/horizon-core.js`; golden fixtures
 run against both so they can never drift.
 
@@ -120,7 +122,7 @@ After the bot's first accepted message it logs your Telegram user id — pin it 
 ## Run
 
 ```powershell
-# Telegram bot: /vision /plan /log /retro /capture /parked /gate (+ Mon 07:00 & Sun 19:00 pushes)
+# Telegram bot: /vision /plan /log /retro /capture /parked /gate /focus (+ Mon 07:00 & Sun 19:00 pushes)
 .venv\Scripts\python -m surfaces.bot.telegram
 
 # HTTP gateway

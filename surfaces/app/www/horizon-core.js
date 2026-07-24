@@ -79,7 +79,8 @@
   /* Deterministic weekly plan — see core.offline_plan for the contract. */
   function offlinePlan(inp) {
     const cap = weeklyCap(inp.baseline || "tired");
-    const goals = inp.goals || [];
+    // Focus goals first (stable) — the gate/keystone goal is never crowded out.
+    const goals = (inp.goals || []).slice().sort((a, b) => (a.focus ? 0 : 1) - (b.focus ? 0 : 1));
     const openTasks = inp.open_tasks || [];
 
     const carry = openTasks.slice().sort((a, b) => (Number(b.cycles) || 0) - (Number(a.cycles) || 0));
