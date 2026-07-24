@@ -5,8 +5,15 @@ from modules.calibre import decisions as calibre
 from modules.hearth import spaces as hearth
 from modules.horizon import planner
 from modules.ledger import ledger
+from modules.horizon import gate
 from modules.reconnect import decay
 from modules.vitals import energy
+
+
+@pytest.fixture(autouse=True)
+def _gate_passed(monkeypatch):
+    # Isolate the planner assertion here from the gate floor.
+    monkeypatch.setattr(gate, "gate_status", lambda g: {"cleared": True})
 
 
 def test_vitals_windows_and_planner_shapes_deep_work_to_evening(graph):

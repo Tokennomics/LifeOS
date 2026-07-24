@@ -34,7 +34,11 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
     a hard weekly cap (3) while `vitals.energy_baseline: tired` in config.
   - **Gate-first ordering** — goals carry a `focus` flag; focused goals lead the week instead of
     losing to input order. Vision intake defaults the first goal to focus; retarget via the ★
-    toggle in Travel Mode, `/focus <n>` on the bot, or `POST /v1/focus`.
+    toggle in Travel Mode, `/focus <n>` on the bot, or `POST /v1/focus`. At most **2** goals can
+    be starred at once (`FOCUS_CAP`), so starring everything can't flatten priority.
+  - **Gate floor** — while the v0.1 gate is unpassed, one slot of the capped week is always a
+    gate-advancing ritual task (log today / run the retro), regardless of focus; focus steers the
+    rest. When the gate passes the floor lifts automatically and focus governs the full week.
   - **Anti-drift golden tests** — `tests/golden/cases.json` runs against both implementations
     (`tests/test_golden.py` + `tests/golden/run_js.mjs`) so JS↔Python drift fails CI.
 

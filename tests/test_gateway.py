@@ -1,7 +1,15 @@
+import pytest
 from fastapi.testclient import TestClient
 
 from gateway.main import create_app
 from gateway.router import route
+from modules.horizon import gate
+
+
+@pytest.fixture(autouse=True)
+def _gate_passed(monkeypatch):
+    # Isolate the API roundtrip from the gate floor (covered in test_anti_hindrance).
+    monkeypatch.setattr(gate, "gate_status", lambda g: {"cleared": True})
 
 
 def test_health_and_offline_vision_flow(cfg):

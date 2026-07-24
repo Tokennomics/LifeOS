@@ -30,9 +30,14 @@ WEEKLY_CAP_TIRED = 3     # hard cap on the week while energy_baseline == tired
 WEEKLY_CAP_RESTED = 7
 NEW_WORK_FLOOR = 3       # start at most this many *new* items when nothing is stuck
 STALE_CYCLES = 2         # a task carried more than this many cycles = "smallest piece"
+FOCUS_CAP = 2            # at most this many goals may be starred at once (else priority flattens)
 
 GATE_TARGET_DAYS = 28    # v0.1 gate: daily self-use for 4 weeks
 GATE_TARGET_RETROS = 4
+
+# While the v0.1 gate is unpassed, one slot of the capped week is always this
+# ritual — logging today / running the retro is what actually advances the gate.
+GATE_TASK_TITLE = "Keep the v0.1 gate: log today"
 
 PARK_MESSAGE = "Captured, not abandoned — current gate first."
 
@@ -91,34 +96,66 @@ def shape_if_then(ref: str, cycles: int, day_index: int) -> str:
     return f"If it's {day} {EVENING_TIME}, then I spend 45 min on '{ref}'"
 
 
+def order_goals(goals: list[dict]) -> list[dict]:
+    """Focus goals lead (stable), but only up to FOCUS_CAP of them — starring
+    everything can't flatten priority back to raw input order."""
+    keyed = []
+    focused = 0
+    for g in goals:
+        if g.get("focus") and focused < FOCUS_CAP:
+            keyed.append((0, g))
+            focused += 1
+        else:
+            keyed.append((1, g))
+    keyed.sort(key=lambda kg: kg[0])  # stable: privileged first, everyone else in input order
+    return [g for _, g in keyed]
+
+
+def gate_task(day_index: int) -> dict:
+    """The gate-floor slot: a loggable ritual that advances days/logs/retros."""
+    day = DAYS[day_index % len(DAYS)]
+    return {
+        "origin": "gate", "id": None, "title": GATE_TASK_TITLE,
+        "if_then": f"If it's {day} {EVENING_TIME}, then I log today's progress (Sunday: run the retro)",
+        "status": "open", "cycles": 1, "smallest_piece": False, "goal_title": "", "gate": True,
+    }
+
+
 def offline_plan(inp: dict) -> list[dict]:
     """Deterministic weekly plan (the no-Claude path).
 
-    Input:  {"baseline": "tired"|"rested",
-             "goals": [{"title": str}, ...],
+    Input:  {"baseline": "tired"|"rested", "gate_passed": bool,
+             "goals": [{"title": str, "focus": bool}, ...],
              "open_tasks": [{"id": any, "title": str, "if_then": str, "cycles": int}, ...]}
     Output: an ordered list of task descriptors to write for the week:
-             {"origin": "reuse"|"new", "id": <passthrough|None>, "title": str,
+             {"origin": "reuse"|"new"|"gate", "id": <passthrough|None>, "title": str,
               "if_then": str, "status": "open", "cycles": int,
-              "smallest_piece": bool, "goal_title": str}
+              "smallest_piece": bool, "goal_title": str, "gate": bool}
 
-    Boredom rule: carry-overs come first, most-stuck first; if any carry-over is
-    stale we do NOT start new goal work this cycle (finish before you start).
-    Gate-first: goals flagged focus lead the week, so the goal the current gate
-    depends on is always in the top few rather than losing to input order.
+    Gate floor: while the gate is unpassed, slot 0 is always a gate-advancing
+    task, regardless of focus — focus only steers the remaining slots. When the
+    gate passes the floor lifts and focus governs the whole (capped) week.
+    Boredom rule: carry-overs next, most-stuck first; if any carry-over is stale
+    we do NOT start new goal work this cycle (finish before you start).
+    Gate-first: up to FOCUS_CAP focused goals lead the remaining slots.
     Energy/cap: total items capped by baseline; new starts capped at the floor.
     """
     cap = weekly_cap(inp.get("baseline", "tired"))
-    # Focus goals first (stable), so the gate/keystone goal is never crowded out.
-    goals = sorted(inp.get("goals", []), key=lambda g: 0 if g.get("focus") else 1)
+    gate_passed = inp.get("gate_passed", True)
+    goals = order_goals(inp.get("goals", []))
     open_tasks = inp.get("open_tasks", [])
+
+    proposals: list[dict] = []
+    day = 0
+
+    # Gate floor: reserve the first slot for the gate ritual while unpassed.
+    if not gate_passed:
+        proposals.append(gate_task(day))
+        day += 1
 
     # Most-stuck carry-overs first (stable sort keeps input order among equals).
     carry = sorted(open_tasks, key=lambda t: -int(t.get("cycles", 0) or 0))
-
-    proposals: list[dict] = []
     stale_present = False
-    day = 0
     for t in carry:
         if len(proposals) >= cap:
             break
@@ -134,6 +171,7 @@ def offline_plan(inp: dict) -> list[dict]:
             "cycles": cycles,
             "smallest_piece": smallest,
             "goal_title": "",
+            "gate": False,
         })
         stale_present = stale_present or smallest
         day += 1
@@ -142,7 +180,7 @@ def offline_plan(inp: dict) -> list[dict]:
     if not stale_present:
         new_limit = min(NEW_WORK_FLOOR, cap)
         for g in goals:
-            if len(proposals) >= new_limit:
+            if len(proposals) >= new_limit or len(proposals) >= cap:
                 break
             title = g.get("title", "")
             proposals.append({
@@ -154,6 +192,7 @@ def offline_plan(inp: dict) -> list[dict]:
                 "cycles": 1,
                 "smallest_piece": False,
                 "goal_title": title,
+                "gate": False,
             })
             day += 1
 

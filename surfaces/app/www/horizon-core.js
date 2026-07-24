@@ -23,9 +23,13 @@
   const WEEKLY_CAP_RESTED = 7;
   const NEW_WORK_FLOOR = 3;       // start at most this many new items when unstuck
   const STALE_CYCLES = 2;         // carried past this many cycles => "smallest piece"
+  const FOCUS_CAP = 2;            // at most this many goals may be starred at once
 
   const GATE_TARGET_DAYS = 28;
   const GATE_TARGET_RETROS = 4;
+
+  // While the v0.1 gate is unpassed, one capped slot is always this ritual.
+  const GATE_TASK_TITLE = "Keep the v0.1 gate: log today";
 
   const PARK_MESSAGE = "Captured, not abandoned — current gate first.";
 
@@ -76,18 +80,42 @@
     return `If it's ${day} ${EVENING_TIME}, then I spend 45 min on '${ref}'`;
   }
 
+  /* Focus goals lead (stable), up to FOCUS_CAP — starring everything can't
+     flatten priority back to raw input order. */
+  function orderGoals(goals) {
+    let focused = 0;
+    const keyed = goals.map((g) => {
+      if (g.focus && focused < FOCUS_CAP) { focused += 1; return [0, g]; }
+      return [1, g];
+    });
+    keyed.sort((a, b) => a[0] - b[0]); // stable
+    return keyed.map((kg) => kg[1]);
+  }
+
+  function gateTask(dayIndex) {
+    const day = DAYS[dayIndex % DAYS.length];
+    return {
+      origin: "gate", id: null, title: GATE_TASK_TITLE,
+      if_then: `If it's ${day} ${EVENING_TIME}, then I log today's progress (Sunday: run the retro)`,
+      status: "open", cycles: 1, smallest_piece: false, goal_title: "", gate: true,
+    };
+  }
+
   /* Deterministic weekly plan — see core.offline_plan for the contract. */
   function offlinePlan(inp) {
     const cap = weeklyCap(inp.baseline || "tired");
-    // Focus goals first (stable) — the gate/keystone goal is never crowded out.
-    const goals = (inp.goals || []).slice().sort((a, b) => (a.focus ? 0 : 1) - (b.focus ? 0 : 1));
+    const gatePassed = inp.gate_passed === undefined ? true : inp.gate_passed;
+    const goals = orderGoals(inp.goals || []);
     const openTasks = inp.open_tasks || [];
 
-    const carry = openTasks.slice().sort((a, b) => (Number(b.cycles) || 0) - (Number(a.cycles) || 0));
-
     const proposals = [];
-    let stalePresent = false;
     let day = 0;
+
+    // Gate floor: reserve slot 0 for the gate ritual while unpassed.
+    if (!gatePassed) { proposals.push(gateTask(day)); day += 1; }
+
+    const carry = openTasks.slice().sort((a, b) => (Number(b.cycles) || 0) - (Number(a.cycles) || 0));
+    let stalePresent = false;
     for (const t of carry) {
       if (proposals.length >= cap) break;
       const cycles = (Number(t.cycles) || 0) + 1;
@@ -102,6 +130,7 @@
         cycles: cycles,
         smallest_piece: smallest,
         goal_title: "",
+        gate: false,
       });
       stalePresent = stalePresent || smallest;
       day += 1;
@@ -110,7 +139,7 @@
     if (!stalePresent) {
       const newLimit = Math.min(NEW_WORK_FLOOR, cap);
       for (const g of goals) {
-        if (proposals.length >= newLimit) break;
+        if (proposals.length >= newLimit || proposals.length >= cap) break;
         const title = g.title || "";
         proposals.push({
           origin: "new",
@@ -121,6 +150,7 @@
           cycles: 1,
           smallest_piece: false,
           goal_title: title,
+          gate: false,
         });
         day += 1;
       }
@@ -165,8 +195,9 @@
 
   return {
     DAYS, EVENING_TIME, TROUGH_TIME, WEEKLY_CAP_TIRED, WEEKLY_CAP_RESTED,
-    NEW_WORK_FLOOR, STALE_CYCLES, GATE_TARGET_DAYS, GATE_TARGET_RETROS, PARK_MESSAGE,
-    weekId, isProjectIdea, isAdmin, weeklyCap, shapeIfThen, offlinePlan, retro,
-    gateFromCounts,
+    NEW_WORK_FLOOR, STALE_CYCLES, FOCUS_CAP, GATE_TARGET_DAYS, GATE_TARGET_RETROS,
+    GATE_TASK_TITLE, PARK_MESSAGE,
+    weekId, isProjectIdea, isAdmin, weeklyCap, shapeIfThen, orderGoals, gateTask,
+    offlinePlan, retro, gateFromCounts,
   };
 });

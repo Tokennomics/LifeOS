@@ -57,17 +57,21 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
     """Plan the week. The offline path runs the shared anti-hindrance core (T3):
     finishes stuck work before starting new, shapes deep work into the evening and
     admin into the trough, and hard-caps the week while the baseline is tired."""
+    from modules.horizon import gate  # doubt-rule counts; also drives the gate floor
+
     session = graph.session("horizon", SCOPES)
     week = week or week_id()
     cap = core.weekly_cap(energy_baseline)
+    gate_passed = gate.gate_status(graph)["cleared"]
 
     existing = session.find_entities("task", {"week": week}, limit=50)
     if len(existing) >= cap:  # idempotent re-runs
         return {"week": week, "tasks": len(existing), "method": "already-planned"}
 
     goals = session.find_entities("goal", {"level": "goal"}, limit=50)
+    # Gate-ritual tasks are weekly, not goal work — never carry them over.
     open_tasks = [t for t in session.find_entities("task", {"status": "open"}, limit=200)
-                  if t["attrs"].get("week") != week]
+                  if t["attrs"].get("week") != week and not t["attrs"].get("gate")]
     open_by_id = {t["id"]: t for t in open_tasks}
     goal_by_title = {g["attrs"].get("title"): g["id"] for g in goals}
 
@@ -95,12 +99,17 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
                 "origin": "reuse" if eid else "new", "id": eid,
                 "title": p["title"], "if_then": p["if_then"], "status": "open",
                 "cycles": cycles, "smallest_piece": cycles > core.STALE_CYCLES,
-                "goal_title": p.get("goal_title", ""),
+                "goal_title": p.get("goal_title", ""), "gate": False,
             })
+        # Gate floor applies to the Claude path too: guarantee one gate slot.
+        if not gate_passed and not any(d.get("gate") for d in descriptors):
+            descriptors = [core.gate_task(0)] + descriptors
+        descriptors = descriptors[:cap]
     else:
         method = "offline"
         descriptors = core.offline_plan({
             "baseline": energy_baseline,
+            "gate_passed": gate_passed,
             "goals": [{"title": g["attrs"].get("title", ""), "focus": g["attrs"].get("focus", False)}
                       for g in goals],
             "open_tasks": [{"id": t["id"], "title": t["attrs"].get("title", ""),
@@ -119,7 +128,7 @@ def _write_descriptors(session, week: str, descriptors: list[dict],
     onto the task so the boredom rule can escalate stuck work next cycle."""
     count = 0
     for d in descriptors:
-        extra = {"cycles": d["cycles"], "smallest_piece": d["smallest_piece"]}
+        extra = {"cycles": d["cycles"], "smallest_piece": d["smallest_piece"], "gate": d.get("gate", False)}
         if d["origin"] == "reuse" and d["id"] in open_by_id:
             patch = {"week": week, **extra}
             if d["if_then"]:

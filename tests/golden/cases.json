@@ -5,6 +5,7 @@
       "name": "fresh vision, three goals, tired cap of 3",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [
           {
             "title": "Ship Life OS v0.1"
@@ -27,7 +28,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": "Ship Life OS v0.1"
+          "goal_title": "Ship Life OS v0.1",
+          "gate": false
         },
         {
           "origin": "new",
@@ -37,7 +39,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": "Train 3x per week"
+          "goal_title": "Train 3x per week",
+          "gate": false
         },
         {
           "origin": "new",
@@ -47,7 +50,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": "Read 12 books"
+          "goal_title": "Read 12 books",
+          "gate": false
         }
       ]
     },
@@ -55,6 +59,7 @@
       "name": "tired cap truncates carry-overs to 3",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [],
         "open_tasks": [
           {
@@ -98,7 +103,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -108,7 +114,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -118,7 +125,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         }
       ]
     },
@@ -126,6 +134,7 @@
       "name": "rested lifts the cap to 7",
       "input": {
         "baseline": "rested",
+        "gate_passed": true,
         "goals": [],
         "open_tasks": [
           {
@@ -169,7 +178,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -179,7 +189,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -189,7 +200,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -199,7 +211,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -209,7 +222,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         }
       ]
     },
@@ -217,6 +231,7 @@
       "name": "boredom: a stale carry-over surfaces as smallest piece and blocks new goal work",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [
           {
             "title": "Ship it"
@@ -240,7 +255,8 @@
           "status": "open",
           "cycles": 3,
           "smallest_piece": true,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         }
       ]
     },
@@ -248,6 +264,7 @@
       "name": "energy shaping: admin is routed to the daytime trough",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [],
         "open_tasks": [
           {
@@ -267,7 +284,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         }
       ]
     },
@@ -275,6 +293,7 @@
       "name": "boredom: most-stuck carry-over is planned first",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [],
         "open_tasks": [
           {
@@ -300,7 +319,8 @@
           "status": "open",
           "cycles": 3,
           "smallest_piece": true,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         },
         {
           "origin": "reuse",
@@ -310,7 +330,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": ""
+          "goal_title": "",
+          "gate": false
         }
       ]
     },
@@ -318,6 +339,7 @@
       "name": "gate-first: a focused goal leads the week over input order",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [
           {
             "title": "A"
@@ -344,7 +366,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": "C (gate)"
+          "goal_title": "C (gate)",
+          "gate": false
         },
         {
           "origin": "new",
@@ -354,7 +377,8 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": "A"
+          "goal_title": "A",
+          "gate": false
         },
         {
           "origin": "new",
@@ -364,7 +388,164 @@
           "status": "open",
           "cycles": 1,
           "smallest_piece": false,
-          "goal_title": "B"
+          "goal_title": "B",
+          "gate": false
+        }
+      ]
+    },
+    {
+      "name": "gate floor: while unpassed, one slot advances the gate even with a non-gate goal focused",
+      "input": {
+        "baseline": "tired",
+        "gate_passed": false,
+        "goals": [
+          {
+            "title": "Trading",
+            "focus": true
+          },
+          {
+            "title": "Health"
+          }
+        ],
+        "open_tasks": []
+      },
+      "expected": [
+        {
+          "origin": "gate",
+          "id": null,
+          "title": "Keep the v0.1 gate: log today",
+          "if_then": "If it's Monday 20:00, then I log today's progress (Sunday: run the retro)",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "",
+          "gate": true
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Trading",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'Trading'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Trading",
+          "gate": false
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Health",
+          "if_then": "If it's Wednesday 20:00, then I spend 45 min on 'Health'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Health",
+          "gate": false
+        }
+      ]
+    },
+    {
+      "name": "gate floor lifts once the gate is passed",
+      "input": {
+        "baseline": "tired",
+        "gate_passed": true,
+        "goals": [
+          {
+            "title": "Trading",
+            "focus": true
+          },
+          {
+            "title": "Health"
+          }
+        ],
+        "open_tasks": []
+      },
+      "expected": [
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Trading",
+          "if_then": "If it's Monday 20:00, then I spend 45 min on 'Trading'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Trading",
+          "gate": false
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Health",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'Health'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Health",
+          "gate": false
+        }
+      ]
+    },
+    {
+      "name": "focus cap: starring three goals still privileges only two",
+      "input": {
+        "baseline": "tired",
+        "gate_passed": true,
+        "goals": [
+          {
+            "title": "A"
+          },
+          {
+            "title": "B"
+          },
+          {
+            "title": "C",
+            "focus": true
+          },
+          {
+            "title": "D",
+            "focus": true
+          },
+          {
+            "title": "E",
+            "focus": true
+          }
+        ],
+        "open_tasks": []
+      },
+      "expected": [
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: C",
+          "if_then": "If it's Monday 20:00, then I spend 45 min on 'C'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "C",
+          "gate": false
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: D",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'D'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "D",
+          "gate": false
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: A",
+          "if_then": "If it's Wednesday 20:00, then I spend 45 min on 'A'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "A",
+          "gate": false
         }
       ]
     },
@@ -372,10 +553,55 @@
       "name": "nothing to plan yields an empty week",
       "input": {
         "baseline": "tired",
+        "gate_passed": true,
         "goals": [],
         "open_tasks": []
       },
       "expected": []
+    },
+    {
+      "name": "gate floor holds even with a stale carry-over blocking new work",
+      "input": {
+        "baseline": "tired",
+        "gate_passed": false,
+        "goals": [
+          {
+            "title": "Ship it"
+          }
+        ],
+        "open_tasks": [
+          {
+            "id": "t1",
+            "title": "Write the planner",
+            "if_then": "",
+            "cycles": 2
+          }
+        ]
+      },
+      "expected": [
+        {
+          "origin": "gate",
+          "id": null,
+          "title": "Keep the v0.1 gate: log today",
+          "if_then": "If it's Monday 20:00, then I log today's progress (Sunday: run the retro)",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "",
+          "gate": true
+        },
+        {
+          "origin": "reuse",
+          "id": "t1",
+          "title": "Write the planner",
+          "if_then": "If it's Tuesday 20:00, then I do the smallest remaining piece of 'Write the planner': one concrete physical step, 15 minutes",
+          "status": "open",
+          "cycles": 3,
+          "smallest_piece": true,
+          "goal_title": "",
+          "gate": false
+        }
+      ]
     }
   ],
   "classify": [

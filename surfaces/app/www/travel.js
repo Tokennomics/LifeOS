@@ -140,9 +140,11 @@ async function doPlan(week) {
   if (existing.length >= cap) return { week, tasks: existing.length, method: "already-planned" };
 
   const goals = planGoals();
-  const openTasks = entities("task").filter((t) => t.attrs.status === "open" && t.attrs.week !== week);
+  // Gate-ritual tasks are weekly, not goal work — never carry them over.
+  const openTasks = entities("task").filter((t) => t.attrs.status === "open" && t.attrs.week !== week && !t.attrs.gate);
   const descriptors = Core.offlinePlan({
     baseline: BASELINE,
+    gate_passed: computeGate().cleared,
     goals: goals.map((g) => ({ title: g.attrs.title || "", focus: !!g.attrs.focus })),
     open_tasks: openTasks.map((t) => ({
       id: t.key, title: t.attrs.title || "", if_then: t.attrs.if_then || "", cycles: t.attrs.cycles || 0,
@@ -154,7 +156,7 @@ async function doPlan(week) {
 
   let count = 0;
   for (const d of descriptors) {
-    const extra = { cycles: d.cycles, smallest_piece: d.smallest_piece };
+    const extra = { cycles: d.cycles, smallest_piece: d.smallest_piece, gate: d.gate };
     if (d.origin === "reuse" && d.id) {
       const task = state.items.find((i) => i.key === d.id);
       if (task) {
@@ -291,7 +293,7 @@ function todayView() {
     html += `<div class="card"><h2>Your vision</h2>
       <p class="big">${esc(v.attrs.title)}</p>`;
     if (goals.length) {
-      html += `<p class="hint">Tap ★ to make a goal lead the week (gate-first).</p>`;
+      html += `<p class="hint">Tap ★ to make a goal lead the week (gate-first, up to 2).</p>`;
       html += goals.map((g) => `
         <div class="person"><div class="who"><div class="name">${esc(g.attrs.title)}</div></div>
         <div class="pills"><button class="pill ${g.attrs.focus ? "warm" : ""}" data-focus="${g.key}">${g.attrs.focus ? "★ focus" : "☆"}</button></div></div>`).join("");

@@ -1,4 +1,13 @@
+import pytest
+
+from modules.horizon import gate
 from surfaces.bot.telegram import TelegramBot
+
+
+@pytest.fixture(autouse=True)
+def _gate_passed(monkeypatch):
+    # Isolate the bot's plan/log/retro loop from the gate floor.
+    monkeypatch.setattr(gate, "gate_status", lambda g: {"cleared": True})
 
 
 def _update(text, user_id=42, chat_id=42):

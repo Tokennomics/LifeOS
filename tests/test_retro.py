@@ -1,4 +1,12 @@
-from modules.horizon import planner, retro
+import pytest
+
+from modules.horizon import gate, planner, retro
+
+
+@pytest.fixture(autouse=True)
+def _gate_passed(monkeypatch):
+    # Isolate retro scoring from the gate floor (covered in test_anti_hindrance).
+    monkeypatch.setattr(gate, "gate_status", lambda g: {"cleared": True})
 
 
 def test_retro_scores_week_and_writes_metric(graph):
