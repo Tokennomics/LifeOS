@@ -1,0 +1,41 @@
+# Publish Travel Mode (the standalone offline PWA) to GitHub Pages.
+#
+# Only the app SHELL is published — HTML/CSS/JS/icons. There is no server and no
+# database here: every byte of personal data (vision, plan, logs, captures,
+# retros) lives in the browser's IndexedDB and is never uploaded. See T1.
+#
+# After the first successful run, set Settings → Pages → Source = "GitHub Actions".
+# The installable URL is:  https://<owner>.github.io/<repo>/travel.html
+name: Publish Travel Mode
+
+on:
+  push:
+    branches: [main]
+    paths: ["surfaces/app/www/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; don't cancel an in-flight publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - name: Upload the app shell
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: surfaces/app/www
+      - id: deploy
+        uses: actions/deploy-pages@v4

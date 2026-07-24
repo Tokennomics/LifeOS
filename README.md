@@ -3,6 +3,8 @@
 One context graph. Many agents. Compounding value on hardware you own.
 See the master build document for mission, laws, and roadmap.
 
+**Run the tests:** `python -m pytest` (73 passing; no API keys or network needed).
+
 ## Module registry status
 
 | Module | What ships today (P0) |
@@ -61,6 +63,20 @@ In native builds, set the gateway URL in the app's ⚙ Settings on first run.
 **API for the app:** `GET /v1/vision|/v1/week|/v1/today|/v1/graph|/v1/export`,
 `POST /v1/vision|/v1/plan|/v1/log|/v1/retro|/v1/capture`. Full graph export is one tap
 in Settings (Law 2).
+
+### Travel Mode — standalone, offline, no server
+
+`surfaces/app/www/travel.html` is a self-contained PWA for running your week from a phone
+with **no gateway reachable at all** (travelling, airplane mode). It persists to the
+browser's **IndexedDB** and mirrors the server's deterministic offline fallbacks: paste your
+vision → get a weekly plan → `/log` daily → Sunday retro → `/capture`. Everything survives a
+close-and-reopen; nothing leaves the device. Install it from the home screen like any PWA.
+
+It publishes to GitHub Pages via `.github/workflows/pages.yml` (Settings → Pages → Source =
+"GitHub Actions"), reachable at `https://<owner>.github.io/<repo>/travel.html`. **Only the
+app shell is public** — all personal data stays in your browser. Export a JSON bundle from ⚙
+Settings when you're home; the forthcoming `POST /v1/import` reconciles it into the graph
+idempotently (every item carries a stable key + original timestamp).
 
 ## Quickstart (Windows)
 
