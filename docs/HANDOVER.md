@@ -25,6 +25,12 @@ improves what he uses daily while travelling. So T3 shipped next; T2 is now the 
 Branch: `claude/lifeos-repository-connection-lfeqba` · PR: Tokennomics/LifeOS#1 (draft, stacks
 T1+T3 — one working branch per the git rules).
 
+## Parked (post-gate)
+`docs/ROADMAP.md` holds the parked map for the three big layers — Agentic OS (personal agents in
+LifeOS; single-orchestrator + propose-only), Urgency/Triage OS (not a safety-critical Emergency OS),
+and the developer platform — with phases, kill-gates, and a "Do Not Build" list. **Nothing on it is
+built until the v0.1 gate passes.** Don't let it pull focus; current gate first.
+
 ## Do next
 - **T2 — Reconciliation.** `POST /v1/import` ingests the Travel Mode export bundle through
   `graph.py` with `module=travel`, original timestamps, and idempotency keys → skip anything
