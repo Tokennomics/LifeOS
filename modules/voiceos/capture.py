@@ -7,7 +7,9 @@ import argparse
 import json
 import sys
 
+from modules.horizon import core
 from modules.voiceos import parse_to_graph
+from substrate import now_iso
 from substrate.graph import Graph
 
 SCOPES = {
@@ -18,8 +20,18 @@ SCOPES = {
 
 def capture(text: str, graph: Graph, claude=None, source: str = "capture") -> dict:
     session = graph.session("voiceos", SCOPES)
-    capture_id = session.create_entity("content", {"type": "capture", "text": text}, source=source)
     counts = {"tasks": 0, "interests": 0, "people": 0}
+
+    # Distraction sink (T3): a new-project idea is parked, not planned — it stays
+    # captured so nothing is lost, but the current gate keeps priority.
+    if core.is_project_idea(text):
+        pid = session.create_entity(
+            "content", {"type": "parked_idea", "text": text, "parked_at": now_iso()}, source=source,
+        )
+        return {"capture_id": pid, "method": "parked", "parked": True,
+                "message": core.PARK_MESSAGE, **counts}
+
+    capture_id = session.create_entity("content", {"type": "capture", "text": text}, source=source)
     method = "raw"
     if claude is not None and claude.available:
         data = claude.complete_json(
@@ -28,10 +40,20 @@ def capture(text: str, graph: Graph, claude=None, source: str = "capture") -> di
         )
         counts = parse_to_graph.apply(session, capture_id, data, source)
         method = "claude-light"
-    return {"capture_id": capture_id, "method": method, **counts}
+    return {"capture_id": capture_id, "method": method, "parked": False, **counts}
+
+
+def list_parked(graph: Graph) -> list[dict]:
+    """The distraction sink's contents — captured, not abandoned."""
+    session = graph.session("voiceos", SCOPES)
+    parked = session.find_entities("content", {"type": "parked_idea"}, limit=200)
+    return [{"id": p["id"], "text": p["attrs"].get("text", ""),
+             "parked_at": p["attrs"].get("parked_at", "")} for p in parked]
 
 
 def format_summary(result: dict) -> str:
+    if result.get("parked"):
+        return result["message"]
     extracted = ", ".join(f"{v} {k}" for k, v in result.items() if k in ("tasks", "interests", "people") and v)
     return f"Captured. Extracted: {extracted}." if extracted else "Captured."
 

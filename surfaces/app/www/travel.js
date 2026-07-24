@@ -15,8 +15,10 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID()
   : "x-" + Date.now() + "-" + Math.random().toString(16).slice(2));
 
 const MODULE = "travel";
-const PEAK = "17:00"; // Vitals' default peak window; planner schedules deep work here.
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const Core = HorizonCore; // shared, byte-identical logic (horizon-core.js) — no drift with Python.
+// Travel Mode is the tired-night-owl context by definition; the planner runs the
+// same anti-hindrance rules the server uses at energy_baseline: tired.
+const BASELINE = "tired";
 
 const state = { tab: "today", items: [], retro: null, busy: false, enter: true };
 
@@ -104,16 +106,8 @@ function weekTasks(week) {
   return entities("task").filter((t) => t.attrs.week === week).sort(byTs);
 }
 
-/* ISO-8601 week id, e.g. "2026-W30" — matches planner.week_id(). */
-function weekId(d) {
-  const date = d ? new Date(d) : new Date();
-  const u = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const day = (u.getUTCDay() + 6) % 7;            // Mon=0 … Sun=6
-  u.setUTCDate(u.getUTCDate() - day + 3);         // shift to the week's Thursday
-  const firstThu = new Date(Date.UTC(u.getUTCFullYear(), 0, 4));
-  const week = 1 + Math.round(((u - firstThu) / 864e5 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
-  return `${u.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
+/* ISO-8601 week id — delegated to the shared core so JS and Python never drift. */
+const weekId = (d) => Core.weekId(d);
 
 /* ---------- flows (deterministic, offline — mirror the server fallbacks) ---------- */
 
@@ -136,36 +130,39 @@ async function doVision(text) {
   return { status: "created", vision: visionText, goals: bullets.length };
 }
 
-/* planner.plan_week (offline branch): reuse open tasks, then top up from goals. */
+/* Weekly plan via the shared anti-hindrance core (boredom + energy shaping + cap). */
 async function doPlan(week) {
+  const cap = Core.weeklyCap(BASELINE);
   const existing = weekTasks(week);
-  if (existing.length >= 3) return { week, tasks: existing.length, method: "already-planned" };
+  if (existing.length >= cap) return { week, tasks: existing.length, method: "already-planned" };
 
   const goals = planGoals();
   const openTasks = entities("task").filter((t) => t.attrs.status === "open" && t.attrs.week !== week);
+  const descriptors = Core.offlinePlan({
+    baseline: BASELINE,
+    goals: goals.map((g) => ({ title: g.attrs.title || "" })),
+    open_tasks: openTasks.map((t) => ({
+      id: t.key, title: t.attrs.title || "", if_then: t.attrs.if_then || "", cycles: t.attrs.cycles || 0,
+    })),
+  });
 
-  const proposals = openTasks.slice(0, 7).map((t) => ({ reuse: t, if_then: t.attrs.if_then || "" }));
-  let slot = 0;
-  for (const g of goals) {
-    if (proposals.length >= 3) break;
-    const title = g.attrs.title || "goal";
-    proposals.push({
-      title: `Advance: ${title}`,
-      if_then: `If it's ${DAYS[slot % DAYS.length]} ${PEAK}, then I spend 45 min on '${title}'`,
-      goalKey: g.key,
-    });
-    slot++;
-  }
+  const goalKeyByTitle = {};
+  for (const g of goals) goalKeyByTitle[g.attrs.title || ""] = g.key;
 
   let count = 0;
-  for (const p of proposals) {
-    if (p.reuse) {
-      const patch = { week };
-      if (p.if_then) patch.if_then = p.if_then;
-      await patchEntity(p.reuse, patch);
+  for (const d of descriptors) {
+    const extra = { cycles: d.cycles, smallest_piece: d.smallest_piece };
+    if (d.origin === "reuse" && d.id) {
+      const task = state.items.find((i) => i.key === d.id);
+      if (task) {
+        const patch = { week, ...extra };
+        if (d.if_then) patch.if_then = d.if_then;
+        await patchEntity(task, patch);
+      }
     } else {
-      const task = await createEntity("task", { title: p.title, if_then: p.if_then, status: "open", week });
-      if (p.goalKey) await createEdge(task.key, p.goalKey, "feeds");
+      const task = await createEntity("task", { title: d.title, if_then: d.if_then, status: "open", week, ...extra });
+      const gk = goalKeyByTitle[d.goal_title];
+      if (gk) await createEdge(task.key, gk, "feeds");
     }
     count++;
   }
@@ -179,24 +176,36 @@ async function doLog(taskKey) {
   if (task.attrs.status !== "done") await patchEntity(task, { status: "done", done_at: nowISO() });
 }
 
-/* retro.run_retro (offline branch): score, write a metric, compose the reflection. */
+/* Weekly retro via the shared core: score, write the metric, compose the reflection. */
 async function doRetro(week) {
-  const tasks = weekTasks(week);
-  const done = tasks.filter((t) => t.attrs.status === "done");
-  const planned = tasks.length;
-  const rate = planned ? Math.round((done.length / planned) * 100) / 100 : 0;
-
-  await createEntity("metric", { type: "weekly_retro", week, planned, done: done.length, rate });
-
-  const lines = [`Retro ${week}: ${done.length}/${planned} tasks done (${Math.round(rate * 100)}%).`];
-  for (const t of tasks) lines.push(`[${t.attrs.status === "done" ? "x" : " "}] ${t.attrs.title || ""}`);
-  if (planned === 0) lines.push("Nothing was planned this week — plan it on the Today tab (or now).");
-  return { week, planned, done: done.length, rate, text: lines.join("\n") };
+  const views = weekTasks(week).map((t) => ({ title: t.attrs.title || "", status: t.attrs.status || "open" }));
+  const scored = Core.retro(week, views);
+  await createEntity("metric", {
+    type: "weekly_retro", week, planned: scored.planned, done: scored.done, rate: scored.rate,
+  });
+  return scored;
 }
 
-/* voiceos.capture (raw, offline): store the content entity. Extraction needs a key. */
+/* Capture with the distraction sink (T3): a new-project idea is parked, not planned. */
 async function doCapture(text) {
+  if (Core.isProjectIdea(text)) {
+    await createEntity("content", { type: "parked_idea", text, parked_at: nowISO() });
+    return { parked: true, message: Core.PARK_MESSAGE };
+  }
   await createEntity("content", { type: "capture", text });
+  return { parked: false };
+}
+
+/* Doubt rule (T3): honest v0.1-gate progress from what's actually on this phone. */
+function computeGate() {
+  const done = entities("task").filter((t) => t.attrs.status === "done");
+  const retros = entities("metric").filter((m) => m.attrs.type === "weekly_retro");
+  const days = new Set();
+  for (const t of done) days.add((t.attrs.done_at || t.ts || "").slice(0, 10));
+  for (const c of entities("content")) days.add((c.ts || "").slice(0, 10));
+  for (const r of retros) days.add((r.ts || "").slice(0, 10));
+  days.delete("");
+  return Core.gateFromCounts(days.size, done.length, retros.length);
 }
 
 /* ---------- export (the reconciliation bundle T2 imports) ---------- */
@@ -255,7 +264,8 @@ async function act(fn, okMsg) {
 
 function render() {
   const view = $("#view");
-  view.innerHTML = (state.tab === "capture" ? captureView : todayView)();
+  const views = { today: todayView, capture: captureView, gate: gateView };
+  view.innerHTML = (views[state.tab] || todayView)();
   view.classList.toggle("enter", state.enter);
   state.enter = false;
   wire(view);
@@ -304,14 +314,27 @@ function todayView() {
 }
 
 function captureView() {
-  const recent = entities("content").sort(byTs).reverse();
-  return `<div class="card"><h2>Capture a thought</h2>
+  const recent = entities("content").filter((c) => c.attrs.type === "capture").sort(byTs).reverse();
+  const parked = entities("content").filter((c) => c.attrs.type === "parked_idea").sort(byTs).reverse();
+  let html = `<div class="card"><h2>Capture a thought</h2>
       <textarea id="capture-text" placeholder="Anything — a task, an idea, a name. Saved locally; syncs to the graph when you're home."></textarea>
-      <button class="primary" data-act="capture">Capture</button></div>
+      <button class="primary" data-act="capture">Capture</button>
+      <p class="hint">A new-project idea gets parked, not planned — captured so it's not lost, but the current gate keeps priority.</p></div>
     <div class="card"><h2>Recent captures</h2>
       ${recent.length ? recent.map((r) => `<div class="feed-item"><div class="label">${esc(r.attrs.text)}</div></div>`).join("")
                       : `<p class="empty">Nothing captured yet.</p>`}
     </div>`;
+  html += `<div class="card"><h2>Parked ideas</h2>
+      ${parked.length ? parked.map((r) => `<div class="feed-item"><div class="kind">parked</div><div class="label">${esc(r.attrs.text)}</div></div>`).join("")
+                      : `<p class="empty">Distraction-free. New-project ideas you park land here.</p>`}</div>`;
+  return html;
+}
+
+function gateView() {
+  const g = computeGate();
+  return `<div class="card"><h2>v0.1 gate</h2>
+      <div class="retro-text">${esc(g.text)}</div>
+      <p class="hint">Real counts from this phone. When doubt shows up while tired, check the metric — don't re-decide.</p></div>`;
 }
 
 /* ---------- wiring ---------- */
@@ -347,9 +370,10 @@ function wire(root) {
   on("[data-act=capture]", () => act(async () => {
     const text = $("#capture-text").value.trim();
     if (!text) return toast("Nothing to capture.");
-    await doCapture(text);
+    const r = await doCapture(text);
     render();
-  }, "Captured ✔"));
+    toast(r.parked ? r.message : "Captured ✔");
+  }));
 }
 
 /* ---------- tabs, settings, boot ---------- */

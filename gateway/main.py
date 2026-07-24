@@ -18,7 +18,7 @@ from gateway.auth import make_auth_dependency
 from gateway.claude import ClaudeGateway
 from gateway.modules_api import build_router
 from gateway.router import route
-from modules.horizon import planner, retro, vision_intake
+from modules.horizon import gate, planner, retro, vision_intake
 from modules.voiceos import capture as voice_capture
 from substrate import ROOT, load_config
 from substrate.bus import Bus
@@ -102,7 +102,8 @@ def create_app(cfg: dict | None = None) -> FastAPI:
 
     @app.post("/v1/plan", dependencies=[Depends(auth)])
     def plan():
-        planner.plan_week(graph, claude=claude)
+        baseline = cfg.get("vitals", {}).get("energy_baseline", "tired")
+        planner.plan_week(graph, claude=claude, energy_baseline=baseline)
         return _week_payload(graph)
 
     @app.post("/v1/log", dependencies=[Depends(auth)])
@@ -139,6 +140,16 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     @app.post("/v1/capture", dependencies=[Depends(auth)])
     def do_capture(body: TextIn):
         return voice_capture.capture(body.text, graph, claude=claude)
+
+    @app.get("/v1/parked", dependencies=[Depends(auth)])
+    def parked():
+        """Distraction sink (T3): captured-not-abandoned project ideas."""
+        return {"parked": voice_capture.list_parked(graph)}
+
+    @app.get("/v1/gate", dependencies=[Depends(auth)])
+    def gate_status():
+        """Doubt rule (T3): honest v0.1-gate progress from real counts."""
+        return gate.gate_status(graph)
 
     # ---- Graph -----------------------------------------------------------
 

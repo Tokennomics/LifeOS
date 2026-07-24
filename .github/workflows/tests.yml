@@ -1,0 +1,28 @@
+# Run the test suite on every push/PR. Includes the golden cross-language check
+# (tests/test_golden.py), which shells out to node to prove Travel Mode's JS core
+# still matches the Python core — so drift between them fails CI, not the owner's
+# phone. node is needed for that one test; setup-node guarantees it.
+name: tests
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q

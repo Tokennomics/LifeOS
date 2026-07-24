@@ -1,0 +1,500 @@
+{
+  "_comment": "Golden fixtures shared by tests/test_golden.py (Python) and tests/golden/run_js.mjs (travel.js core). Regenerate deliberately; a diff here is a behaviour change that must be reviewed. See T3.",
+  "plan": [
+    {
+      "name": "fresh vision, three goals, tired cap of 3",
+      "input": {
+        "baseline": "tired",
+        "goals": [
+          {
+            "title": "Ship Life OS v0.1"
+          },
+          {
+            "title": "Train 3x per week"
+          },
+          {
+            "title": "Read 12 books"
+          }
+        ],
+        "open_tasks": []
+      },
+      "expected": [
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Ship Life OS v0.1",
+          "if_then": "If it's Monday 20:00, then I spend 45 min on 'Ship Life OS v0.1'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Ship Life OS v0.1"
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Train 3x per week",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'Train 3x per week'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Train 3x per week"
+        },
+        {
+          "origin": "new",
+          "id": null,
+          "title": "Advance: Read 12 books",
+          "if_then": "If it's Wednesday 20:00, then I spend 45 min on 'Read 12 books'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": "Read 12 books"
+        }
+      ]
+    },
+    {
+      "name": "tired cap truncates carry-overs to 3",
+      "input": {
+        "baseline": "tired",
+        "goals": [],
+        "open_tasks": [
+          {
+            "id": "t0",
+            "title": "task 0",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t1",
+            "title": "task 1",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t2",
+            "title": "task 2",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t3",
+            "title": "task 3",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t4",
+            "title": "task 4",
+            "if_then": "",
+            "cycles": 0
+          }
+        ]
+      },
+      "expected": [
+        {
+          "origin": "reuse",
+          "id": "t0",
+          "title": "task 0",
+          "if_then": "If it's Monday 20:00, then I spend 45 min on 'task 0'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "t1",
+          "title": "task 1",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'task 1'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "t2",
+          "title": "task 2",
+          "if_then": "If it's Wednesday 20:00, then I spend 45 min on 'task 2'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        }
+      ]
+    },
+    {
+      "name": "rested lifts the cap to 7",
+      "input": {
+        "baseline": "rested",
+        "goals": [],
+        "open_tasks": [
+          {
+            "id": "t0",
+            "title": "task 0",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t1",
+            "title": "task 1",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t2",
+            "title": "task 2",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t3",
+            "title": "task 3",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "t4",
+            "title": "task 4",
+            "if_then": "",
+            "cycles": 0
+          }
+        ]
+      },
+      "expected": [
+        {
+          "origin": "reuse",
+          "id": "t0",
+          "title": "task 0",
+          "if_then": "If it's Monday 20:00, then I spend 45 min on 'task 0'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "t1",
+          "title": "task 1",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'task 1'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "t2",
+          "title": "task 2",
+          "if_then": "If it's Wednesday 20:00, then I spend 45 min on 'task 2'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "t3",
+          "title": "task 3",
+          "if_then": "If it's Thursday 20:00, then I spend 45 min on 'task 3'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "t4",
+          "title": "task 4",
+          "if_then": "If it's Friday 20:00, then I spend 45 min on 'task 4'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        }
+      ]
+    },
+    {
+      "name": "boredom: a stale carry-over surfaces as smallest piece and blocks new goal work",
+      "input": {
+        "baseline": "tired",
+        "goals": [
+          {
+            "title": "Ship it"
+          }
+        ],
+        "open_tasks": [
+          {
+            "id": "t1",
+            "title": "Write the planner",
+            "if_then": "",
+            "cycles": 2
+          }
+        ]
+      },
+      "expected": [
+        {
+          "origin": "reuse",
+          "id": "t1",
+          "title": "Write the planner",
+          "if_then": "If it's Monday 20:00, then I do the smallest remaining piece of 'Write the planner': one concrete physical step, 15 minutes",
+          "status": "open",
+          "cycles": 3,
+          "smallest_piece": true,
+          "goal_title": ""
+        }
+      ]
+    },
+    {
+      "name": "energy shaping: admin is routed to the daytime trough",
+      "input": {
+        "baseline": "tired",
+        "goals": [],
+        "open_tasks": [
+          {
+            "id": "a1",
+            "title": "Email the accountant",
+            "if_then": "",
+            "cycles": 0
+          }
+        ]
+      },
+      "expected": [
+        {
+          "origin": "reuse",
+          "id": "a1",
+          "title": "Email the accountant",
+          "if_then": "If it's Monday 14:00, then I clear 'Email the accountant' (admin \u2014 batch it in the daytime dip)",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        }
+      ]
+    },
+    {
+      "name": "boredom: most-stuck carry-over is planned first",
+      "input": {
+        "baseline": "tired",
+        "goals": [],
+        "open_tasks": [
+          {
+            "id": "fresh",
+            "title": "fresh task",
+            "if_then": "",
+            "cycles": 0
+          },
+          {
+            "id": "old",
+            "title": "old task",
+            "if_then": "",
+            "cycles": 2
+          }
+        ]
+      },
+      "expected": [
+        {
+          "origin": "reuse",
+          "id": "old",
+          "title": "old task",
+          "if_then": "If it's Monday 20:00, then I do the smallest remaining piece of 'old task': one concrete physical step, 15 minutes",
+          "status": "open",
+          "cycles": 3,
+          "smallest_piece": true,
+          "goal_title": ""
+        },
+        {
+          "origin": "reuse",
+          "id": "fresh",
+          "title": "fresh task",
+          "if_then": "If it's Tuesday 20:00, then I spend 45 min on 'fresh task'",
+          "status": "open",
+          "cycles": 1,
+          "smallest_piece": false,
+          "goal_title": ""
+        }
+      ]
+    },
+    {
+      "name": "nothing to plan yields an empty week",
+      "input": {
+        "baseline": "tired",
+        "goals": [],
+        "open_tasks": []
+      },
+      "expected": []
+    }
+  ],
+  "classify": [
+    {
+      "input": {
+        "text": "idea: build an app for tracking my runs"
+      },
+      "expected": true
+    },
+    {
+      "input": {
+        "text": "new project: a newsletter about tea"
+      },
+      "expected": true
+    },
+    {
+      "input": {
+        "text": "I want to build a treehouse for the kids"
+      },
+      "expected": true
+    },
+    {
+      "input": {
+        "text": "random shower thought"
+      },
+      "expected": false
+    },
+    {
+      "input": {
+        "text": "gotta book the dentist, also Sam wants to try bouldering"
+      },
+      "expected": false
+    },
+    {
+      "input": {
+        "text": "remember the milk"
+      },
+      "expected": false
+    },
+    {
+      "input": {
+        "text": "call the plumber about the leak"
+      },
+      "expected": false
+    }
+  ],
+  "retro": [
+    {
+      "input": {
+        "week": "2026-W30",
+        "tasks": [
+          {
+            "title": "a",
+            "status": "done"
+          },
+          {
+            "title": "b",
+            "status": "open"
+          }
+        ]
+      },
+      "expected": {
+        "week": "2026-W30",
+        "planned": 2,
+        "done": 1,
+        "rate": 0.5,
+        "text": "Retro 2026-W30: 1/2 tasks done (50%).\n[x] a\n[ ] b"
+      }
+    },
+    {
+      "input": {
+        "week": "2026-W30",
+        "tasks": [
+          {
+            "title": "x",
+            "status": "done"
+          },
+          {
+            "title": "y",
+            "status": "done"
+          },
+          {
+            "title": "z",
+            "status": "done"
+          }
+        ]
+      },
+      "expected": {
+        "week": "2026-W30",
+        "planned": 3,
+        "done": 3,
+        "rate": 1.0,
+        "text": "Retro 2026-W30: 3/3 tasks done (100%).\n[x] x\n[x] y\n[x] z"
+      }
+    },
+    {
+      "input": {
+        "week": "2026-W30",
+        "tasks": []
+      },
+      "expected": {
+        "week": "2026-W30",
+        "planned": 0,
+        "done": 0,
+        "rate": 0.0,
+        "text": "Retro 2026-W30: 0/0 tasks done (0%).\nNothing was planned this week \u2014 plan it now."
+      }
+    }
+  ],
+  "gate": [
+    {
+      "input": {
+        "days_used": 10,
+        "logs_recorded": 12,
+        "retros_completed": 2
+      },
+      "expected": {
+        "target_days": 28,
+        "target_retros": 4,
+        "days_used": 10,
+        "logs_recorded": 12,
+        "retros_completed": 2,
+        "cleared": false,
+        "text": "v0.1 gate \u2014 use it daily for 4 weeks before any new surface.\nDays used: 10/28\nLogs recorded: 12\nRetros completed: 2/4\n18 day(s) to go. Check the metric, don't re-decide \u2014 keep logging."
+      }
+    },
+    {
+      "input": {
+        "days_used": 0,
+        "logs_recorded": 0,
+        "retros_completed": 0
+      },
+      "expected": {
+        "target_days": 28,
+        "target_retros": 4,
+        "days_used": 0,
+        "logs_recorded": 0,
+        "retros_completed": 0,
+        "cleared": false,
+        "text": "v0.1 gate \u2014 use it daily for 4 weeks before any new surface.\nDays used: 0/28\nLogs recorded: 0\nRetros completed: 0/4\n28 day(s) to go. Check the metric, don't re-decide \u2014 keep logging."
+      }
+    },
+    {
+      "input": {
+        "days_used": 28,
+        "logs_recorded": 40,
+        "retros_completed": 4
+      },
+      "expected": {
+        "target_days": 28,
+        "target_retros": 4,
+        "days_used": 28,
+        "logs_recorded": 40,
+        "retros_completed": 4,
+        "cleared": true,
+        "text": "v0.1 gate \u2014 use it daily for 4 weeks before any new surface.\nDays used: 28/28\nLogs recorded: 40\nRetros completed: 4/4\nGate cleared. You earned the next surface."
+      }
+    },
+    {
+      "input": {
+        "days_used": 30,
+        "logs_recorded": 50,
+        "retros_completed": 3
+      },
+      "expected": {
+        "target_days": 28,
+        "target_retros": 4,
+        "days_used": 30,
+        "logs_recorded": 50,
+        "retros_completed": 3,
+        "cleared": false,
+        "text": "v0.1 gate \u2014 use it daily for 4 weeks before any new surface.\nDays used: 30/28\nLogs recorded: 50\nRetros completed: 3/4\n0 day(s) to go. Check the metric, don't re-decide \u2014 keep logging."
+      }
+    }
+  ]
+}

@@ -9,7 +9,7 @@ from modules.reconnect import decay
 from modules.vitals import energy
 
 
-def test_vitals_defaults_set_and_planner_consumes_peak(graph):
+def test_vitals_windows_and_planner_shapes_deep_work_to_evening(graph):
     assert energy.windows(graph)[0]["phase"] == "peak"
     seen = []
     graph.bus.subscribe("energy.updated", lambda t, p: seen.append(p))
@@ -19,12 +19,14 @@ def test_vitals_defaults_set_and_planner_consumes_peak(graph):
     with pytest.raises(ValueError):
         energy.set_windows(graph, [{"phase": "zoomies", "start": "01:00", "end": "02:00"}])
 
-    # offline planner schedules goal-fallback tasks into the peak window
+    # Energy shaping (T3): deep work goes to the evening for the tired night owl,
+    # never the morning — even when the "peak" window is set to the morning.
     graph.session("horizon", {"goals:write"}).create_entity(
         "goal", {"level": "goal", "title": "Deep work"}, source="seed")
     planner.plan_week(graph)
     tasks = planner.week_tasks(graph)
-    assert "06:30" in tasks[0]["attrs"]["if_then"]
+    assert "20:00" in tasks[0]["attrs"]["if_then"]
+    assert "06:30" not in tasks[0]["attrs"]["if_then"]
 
 
 def test_ledger_log_and_summary(graph):

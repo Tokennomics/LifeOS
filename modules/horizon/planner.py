@@ -10,6 +10,7 @@ import argparse
 import datetime
 import json
 
+from modules.horizon import core
 from substrate.graph import Graph
 
 SCOPES = {"goals:read", "tasks:read", "tasks:write", "events:read"}
@@ -45,31 +46,34 @@ PLANNER_SCHEMA = {
     "additionalProperties": False,
 }
 
-_FALLBACK_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-
-
 def week_id(dt: datetime.datetime | datetime.date | None = None) -> str:
     dt = dt or datetime.datetime.now(datetime.timezone.utc)
     iso = dt.isocalendar()
     return f"{iso[0]}-W{iso[1]:02d}"
 
 
-def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = "planner") -> dict:
+def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = "planner",
+              energy_baseline: str = "tired") -> dict:
+    """Plan the week. The offline path runs the shared anti-hindrance core (T3):
+    finishes stuck work before starting new, shapes deep work into the evening and
+    admin into the trough, and hard-caps the week while the baseline is tired."""
     session = graph.session("horizon", SCOPES)
     week = week or week_id()
+    cap = core.weekly_cap(energy_baseline)
 
     existing = session.find_entities("task", {"week": week}, limit=50)
-    if len(existing) >= 3:  # idempotent Monday re-runs
+    if len(existing) >= cap:  # idempotent re-runs
         return {"week": week, "tasks": len(existing), "method": "already-planned"}
 
     goals = session.find_entities("goal", {"level": "goal"}, limit=50)
     open_tasks = [t for t in session.find_entities("task", {"status": "open"}, limit=200)
                   if t["attrs"].get("week") != week]
-
-    from modules.vitals import energy  # Vitals is a layer: schedulers consume its windows
+    open_by_id = {t["id"]: t for t in open_tasks}
+    goal_by_title = {g["attrs"].get("title"): g["id"] for g in goals}
 
     if claude is not None and claude.available:
         method = "claude"
+        from modules.vitals import energy  # Vitals is a layer: schedulers consume its windows
         busy = _busy_this_week(session, week)
         context = json.dumps({
             "week": week,
@@ -80,49 +84,57 @@ def plan_week(graph: Graph, claude=None, week: str | None = None, source: str = 
             "energy_windows": energy.windows(graph),
         })
         data = claude.complete_json(PLANNER_SYSTEM, context, schema=PLANNER_SCHEMA)
-        proposals = data["tasks"][:7]
+        descriptors = []
+        for p in data["tasks"][:cap]:
+            eid = p.get("existing_task_id") or None
+            if eid in open_by_id:
+                cycles = int(open_by_id[eid]["attrs"].get("cycles", 0) or 0) + 1
+            else:
+                eid, cycles = None, 1
+            descriptors.append({
+                "origin": "reuse" if eid else "new", "id": eid,
+                "title": p["title"], "if_then": p["if_then"], "status": "open",
+                "cycles": cycles, "smallest_piece": cycles > core.STALE_CYCLES,
+                "goal_title": p.get("goal_title", ""),
+            })
     else:
         method = "offline"
-        peak = energy.phase_start(graph, "peak", "17:00")
-        proposals = [
-            {"title": t["attrs"].get("title", ""), "if_then": t["attrs"].get("if_then", ""),
-             "existing_task_id": t["id"], "goal_title": ""}
-            for t in open_tasks[:7]
-        ]
-        slot = 0
-        for goal in goals:
-            if len(proposals) >= 3:
-                break
-            title = goal["attrs"].get("title", "goal")
-            proposals.append({
-                "title": f"Advance: {title}",
-                "if_then": f"If it's {_FALLBACK_DAYS[slot % len(_FALLBACK_DAYS)]} {peak}, "
-                           f"then I spend 45 min on '{title}'",
-                "existing_task_id": "", "goal_title": title,
-            })
-            slot += 1
+        descriptors = core.offline_plan({
+            "baseline": energy_baseline,
+            "goals": [{"title": g["attrs"].get("title", "")} for g in goals],
+            "open_tasks": [{"id": t["id"], "title": t["attrs"].get("title", ""),
+                            "if_then": t["attrs"].get("if_then", ""),
+                            "cycles": t["attrs"].get("cycles", 0)} for t in open_tasks],
+        })
 
-    open_by_id = {t["id"]: t for t in open_tasks}
-    goal_by_title = {g["attrs"].get("title"): g["id"] for g in goals}
+    count = _write_descriptors(session, week, descriptors, open_by_id, goal_by_title, source)
+    graph.bus.publish("plan.updated", {"week": week, "tasks": count, "module": "horizon"})
+    return {"week": week, "tasks": count, "method": method}
+
+
+def _write_descriptors(session, week: str, descriptors: list[dict],
+                       open_by_id: dict, goal_by_title: dict, source: str) -> int:
+    """Apply core plan descriptors to the graph. Carries cycles + smallest_piece
+    onto the task so the boredom rule can escalate stuck work next cycle."""
     count = 0
-    for p in proposals:
-        if p["existing_task_id"] in open_by_id:
-            patch = {"week": week}
-            if p["if_then"]:
-                patch["if_then"] = p["if_then"]
-            session.update_entity(p["existing_task_id"], patch, source=source)
+    for d in descriptors:
+        extra = {"cycles": d["cycles"], "smallest_piece": d["smallest_piece"]}
+        if d["origin"] == "reuse" and d["id"] in open_by_id:
+            patch = {"week": week, **extra}
+            if d["if_then"]:
+                patch["if_then"] = d["if_then"]
+            session.update_entity(d["id"], patch, source=source)
         else:
             tid = session.create_entity(
-                "task", {"title": p["title"], "if_then": p["if_then"], "status": "open", "week": week},
+                "task", {"title": d["title"], "if_then": d["if_then"], "status": "open",
+                         "week": week, **extra},
                 source=source,
             )
-            goal_id = goal_by_title.get(p["goal_title"])
+            goal_id = goal_by_title.get(d["goal_title"])
             if goal_id:
                 session.create_edge(tid, goal_id, "feeds", source=source)
         count += 1
-
-    graph.bus.publish("plan.updated", {"week": week, "tasks": count, "module": "horizon"})
-    return {"week": week, "tasks": count, "method": method}
+    return count
 
 
 def _busy_this_week(session, week: str) -> list[dict]:
@@ -185,7 +197,8 @@ def main():
     cfg = load_config(args.config)
     graph = Graph(migrate(cfg), default_owner=cfg.get("owner", {}).get("id"))
     claude = None if args.offline else ClaudeGateway(cfg)
-    result = plan_week(graph, claude=claude)
+    baseline = cfg.get("vitals", {}).get("energy_baseline", "tired")
+    result = plan_week(graph, claude=claude, energy_baseline=baseline)
     print(json.dumps(result))
     print(format_week(graph, result["week"]))
 

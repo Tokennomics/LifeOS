@@ -10,7 +10,7 @@ import time
 import httpx
 
 from gateway.claude import ClaudeGateway
-from modules.horizon import planner, retro, vision_intake
+from modules.horizon import gate, planner, retro, vision_intake
 from modules.voiceos import capture as voice_capture
 from substrate import load_config
 from substrate.bus import Bus
@@ -25,6 +25,8 @@ HELP = (
     "/log <n> — mark task n of this week done\n"
     "/retro — score the week + reflection\n"
     "/capture <thought> — capture into the graph (tasks/people/interests extracted)\n"
+    "/parked — new-project ideas you parked (captured, not abandoned)\n"
+    "/gate — v0.1 gate progress: days used, logs, retros\n"
     "/help — this message\n"
     "Anything else is echoed back (wiring check)."
 )
@@ -68,7 +70,8 @@ class TelegramBot:
             result = vision_intake.intake(payload, self._ensure_graph(), claude=self.claude)
             return chat_id, vision_intake.format_summary(result)
         if text.startswith("/plan"):
-            result = planner.plan_week(self._ensure_graph(), claude=self.claude)
+            baseline = self.cfg.get("vitals", {}).get("energy_baseline", "tired")
+            result = planner.plan_week(self._ensure_graph(), claude=self.claude, energy_baseline=baseline)
             return chat_id, planner.format_week(self._ensure_graph(), result["week"])
         if text.startswith("/log"):
             arg = text[len("/log"):].strip()
@@ -87,6 +90,15 @@ class TelegramBot:
                 return chat_id, "Usage: /capture <the thought>"
             result = voice_capture.capture(payload, self._ensure_graph(), claude=self.claude)
             return chat_id, voice_capture.format_summary(result)
+        if text.startswith("/parked"):
+            items = voice_capture.list_parked(self._ensure_graph())
+            if not items:
+                return chat_id, "No parked ideas. Distraction-free."
+            lines = ["Parked ideas — captured, not abandoned:"]
+            lines += [f"• {it['text']}" for it in items]
+            return chat_id, "\n".join(lines)
+        if text.startswith("/gate"):
+            return chat_id, gate.gate_status(self._ensure_graph())["text"]
         return chat_id, f"echo: {text}"
 
     # ---- transport -------------------------------------------------------
