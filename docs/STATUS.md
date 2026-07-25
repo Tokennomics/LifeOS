@@ -75,6 +75,18 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   a stranger should get. Membership states live on the grants ACL
   (`crew:admin|member|invited|requested|blocked`), which required adding
   **`GraphSession.revoke()`** to substrate — an ACL that can't revoke can't express leave/block.
+- **Admission policy (admins choose how people get in).** Orthogonal to visibility:
+  `admission = invite | approval | open` — invite-only, request-then-admin-approves (default),
+  or drop-in (a request admits instantly). Private crews are always invite-only, since something
+  unlisted can't be requested. `set_policy()` / `POST /v1/crews/policy` is admin-gated.
+- **Discover — intent-driven local matching.** `modules/discover/` (`core.py` pure matcher +
+  `discover.py` graph flow) + `/v1/discover*`. Declare an intent ("in Lisbon, want sushi night");
+  public events and public crews are ranked by interest overlap, soonest first. Two invariants,
+  in order: **only `visibility: public` items are ever returned** (privacy is a filter applied
+  before scoring — invisibility is never just a low rank), and a city filter means local.
+  Browse (`min_score=0`) shows everything local and public best-first; search
+  (`only_matches=True`) returns only genuine matches. With no interests given it falls back to
+  the graph's own `interest` entities — the ones VoiceOS already extracts from your captures.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
