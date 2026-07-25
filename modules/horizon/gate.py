@@ -39,7 +39,12 @@ def gate_status(graph: Graph) -> dict:
         days.add(_day(r.get("created_at", "")))
     days.discard("")
 
-    return core.gate_from_counts(len(days), len(done), len(retros))
+    # Count distinct weeks retro'd, not raw metric rows — re-running a week's
+    # retro must not inflate gate progress.
+    retro_weeks = {r["attrs"].get("week") for r in retros}
+    retro_weeks.discard(None)
+
+    return core.gate_from_counts(len(days), len(done), len(retro_weeks))
 
 
 def main():

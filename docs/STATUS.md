@@ -21,6 +21,10 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   Persists to **IndexedDB**. Offline Horizon flows mirror the server's deterministic
   fallbacks. Service worker for airplane-mode load; installable; "Travel · local only" badge.
   Publishes to GitHub Pages via `.github/workflows/pages.yml` (shell only — data stays local).
+  **Daily-driver hardening:** tap a task to log / tap again to undo; edit the vision & goals
+  (rename/add/remove) instead of re-pasting; the retro persists across reload; delete a capture
+  or parked idea. Gate honesty fix (server + Travel): `retros_completed` counts distinct weeks,
+  so re-running a week's retro can't inflate gate progress.
 - **T3 — Anti-hindrance planner mechanics.** All four obstacles encoded as product behaviour,
   working on BOTH the server and in Travel Mode via one shared pure core
   (`modules/horizon/core.py` ⇄ `surfaces/app/www/horizon-core.js`):

@@ -189,3 +189,7 @@ def test_gate_counts_are_real_not_estimated(graph):
     assert g1["logs_recorded"] == 2
     assert g1["retros_completed"] == 1
     assert g1["days_used"] >= 1
+
+    # Re-running the same week's retro must not inflate the count (distinct weeks).
+    retro.run_retro(graph)
+    assert gate.gate_status(graph)["retros_completed"] == 1

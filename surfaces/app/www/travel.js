@@ -20,7 +20,7 @@ const Core = HorizonCore; // shared, byte-identical logic (horizon-core.js) — 
 // same anti-hindrance rules the server uses at energy_baseline: tired.
 const BASELINE = "tired";
 
-const state = { tab: "today", items: [], retro: null, busy: false, enter: true };
+const state = { tab: "today", items: [], editing: false, busy: false, enter: true };
 
 /* ---------- IndexedDB (single 'items' store, keyed by stable key) ---------- */
 
@@ -73,6 +73,15 @@ async function dbClear() {
   });
 }
 
+async function dbDelete(key) {
+  const store = await tx("readwrite");
+  return new Promise((resolve, reject) => {
+    const req = store.delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
 /* ---------- graph-shaped records (mirror substrate entity/edge shapes) ---------- */
 
 async function createEntity(kind, attrs) {
@@ -93,6 +102,13 @@ async function patchEntity(item, patch) {
   item.attrs = { ...item.attrs, ...patch };
   await dbPut(item);
   return item;
+}
+
+/* Remove an entity/edge and any edges that reference it (goal + its feeds edge). */
+async function removeItem(key) {
+  const gone = state.items.filter((i) => i.key === key || i.src === key || i.dst === key).map((i) => i.key);
+  state.items = state.items.filter((i) => !gone.includes(i.key));
+  for (const k of gone) await dbDelete(k);
 }
 
 /* ---------- selectors ---------- */
@@ -174,20 +190,53 @@ async function doPlan(week) {
   return { week, tasks: count, method: "offline" };
 }
 
-/* planner.log_done: mark the task done (idempotent — already-done stays done). */
-async function doLog(taskKey) {
-  const task = state.items.find((i) => i.key === taskKey);
-  if (!task) return;
-  if (task.attrs.status !== "done") await patchEntity(task, { status: "done", done_at: nowISO() });
+/* Persist in-progress edit-view inputs so a re-render never drops unsaved text. */
+async function flushEdits(root) {
+  const v = visions()[0];
+  const vt = root.querySelector("#edit-vision") && root.querySelector("#edit-vision").value.trim();
+  if (v && vt) await patchEntity(v, { title: vt });
+  for (const g of planGoals()) {
+    const inp = root.querySelector(`[data-goal-name="${CSS.escape(g.key)}"]`);
+    const nt = inp && inp.value.trim();
+    if (nt && nt !== g.attrs.title) await patchEntity(g, { title: nt });
+  }
 }
 
-/* Weekly retro via the shared core: score, write the metric, compose the reflection. */
+/* Add a goal under the current vision (used by the edit view). */
+async function addGoal(title) {
+  const v = visions()[0];
+  if (!v || !title) return;
+  const g = await createEntity("goal", { level: "goal", title, why: "", horizon_weeks: 12, focus: false });
+  await createEdge(g.key, v.key, "feeds");
+}
+
+/* Toggle a task's done state (tap logs it, tap again undoes a mis-tap). */
+async function toggleLog(taskKey) {
+  const task = state.items.find((i) => i.key === taskKey);
+  if (!task) return;
+  const done = task.attrs.status === "done";
+  await patchEntity(task, done ? { status: "open", done_at: "" } : { status: "done", done_at: nowISO() });
+}
+
+const retroMetric = (week) =>
+  entities("metric").filter((m) => m.attrs.type === "weekly_retro" && m.attrs.week === week).sort(byTs).pop();
+
+/* Recompute the retro text for a week from its current tasks (survives reload). */
+function retroText(week) {
+  if (!retroMetric(week)) return null;
+  const views = weekTasks(week).map((t) => ({ title: t.attrs.title || "", status: t.attrs.status || "open" }));
+  return Core.retro(week, views).text;
+}
+
+/* Weekly retro via the shared core. One metric per week (upsert), so re-running
+   the retro never inflates the gate's retro count. */
 async function doRetro(week) {
   const views = weekTasks(week).map((t) => ({ title: t.attrs.title || "", status: t.attrs.status || "open" }));
   const scored = Core.retro(week, views);
-  await createEntity("metric", {
-    type: "weekly_retro", week, planned: scored.planned, done: scored.done, rate: scored.rate,
-  });
+  const patch = { planned: scored.planned, done: scored.done, rate: scored.rate };
+  const existing = retroMetric(week);
+  if (existing) await patchEntity(existing, patch);
+  else await createEntity("metric", { type: "weekly_retro", week, ...patch });
   return scored;
 }
 
@@ -205,12 +254,13 @@ async function doCapture(text) {
 function computeGate() {
   const done = entities("task").filter((t) => t.attrs.status === "done");
   const retros = entities("metric").filter((m) => m.attrs.type === "weekly_retro");
+  const retroWeeks = new Set(retros.map((m) => m.attrs.week));  // distinct weeks, not raw metrics
   const days = new Set();
   for (const t of done) days.add((t.attrs.done_at || t.ts || "").slice(0, 10));
   for (const c of entities("content")) days.add((c.ts || "").slice(0, 10));
   for (const r of retros) days.add((r.ts || "").slice(0, 10));
   days.delete("");
-  return Core.gateFromCounts(days.size, done.length, retros.length);
+  return Core.gateFromCounts(days.size, done.length, retroWeeks.size);
 }
 
 /* ---------- export (the reconciliation bundle T2 imports) ---------- */
@@ -289,6 +339,19 @@ function todayView() {
       <textarea id="vision-text" placeholder="Freedom by 40&#10;- Ship Life OS and run my week with it&#10;- Train 3x per week"></textarea>
       <button class="primary" data-act="vision">Create my plan</button>
       <p class="hint">Line 1 is the vision; each line below becomes a goal. No account, no server — it stays in this browser.</p></div>`;
+  } else if (state.editing) {
+    html += `<div class="card"><h2>Edit vision &amp; goals</h2>
+      <input class="field" id="edit-vision" value="${esc(v.attrs.title)}" aria-label="Vision">
+      ${goals.map((g) => `
+        <div class="row2" style="align-items:center">
+          <input class="field" data-goal-name="${g.key}" value="${esc(g.attrs.title)}">
+          <button class="pill ${g.attrs.focus ? "warm" : ""}" data-focus="${g.key}" style="flex:none">${g.attrs.focus ? "★" : "☆"}</button>
+          <button class="pill bad" data-goal-del="${g.key}" style="flex:none">✕</button>
+        </div>`).join("")}
+      <div class="row2"><input class="field" id="new-goal" placeholder="Add a goal">
+        <button class="pill" data-act="add-goal" style="flex:none">Add</button></div>
+      <button class="primary" data-act="save-goals">Done editing</button>
+      <p class="hint">Rename, remove, or add goals. Changes apply to your next weekly plan.</p></div>`;
   } else {
     html += `<div class="card"><h2>Your vision</h2>
       <p class="big">${esc(v.attrs.title)}</p>`;
@@ -298,7 +361,7 @@ function todayView() {
         <div class="person"><div class="who"><div class="name">${esc(g.attrs.title)}</div></div>
         <div class="pills"><button class="pill ${g.attrs.focus ? "warm" : ""}" data-focus="${g.key}">${g.attrs.focus ? "★ focus" : "☆"}</button></div></div>`).join("");
     }
-    html += `</div>`;
+    html += `<button class="ghost" data-act="edit">Edit vision &amp; goals</button></div>`;
   }
 
   html += `<div class="card"><h2>Week ${esc(week)}</h2>`;
@@ -313,14 +376,23 @@ function todayView() {
         <div><div class="title">${esc(t.attrs.title)}</div>
         ${t.attrs.if_then ? `<div class="ifthen">${esc(t.attrs.if_then)}</div>` : ""}</div>
       </div>`).join("");
+    html += `<p class="hint">Tap a task to log it · tap again to undo.</p>`;
     html += `<button class="ghost" data-act="retro">Run the weekly retro</button>`;
   }
   html += `</div>`;
 
-  if (state.retro) {
-    html += `<div class="card"><h2>Retro</h2><div class="retro-text">${esc(state.retro)}</div></div>`;
+  const rt = retroText(week);
+  if (rt) {
+    html += `<div class="card"><h2>Retro</h2><div class="retro-text">${esc(rt)}</div></div>`;
   }
   return html;
+}
+
+/* A feed row with a delete (✕) button, for captures and parked ideas. */
+function delRow(key, inner) {
+  return `<div class="feed-item" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+    <div class="label" style="margin:0">${inner}</div>
+    <button class="pill bad" data-del-content="${key}" style="flex:none">✕</button></div>`;
 }
 
 function captureView() {
@@ -331,11 +403,11 @@ function captureView() {
       <button class="primary" data-act="capture">Capture</button>
       <p class="hint">A new-project idea gets parked, not planned — captured so it's not lost, but the current gate keeps priority.</p></div>
     <div class="card"><h2>Recent captures</h2>
-      ${recent.length ? recent.map((r) => `<div class="feed-item"><div class="label">${esc(r.attrs.text)}</div></div>`).join("")
+      ${recent.length ? recent.map((r) => delRow(r.key, esc(r.attrs.text))).join("")
                       : `<p class="empty">Nothing captured yet.</p>`}
     </div>`;
   html += `<div class="card"><h2>Parked ideas</h2>
-      ${parked.length ? parked.map((r) => `<div class="feed-item"><div class="kind">parked</div><div class="label">${esc(r.attrs.text)}</div></div>`).join("")
+      ${parked.length ? parked.map((r) => delRow(r.key, `<div class="kind">parked</div>` + esc(r.attrs.text))).join("")
                       : `<p class="empty">Distraction-free. New-project ideas you park land here.</p>`}</div>`;
   return html;
 }
@@ -361,27 +433,48 @@ function wire(root) {
       $("#vision-text").value = text + "\n\n" + result.questions.map((q) => "? " + q).join("\n");
       return toast("A few questions first…");
     }
-    state.retro = null;
     render();
   }, "Plan created ✔"));
 
   on("[data-act=plan]", () => act(async () => { await doPlan(weekId()); render(); }, "Week planned ✔"));
 
   on("[data-focus]", (el) => act(async () => {
+    if (state.editing) await flushEdits(root);
     const g = state.items.find((i) => i.key === el.dataset.focus);
     if (g) await patchEntity(g, { focus: !g.attrs.focus });
     render();
   }));
 
-  root.querySelectorAll(".task:not(.done)").forEach((el) => el.addEventListener("click", () => act(async () => {
-    await doLog(el.dataset.log);
-    render();
-  }, "Logged ✔")));
+  on("[data-act=edit]", () => { state.editing = true; render(); });
 
-  on("[data-act=retro]", () => act(async () => {
-    state.retro = (await doRetro(weekId())).text;
+  on("[data-act=add-goal]", () => act(async () => {
+    const t = $("#new-goal").value.trim();
+    if (!t) return toast("Name the goal.");
+    await flushEdits(root);
+    await addGoal(t);
     render();
-  }));
+  }, "Goal added ✔"));
+
+  on("[data-goal-del]", (el) => act(async () => {
+    await flushEdits(root);
+    await removeItem(el.dataset.goalDel);
+    render();
+  }, "Goal removed"));
+
+  on("[data-act=save-goals]", () => act(async () => {
+    await flushEdits(root);
+    state.editing = false;
+    render();
+  }, "Saved ✔"));
+
+  on("[data-del-content]", (el) => act(async () => { await removeItem(el.dataset.delContent); render(); }, "Removed"));
+
+  root.querySelectorAll(".task").forEach((el) => el.addEventListener("click", () => act(async () => {
+    await toggleLog(el.dataset.log);
+    render();
+  })));
+
+  on("[data-act=retro]", () => act(async () => { await doRetro(weekId()); render(); }));
 
   on("[data-act=capture]", () => act(async () => {
     const text = $("#capture-text").value.trim();
@@ -408,7 +501,7 @@ $("#set-reset").addEventListener("click", () => act(async () => {
   if (!confirm("Erase all Travel Mode data on this phone? Export first if you want to keep it.")) return;
   await dbClear();
   state.items = [];
-  state.retro = null;
+  state.editing = false;
   $("#settings").close();
   render();
 }, "Local data cleared."));
