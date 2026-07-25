@@ -16,7 +16,7 @@ on:
       - ".github/workflows/android.yml"
 
 permissions:
-  contents: read
+  contents: write   # publish the APK to a rolling prerelease
 
 jobs:
   apk:
@@ -47,9 +47,25 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon --stacktrace
-      - name: Upload the APK
+      - name: Name the APK
+        run: cp surfaces/app/android/app/build/outputs/apk/debug/app-debug.apk LifeOS-Travel.apk
+      - name: Upload the APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: lifeos-travel-apk
-          path: surfaces/app/android/app/build/outputs/apk/debug/app-debug.apk
+          path: LifeOS-Travel.apk
           if-no-files-found: error
+      - name: Publish to a rolling prerelease (stable download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: travel-app
+          name: LifeOS Travel (latest)
+          prerelease: true
+          files: LifeOS-Travel.apk
+          body: |
+            Sideloadable Android build of **LifeOS Travel Mode** — fully offline,
+            local-only (nothing leaves your phone). Rebuilt automatically on every change.
+
+            **Install:** download `LifeOS-Travel.apk` below, open it on your phone, and
+            allow "install unknown apps" when prompted. This is a debug-signed build for
+            personal sideloading, not a Play Store release.
