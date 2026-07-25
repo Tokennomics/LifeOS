@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"   # Gradle 8.11 + AGP 8.7 want JDK 17
+          java-version: "21"   # Capacitor 7's Android lib compiles with Java 21
       - uses: android-actions/setup-android@v3
       - name: Install Capacitor tooling
         working-directory: surfaces/app
