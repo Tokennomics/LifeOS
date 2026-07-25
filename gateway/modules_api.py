@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
+from modules.coordinate import coordinator
 from modules.hearth import spaces as hearth
 from modules.ledger import ledger
 from modules.memento import capsules, quests
@@ -92,6 +93,24 @@ class ResolveIn(BaseModel):
 class SpaceIn(BaseModel):
     name: str
     member_ids: list[str] = []
+
+
+class CoordProposeIn(BaseModel):
+    person_id: str
+    slots: list[str]
+    places: list[str]
+    weights: dict = {}          # owner's {slots:{slot:w}, places:{place:w}}; defaults to "free at all"
+
+
+class CoordRespondIn(BaseModel):
+    coordination_id: str
+    weights: dict = {}          # peer's vector — sanitized to the proposed slots/places
+
+
+class CoordApproveIn(BaseModel):
+    coordination_id: str
+    side: str                   # owner | peer
+    choice: int                 # index into the ranked candidates
 
 
 def _graph(request: Request):
@@ -250,5 +269,25 @@ def build_router(auth) -> APIRouter:
     @router.post("/spaces")
     def spaces_create(request: Request, body: SpaceIn):
         return guard(lambda: hearth.create_space(_graph(request), body.name, body.member_ids))
+
+    # ---- Coordinate (Phase 3: mediator-brokered 1:1 scheduling) ----------
+
+    @router.get("/coordinate")
+    def coordinate_list(request: Request):
+        return {"coordinations": coordinator.list_open(_graph(request))}
+
+    @router.post("/coordinate/propose")
+    def coordinate_propose(request: Request, body: CoordProposeIn):
+        return guard(lambda: coordinator.propose(
+            _graph(request), body.person_id, body.slots, body.places, body.weights))
+
+    @router.post("/coordinate/respond")
+    def coordinate_respond(request: Request, body: CoordRespondIn):
+        return guard(lambda: coordinator.respond(_graph(request), body.coordination_id, body.weights))
+
+    @router.post("/coordinate/approve")
+    def coordinate_approve(request: Request, body: CoordApproveIn):
+        return guard(lambda: coordinator.approve(
+            _graph(request), body.coordination_id, body.side, body.choice))
 
     return router

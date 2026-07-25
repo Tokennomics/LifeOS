@@ -1,0 +1,71 @@
+# Build the LifeOS Travel Mode Android app (debug APK you can sideload).
+#
+# The Capacitor project in surfaces/app wraps the offline PWA. We point the app's
+# entry at travel.html so the installed app IS Travel Mode (no gateway, fully
+# offline). The debug APK is signed with the standard debug key — installable by
+# enabling "install unknown apps" on the phone. A signed release build (Play
+# Store) would need a keystore + Apple-equivalent accounts; out of scope here.
+name: Build Android app (Travel Mode)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "surfaces/app/**"
+      - ".github/workflows/android.yml"
+
+permissions:
+  contents: write   # publish the APK to a rolling prerelease
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"   # Capacitor 7's Android lib compiles with Java 21
+      - uses: android-actions/setup-android@v3
+      - name: Install Capacitor tooling
+        working-directory: surfaces/app
+        run: npm ci
+      - name: Use Travel Mode as the app entry (offline, no gateway)
+        working-directory: surfaces/app
+        run: cp www/travel.html www/index.html
+      - name: Sync web assets into the Android project
+        # Regenerates capacitor.build.gradle + the capacitor-cordova-android-plugins
+        # module and copies www into the app's assets.
+        working-directory: surfaces/app
+        run: npx cap sync android
+      - name: Build debug APK
+        working-directory: surfaces/app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Name the APK
+        run: cp surfaces/app/android/app/build/outputs/apk/debug/app-debug.apk LifeOS-Travel.apk
+      - name: Upload the APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifeos-travel-apk
+          path: LifeOS-Travel.apk
+          if-no-files-found: error
+      - name: Publish to a rolling prerelease (stable download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: travel-app
+          name: LifeOS Travel (latest)
+          prerelease: true
+          files: LifeOS-Travel.apk
+          body: |
+            Sideloadable Android build of **LifeOS Travel Mode** — fully offline,
+            local-only (nothing leaves your phone). Rebuilt automatically on every change.
+
+            **Install:** download `LifeOS-Travel.apk` below, open it on your phone, and
+            allow "install unknown apps" when prompted. This is a debug-signed build for
+            personal sideloading, not a Play Store release.
