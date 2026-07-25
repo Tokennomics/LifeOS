@@ -122,8 +122,13 @@ its own phase with its own kill-gate:
   leave-always-allowed, admin-gated invite/approve, blocked users excluded from coordination.
 - **Location privacy** — ✅ *city-level only* in the model (no coordinates on a crew); keep it that
   way in any public listing, and keep listing opt-in (`visibility: public` is explicit).
-- **Sequencing:** private crews ✅ → invite/request lifecycle + safety ✅ → **accounts + hosting
-  (next)** → public directory. The directory is now gated on identity alone, not on safety.
+- **Discovery mechanics** — ✅ *built*: `admission = invite|approval|open` (admins choose who gets
+  in, independent of listing), public events with topic+city, and intent-driven matching
+  ("in Lisbon, want sushi night" → ranked public events/crews; private things never surface).
+- **Sequencing:** private crews ✅ → invite/request lifecycle + safety ✅ → admission policy +
+  intent discovery ✅ → **accounts + hosting (next)** → public directory across users.
+  Everything the directory needs is built except identity; the matching engine and the privacy
+  invariants are already in place and tested, so hosting is plumbing rather than design.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.

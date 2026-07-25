@@ -5,9 +5,16 @@ Membership is the grants ACL (same primitive Hearth uses), one row per state:
 State transitions revoke the old grant and add the new one, so a person is only ever in
 one state per crew.
 
-Visibility:
-    private  — invite-only, never listed in a directory query.
-    public   — discoverable (city-level) and joinable by request, subject to admin approval.
+Two orthogonal knobs the admin controls:
+
+    visibility  private — never listed in a directory query.
+                public  — discoverable (city-level).
+
+    admission   invite   — invites only; requests are refused.
+                approval — anyone may request; an admin admits them (default).
+                open     — a request admits instantly (a drop-in crew).
+
+Private crews are always invite-only: something unlisted can't be requested.
 
 Safety is a prerequisite of discovery, not a follow-up: blocking, reporting and leaving
 exist here from the start, and a blocked person cannot be invited, request, or be approved.
@@ -23,6 +30,14 @@ ADMIN, MEMBER, INVITED, REQUESTED, BLOCKED = (
     "crew:admin", "crew:member", "crew:invited", "crew:requested", "crew:blocked")
 _STATES = (ADMIN, MEMBER, INVITED, REQUESTED, BLOCKED)
 VISIBILITIES = ("private", "public")
+ADMISSIONS = ("invite", "approval", "open")
+
+
+def _effective_admission(attrs: dict) -> str:
+    """Private crews are invite-only regardless of what's stored."""
+    if attrs.get("visibility", "private") != "public":
+        return "invite"
+    return attrs.get("admission", "approval")
 
 
 def _norm(s: str, cap: int = 80) -> str:
@@ -93,6 +108,7 @@ def _view(session, crew: dict) -> dict:
     return {
         "id": crew["id"], "name": a.get("name", "?"), "topic": a.get("topic", ""),
         "city": a.get("city", ""), "visibility": a.get("visibility", "private"),
+        "admission": _effective_admission(a),
         "members": _names(session, members), "member_count": len(members),
         "admins": admins,
         "invited": _names(session, _holders(session, crew["id"], INVITED)),
@@ -105,12 +121,15 @@ def _view(session, crew: dict) -> dict:
 
 def create(graph: Graph, name: str, topic: str = "", city: str = "",
            member_ids: list[str] | None = None, visibility: str = "private",
-           admin_id: str | None = None, source: str = MODULE) -> dict:
+           admin_id: str | None = None, admission: str = "approval",
+           source: str = MODULE) -> dict:
     name, topic, city = _norm(name), _norm(topic, 40), _norm(city, 60)
     if not name:
         raise ValueError("a crew needs a name")
     if visibility not in VISIBILITIES:
         raise ValueError(f"visibility must be one of {VISIBILITIES}")
+    if admission not in ADMISSIONS:
+        raise ValueError(f"admission must be one of {ADMISSIONS}")
     session = graph.session(MODULE, SCOPES)
     for existing in session.find_entities("content", {"type": "crew"}, limit=200):
         if _key(existing["attrs"].get("name")) == _key(name):
@@ -118,7 +137,7 @@ def create(graph: Graph, name: str, topic: str = "", city: str = "",
 
     crew_id = session.create_entity("content", {
         "type": "crew", "name": name, "topic": topic, "city": city,
-        "visibility": visibility, "created_at": now_iso(),
+        "visibility": visibility, "admission": admission, "created_at": now_iso(),
     }, source=source)
     if admin_id:
         _person(session, admin_id)
@@ -203,19 +222,46 @@ def decline_invite(graph: Graph, crew_id: str, person_id: str, source: str = MOD
 
 
 def request_join(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:
-    """Ask to join a PUBLIC crew. Private crews are invite-only, by design."""
+    """Ask to join. The crew's admission policy decides what happens:
+    invite -> refused, approval -> queued for an admin, open -> admitted on the spot."""
     session = graph.session(MODULE, SCOPES)
     crew = _load(session, crew_id)
     _person(session, person_id)
-    if crew["attrs"].get("visibility") != "public":
+    admission = _effective_admission(crew["attrs"])
+    if admission == "invite":
         raise ValueError("this crew is invite-only")
     state = _state_of(session, crew_id, person_id)
     if state == BLOCKED:
         raise ValueError("you can't join that crew")
     if state in (ADMIN, MEMBER):
-        return {**_view(session, crew), "requested": False}
+        return {**_view(session, crew), "requested": False, "joined": False}
+
+    if admission == "open":
+        _set_state(session, crew_id, person_id, MEMBER, source)
+        return {**_view(session, _load(session, crew_id)), "requested": False, "joined": True}
     _set_state(session, crew_id, person_id, REQUESTED, source)
-    return {**_view(session, _load(session, crew_id)), "requested": True}
+    return {**_view(session, _load(session, crew_id)), "requested": True, "joined": False}
+
+
+def set_policy(graph: Graph, crew_id: str, visibility: str | None = None,
+               admission: str | None = None, by: str | None = None,
+               source: str = MODULE) -> dict:
+    """Admin control over how the crew is found and who gets in."""
+    session = graph.session(MODULE, SCOPES)
+    _load(session, crew_id)
+    _require_admin(session, crew_id, by, source)
+    patch = {}
+    if visibility is not None:
+        if visibility not in VISIBILITIES:
+            raise ValueError(f"visibility must be one of {VISIBILITIES}")
+        patch["visibility"] = visibility
+    if admission is not None:
+        if admission not in ADMISSIONS:
+            raise ValueError(f"admission must be one of {ADMISSIONS}")
+        patch["admission"] = admission
+    if patch:
+        session.update_entity(crew_id, patch, source=source)
+    return _view(session, _load(session, crew_id))
 
 
 def approve_request(graph: Graph, crew_id: str, person_id: str, by: str | None = None,

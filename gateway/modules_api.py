@@ -9,6 +9,7 @@ from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
 from modules.coordinate import coordinator
 from modules.crews import crews
+from modules.discover import discover
 from modules.hearth import spaces as hearth
 from modules.ledger import ledger
 from modules.memento import capsules, quests
@@ -121,6 +122,31 @@ class CrewIn(BaseModel):
     member_ids: list[str] = []
     visibility: str = "private"
     admin_id: str | None = None
+    admission: str = "approval"     # invite | approval | open
+
+
+class CrewPolicyIn(BaseModel):
+    crew_id: str
+    visibility: str | None = None
+    admission: str | None = None
+    by: str | None = None
+
+
+class PublicEventIn(BaseModel):
+    title: str
+    start: str = ""
+    city: str = ""
+    topic: str = ""
+    place: str = ""
+    visibility: str = "private"
+    crew_id: str = ""
+
+
+class IntentIn(BaseModel):
+    city: str
+    interests: list[str] = []
+    starts: str = ""
+    ends: str = ""
 
 
 class CrewJoinIn(BaseModel):
@@ -353,7 +379,13 @@ def build_router(auth) -> APIRouter:
     def crews_create(request: Request, body: CrewIn):
         return guard(lambda: crews.create(
             _graph(request), body.name, body.topic, body.city, body.member_ids,
-            visibility=body.visibility, admin_id=body.admin_id))
+            visibility=body.visibility, admin_id=body.admin_id, admission=body.admission))
+
+    @router.post("/crews/policy")
+    def crews_policy(request: Request, body: CrewPolicyIn):
+        """Admin control: how the crew is found (visibility) and who gets in (admission)."""
+        return guard(lambda: crews.set_policy(
+            _graph(request), body.crew_id, body.visibility, body.admission, body.by))
 
     @router.get("/crews/{crew_id}")
     def crews_get(request: Request, crew_id: str):
@@ -427,5 +459,32 @@ def build_router(auth) -> APIRouter:
     def coordinate_group_approve(request: Request, body: GroupApproveIn):
         return guard(lambda: coordinator.approve_group(
             _graph(request), body.coordination_id, body.person_id, body.choice))
+
+    # ---- Discover (intent -> local public events/crews) -------------------
+
+    @router.get("/discover")
+    def discover_find(request: Request, city: str = "", interests: str = ""):
+        """What's on for me here. Omit `interests` to match on your graph's own profile."""
+        wants = [i.strip() for i in interests.split(",") if i.strip()] or None
+        return discover.find(_graph(request), city=city, interests=wants)
+
+    @router.post("/discover/events")
+    def discover_publish(request: Request, body: PublicEventIn):
+        return guard(lambda: discover.publish_event(
+            _graph(request), body.title, body.start, body.city, body.topic,
+            body.place, body.visibility, body.crew_id))
+
+    @router.get("/discover/intents")
+    def discover_intents(request: Request):
+        return {"intents": discover.intents(_graph(request))}
+
+    @router.post("/discover/intents")
+    def discover_set_intent(request: Request, body: IntentIn):
+        return guard(lambda: discover.set_intent(
+            _graph(request), body.city, body.interests, body.starts, body.ends))
+
+    @router.get("/discover/intents/{intent_id}")
+    def discover_for_intent(request: Request, intent_id: str):
+        return guard(lambda: discover.find_for_intent(_graph(request), intent_id))
 
     return router
