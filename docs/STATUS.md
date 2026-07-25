@@ -46,6 +46,17 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   - **Anti-drift golden tests** — `tests/golden/cases.json` runs against both implementations
     (`tests/test_golden.py` + `tests/golden/run_js.mjs`) so JS↔Python drift fails CI.
 
+## Roadmap work started
+
+- **Phase 3 engine — mediator-brokered 1:1 coordination (server-side).** `modules/coordinate/`
+  (`core.py` pure ranking engine + `coordinator.py` graph flow) + `/v1/coordinate/{propose,respond,
+  approve}` + `GET /v1/coordinate`. Two people converge on a `{time, place}` from private weight
+  vectors over the *proposed* options (never a calendar); both humans ratify; on match it writes a
+  busy meet `event` linked to the person. Peer input is sanitized to the proposed keys (untrusted
+  data, never instructions) — the sanctioned alternative to open agent-to-agent negotiation.
+  Tested + simulated (8 tests). **This is the testable substrate; live cross-device use still needs
+  accounts + a reachable coordinator (the NucBox) and ≥2 real users, per the roadmap gate.**
+
 ## Next (from the 2026-07-18 brief)
 
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through

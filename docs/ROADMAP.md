@@ -106,6 +106,9 @@ problem.
   {time, place} via private-set-intersection-style aggregation → **human ratifies**. Single round, all
   peer content treated as untrusted, human approval mandatory. **Kill-gate:** ≥2 users who actually
   want to coordinate.
+  _Engine substrate built (`modules/coordinate/`, 1:1 reconnect case): pure ranking core + graph flow
+  + `/v1/coordinate/*`, tested. The live cross-device feature (accounts, a reachable coordinator, the
+  second user's app) is the remaining, still-gated arc._
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.
