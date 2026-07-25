@@ -119,11 +119,31 @@ class CrewIn(BaseModel):
     topic: str = ""
     city: str = ""
     member_ids: list[str] = []
+    visibility: str = "private"
+    admin_id: str | None = None
 
 
 class CrewJoinIn(BaseModel):
     crew_id: str
     person_id: str
+
+
+class CrewActIn(BaseModel):
+    crew_id: str
+    person_id: str
+    by: str | None = None       # acting admin, where the action is admin-gated
+
+
+class CrewReportIn(BaseModel):
+    crew_id: str
+    reporter_id: str
+    reason: str
+    subject_id: str | None = None
+
+
+class ReportResolveIn(BaseModel):
+    report_id: str
+    action: str = "actioned"    # actioned | dismissed
 
 
 class GroupProposeIn(BaseModel):
@@ -325,17 +345,73 @@ def build_router(auth) -> APIRouter:
     # ---- Crews + group coordination --------------------------------------
 
     @router.get("/crews")
-    def crews_browse(request: Request, topic: str = "", city: str = ""):
-        return {"crews": crews.browse(_graph(request), topic=topic, city=city)}
+    def crews_browse(request: Request, topic: str = "", city: str = "", visibility: str = ""):
+        """visibility='public' is the directory query — the only view a stranger gets."""
+        return {"crews": crews.browse(_graph(request), topic=topic, city=city, visibility=visibility)}
 
     @router.post("/crews")
     def crews_create(request: Request, body: CrewIn):
         return guard(lambda: crews.create(
-            _graph(request), body.name, body.topic, body.city, body.member_ids))
+            _graph(request), body.name, body.topic, body.city, body.member_ids,
+            visibility=body.visibility, admin_id=body.admin_id))
+
+    @router.get("/crews/{crew_id}")
+    def crews_get(request: Request, crew_id: str):
+        return guard(lambda: crews.get(_graph(request), crew_id))
 
     @router.post("/crews/join")
     def crews_join(request: Request, body: CrewJoinIn):
         return guard(lambda: crews.join(_graph(request), body.crew_id, body.person_id))
+
+    @router.post("/crews/invite")
+    def crews_invite(request: Request, body: CrewActIn):
+        return guard(lambda: crews.invite(_graph(request), body.crew_id, body.person_id, body.by))
+
+    @router.post("/crews/invite/accept")
+    def crews_accept(request: Request, body: CrewJoinIn):
+        return guard(lambda: crews.accept_invite(_graph(request), body.crew_id, body.person_id))
+
+    @router.post("/crews/invite/decline")
+    def crews_decline(request: Request, body: CrewJoinIn):
+        return guard(lambda: crews.decline_invite(_graph(request), body.crew_id, body.person_id))
+
+    @router.post("/crews/request")
+    def crews_request(request: Request, body: CrewJoinIn):
+        return guard(lambda: crews.request_join(_graph(request), body.crew_id, body.person_id))
+
+    @router.post("/crews/request/approve")
+    def crews_approve(request: Request, body: CrewActIn):
+        return guard(lambda: crews.approve_request(
+            _graph(request), body.crew_id, body.person_id, body.by))
+
+    @router.post("/crews/request/deny")
+    def crews_deny(request: Request, body: CrewActIn):
+        return guard(lambda: crews.deny_request(_graph(request), body.crew_id, body.person_id, body.by))
+
+    @router.post("/crews/leave")
+    def crews_leave(request: Request, body: CrewJoinIn):
+        return guard(lambda: crews.leave(_graph(request), body.crew_id, body.person_id))
+
+    @router.post("/crews/block")
+    def crews_block(request: Request, body: CrewActIn):
+        return guard(lambda: crews.block(_graph(request), body.crew_id, body.person_id, body.by))
+
+    @router.post("/crews/unblock")
+    def crews_unblock(request: Request, body: CrewActIn):
+        return guard(lambda: crews.unblock(_graph(request), body.crew_id, body.person_id, body.by))
+
+    @router.get("/crews/reports/open")
+    def crews_reports(request: Request, crew_id: str = "", status: str = ""):
+        return {"reports": crews.reports(_graph(request), crew_id=crew_id, status=status)}
+
+    @router.post("/crews/report")
+    def crews_report(request: Request, body: CrewReportIn):
+        return guard(lambda: crews.report(
+            _graph(request), body.crew_id, body.reporter_id, body.reason, body.subject_id))
+
+    @router.post("/crews/report/resolve")
+    def crews_report_resolve(request: Request, body: ReportResolveIn):
+        return guard(lambda: crews.resolve_report(_graph(request), body.report_id, body.action))
 
     @router.post("/coordinate/group/propose")
     def coordinate_group_propose(request: Request, body: GroupProposeIn):

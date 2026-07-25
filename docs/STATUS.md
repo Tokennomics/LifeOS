@@ -66,6 +66,18 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   **Local-only by design:** crews are built from people already in your graph. A *public*
   cross-user directory (land in a new city, join a local crew of strangers) additionally needs
   accounts, a reachable host, moderation/reporting and location privacy — a separate arc.
+- **Crew membership lifecycle + safety rails.** `visibility: private|public`; invite →
+  accept/decline; request → approve/deny (public crews only); leave (always allowed, no
+  friction); admin-gated invite/approve/block. **Safety shipped with discovery, not after it:**
+  block (removes + bars return), unblock, and `report` → an auditable `crew_report` entity with
+  an open/actioned/dismissed moderation queue. Blocked people are excluded from joining *and*
+  from group coordination. `browse(visibility="public")` is the directory query — the only view
+  a stranger should get. Membership states live on the grants ACL
+  (`crew:admin|member|invited|requested|blocked`), which required adding
+  **`GraphSession.revoke()`** to substrate — an ACL that can't revoke can't express leave/block.
+- **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
+  and a crew planner — propose times/places + quorum, record each member's availability, see
+  the best night ranked, lock it in. Verified in a real browser against a live gateway.
 
 ## Next (from the 2026-07-18 brief)
 

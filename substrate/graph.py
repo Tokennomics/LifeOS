@@ -184,6 +184,26 @@ class GraphSession:
         self._record_provenance(space, source, confidence)
         g.conn.commit()
 
+    def revoke(self, subject: str, scope: str, space: str, *, source: str,
+               confidence: float = 1.0) -> int:
+        """Remove an ACL grant (leaving a crew, declining an invite, blocking someone).
+
+        An ACL you cannot revoke is not an ACL: membership is a lifecycle, and
+        capability tokens must be withdrawable. Same scope requirement and provenance
+        as grant(). Returns the number of rows removed (0 if there was nothing to undo).
+        """
+        self._need("content", "write")
+        g = self.graph
+        cur = g._execute(
+            f"DELETE FROM grants WHERE subject = {g.ph} AND scope = {g.ph} AND space = {g.ph}",
+            (subject, scope, space),
+        )
+        removed = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        if removed:
+            self._record_provenance(space, source, confidence)
+        g.conn.commit()
+        return removed
+
     def grants_for(self, space: str) -> list[dict]:
         self._need("content", "read")
         g = self.graph

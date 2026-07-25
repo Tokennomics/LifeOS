@@ -117,13 +117,13 @@ climbing crew. The **group primitive and scheduling are built** (above); what a 
 adds is a different product with obligations the local model doesn't have, and should be treated as
 its own phase with its own kill-gate:
 - **Identity + hosting** — accounts, a reachable server, per-user data isolation. Without this there
-  is nothing to discover across users.
-- **Trust & safety** — people meeting strangers from an app: reporting, blocking, moderation of crew
-  content, and a way to leave. Ship none of the directory until these exist.
-- **Location privacy** — a city-level crew reveals where you are. Coarse (city) only, opt-in, never
-  precise coordinates in a public listing.
-- **Sequencing:** private crews (done) → invite-only crews across accounts → public directory. Each
-  step only after the previous one has real users.
+  is nothing to discover across users. **← the one remaining blocker.**
+- **Trust & safety** — ✅ *built*: block/unblock, auditable reports with a moderation queue,
+  leave-always-allowed, admin-gated invite/approve, blocked users excluded from coordination.
+- **Location privacy** — ✅ *city-level only* in the model (no coordinates on a crew); keep it that
+  way in any public listing, and keep listing opt-in (`visibility: public` is explicit).
+- **Sequencing:** private crews ✅ → invite/request lifecycle + safety ✅ → **accounts + hosting
+  (next)** → public directory. The directory is now gated on identity alone, not on safety.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.

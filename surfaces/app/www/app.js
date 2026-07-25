@@ -6,6 +6,7 @@ const state = {
   tab: "today", health: null, today: null, visions: [], admin: [], graph: null,
   people: [], map: null, more: null, retro: null, draft: null, invite: null,
   questEvent: "", busy: false, enter: true,
+  crews: [], crewPlan: null, crewOpen: "",
 };
 
 /* ---------- API ---------- */
@@ -88,7 +89,9 @@ async function refresh() {
         api("/v1/today"), api("/v1/vision").then((r) => r.visions), api("/v1/admin").then((r) => r.items),
       ]);
     } else if (state.tab === "people") {
-      state.people = (await api("/v1/people")).people;
+      const [people, crews] = await Promise.all([api("/v1/people"), api("/v1/crews")]);
+      state.people = people.people;
+      state.crews = crews.crews;
     } else if (state.tab === "map") {
       const c = coords();
       state.map = await api("/v1/capsules" + (c ? `?lat=${c.lat}&lon=${c.lon}` : ""));
@@ -204,6 +207,66 @@ function peopleView() {
       <div class="draft">${esc(state.draft.text)}</div>
       <button class="ghost" data-act="copy-draft">Copy — then send it from your messages</button>
       <p class="hint">Sending stays in your hands; when you've seen them, hit Done to log it.</p></div>`;
+  }
+  html += crewsView();
+  return html;
+}
+
+/* ---------- crews ---------- */
+
+function crewsView() {
+  let html = `<div class="card"><h2>Your crews</h2>`;
+  if (!state.crews.length) {
+    html += `<p class="empty">No crews yet. A crew is a named group with a topic and a home city.</p>`;
+  } else {
+    html += state.crews.map((c) => `
+      <div class="person"><div class="who">
+        <div class="name">${esc(c.name)} ${c.visibility === "public" ? "· public" : ""}</div>
+        <div class="meta">${esc([c.topic, c.city].filter(Boolean).join(" · ") || "no topic")} — ${c.member_count} member${c.member_count === 1 ? "" : "s"}</div>
+      </div><div class="pills">
+        <button class="pill warm" data-crew-plan="${c.id}">Plan</button>
+      </div></div>`).join("");
+  }
+  html += `<div class="subhead">Start a crew</div>
+    <div class="row2"><input class="field" id="crew-name" placeholder="Name (e.g. Lisbon Climbing)">
+    <input class="field" id="crew-topic" placeholder="Topic"></div>
+    <div class="row2"><input class="field" id="crew-city" placeholder="City">
+    <select class="field" id="crew-vis"><option value="private">Invite-only</option><option value="public">Public</option></select></div>
+    <button class="primary" data-act="crew-add">Create crew</button></div>`;
+
+  const open = state.crews.find((c) => c.id === state.crewOpen);
+  if (open && !state.crewPlan) {
+    html += `<div class="card"><h2>Plan a meet — ${esc(open.name)}</h2>
+      <input class="field" id="plan-slots" placeholder="Times, comma separated (Thu 20:00, Fri 20:00, Sat 11:00)">
+      <input class="field" id="plan-places" placeholder="Places, comma separated (Gym, Crag)">
+      <div class="row2"><input class="field" id="plan-quorum" type="number" min="2" value="2" title="how many people make it happen">
+      <button class="primary" style="width:auto;flex:none;padding:10px 18px" data-act="plan-propose">Propose</button></div>
+      <p class="hint">Ask the crew what suits, then record their answers below — the planner picks the night the most people can make.</p></div>`;
+  }
+
+  if (state.crewPlan) {
+    const p = state.crewPlan;
+    const crew = state.crews.find((c) => c.id === p.crew_id) || { members: [] };
+    const slotOpts = (p.slots || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    html += `<div class="card"><h2>Who can make it — ${esc(p.crew_name || "")}</h2>`;
+    html += crew.members.map((m) => `
+      <div class="subhead">${esc(m.name)}${(p.responded || []).includes(m.id) ? " ✓" : ""}</div>
+      <select class="field" multiple id="avail-${m.id}">${slotOpts}</select>
+      <button class="ghost" data-avail="${m.id}">Save ${esc(m.name)}'s times</button>`).join("");
+    html += `</div>`;
+
+    if ((p.candidates || []).length) {
+      html += `<div class="card"><h2>Best options</h2>` + p.candidates.map((c, i) => `
+        <div class="person"><div class="who">
+          <div class="name">${esc(c.slot)} @ ${esc(c.place)}</div>
+          <div class="meta">${c.attendee_count} coming</div>
+        </div><div class="pills">
+          <button class="pill good" data-lock="${i}">Lock it in</button>
+        </div></div>`).join("")
+        + `<p class="hint">Locking in records that these people agreed — it writes the meet and links only those coming.</p></div>`;
+    } else {
+      html += `<div class="card"><p class="empty">No option clears the quorum yet — record more availability.</p></div>`;
+    }
   }
   return html;
 }
@@ -402,6 +465,64 @@ function wire(root) {
   on("[data-act=copy-draft]", () => act(async () => {
     await navigator.clipboard.writeText(state.draft.text);
   }, "Copied — go send it."));
+
+  /* ---- crews ---- */
+
+  on("[data-act=crew-add]", () => act(async () => {
+    const name = $("#crew-name").value.trim();
+    if (!name) return toast("Name the crew.");
+    await api("/v1/crews", {
+      name, topic: $("#crew-topic").value.trim(), city: $("#crew-city").value.trim(),
+      visibility: $("#crew-vis").value,
+    });
+    state.crewOpen = "";
+    state.crewPlan = null;
+    await refresh();
+  }, "Crew created ✔"));
+
+  on("[data-crew-plan]", (el) => {
+    state.crewOpen = el.dataset.crewPlan;
+    state.crewPlan = null;
+    render();
+  });
+
+  on("[data-act=plan-propose]", () => act(async () => {
+    const split = (id) => $(id).value.split(",").map((s) => s.trim()).filter(Boolean);
+    const slots = split("#plan-slots");
+    const places = split("#plan-places");
+    if (!slots.length || !places.length) return toast("Add at least one time and one place.");
+    const r = await api("/v1/coordinate/group/propose", {
+      crew_id: state.crewOpen, slots, places, quorum: Number($("#plan-quorum").value) || 2,
+    });
+    state.crewPlan = { ...r, crew_id: state.crewOpen, candidates: [], responded: [] };
+    render();
+  }, "Proposed — now record who can make it."));
+
+  on("[data-avail]", (el) => act(async () => {
+    const sel = $(`#avail-${CSS.escape(el.dataset.avail)}`);
+    const slots = {};
+    [...sel.selectedOptions].forEach((o) => { slots[o.value] = 1; });
+    const r = await api("/v1/coordinate/group/respond", {
+      coordination_id: state.crewPlan.coordination_id, person_id: el.dataset.avail, weights: { slots },
+    });
+    state.crewPlan = { ...state.crewPlan, ...r };
+    render();
+  }, "Saved ✔"));
+
+  on("[data-lock]", (el) => act(async () => {
+    const choice = Number(el.dataset.lock);
+    const pick = state.crewPlan.candidates[choice];
+    let done = null;
+    for (const pid of pick.attendees) {
+      done = await api("/v1/coordinate/group/approve", {
+        coordination_id: state.crewPlan.coordination_id, person_id: pid, choice,
+      });
+    }
+    toast(done && done.status === "confirmed" ? "Locked in ✔" : "Recorded.");
+    state.crewPlan = null;
+    state.crewOpen = "";
+    await refresh();
+  }));
 
   on("[data-act=gps]", () => {
     if (!navigator.geolocation) return toast("No GPS on this device — type coordinates.");
