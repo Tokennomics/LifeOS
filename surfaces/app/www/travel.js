@@ -250,17 +250,36 @@ async function doCapture(text) {
   return { parked: false };
 }
 
+/* Distinct calendar days (UTC) with any activity — logs, captures, retros. */
+function activityDays() {
+  const days = new Set();
+  for (const t of entities("task").filter((x) => x.attrs.status === "done")) days.add((t.attrs.done_at || t.ts || "").slice(0, 10));
+  for (const c of entities("content")) days.add((c.ts || "").slice(0, 10));
+  for (const r of entities("metric").filter((m) => m.attrs.type === "weekly_retro")) days.add((r.ts || "").slice(0, 10));
+  days.delete("");
+  return days;
+}
+
+/* Current show-up streak + whether today is already logged. Reinforces the habit
+   the gate measures — the streak holds through today until you log again. */
+function streakInfo() {
+  const days = activityDays();
+  const loggedToday = days.has(nowISO().slice(0, 10));
+  const d = new Date();
+  if (!loggedToday) d.setUTCDate(d.getUTCDate() - 1); // today not logged yet → count from yesterday
+  let streak = 0;
+  while (days.has(d.toISOString().slice(0, 10))) {
+    streak++;
+    d.setUTCDate(d.getUTCDate() - 1);
+  }
+  return { streak, loggedToday };
+}
+
 /* Doubt rule (T3): honest v0.1-gate progress from what's actually on this phone. */
 function computeGate() {
   const done = entities("task").filter((t) => t.attrs.status === "done");
-  const retros = entities("metric").filter((m) => m.attrs.type === "weekly_retro");
-  const retroWeeks = new Set(retros.map((m) => m.attrs.week));  // distinct weeks, not raw metrics
-  const days = new Set();
-  for (const t of done) days.add((t.attrs.done_at || t.ts || "").slice(0, 10));
-  for (const c of entities("content")) days.add((c.ts || "").slice(0, 10));
-  for (const r of retros) days.add((r.ts || "").slice(0, 10));
-  days.delete("");
-  return Core.gateFromCounts(days.size, done.length, retroWeeks.size);
+  const retroWeeks = new Set(entities("metric").filter((m) => m.attrs.type === "weekly_retro").map((m) => m.attrs.week));
+  return Core.gateFromCounts(activityDays().size, done.length, retroWeeks.size);
 }
 
 /* ---------- export (the reconciliation bundle T2 imports) ---------- */
@@ -332,6 +351,14 @@ function todayView() {
   const goals = planGoals();
   const v = visions()[0];
   let html = "";
+
+  if (v) {
+    const s = streakInfo();
+    html += `<div class="card"><div class="kv"><span>Gate streak</span>
+        <span class="v">${s.streak} day${s.streak === 1 ? "" : "s"}</span></div>
+      <div class="kv" style="border:none"><span>Today</span>
+        <span class="v">${s.loggedToday ? "logged ✓" : "not yet"}</span></div></div>`;
+  }
 
   if (!v) {
     html += `<div class="card"><h2>Start here</h2>

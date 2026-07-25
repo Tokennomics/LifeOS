@@ -35,6 +35,20 @@ jobs:
       - uses: actions/configure-pages@v5
         with:
           enablement: true   # turn on Pages (GitHub Actions source) on first run
+      - name: Point the published root at Travel Mode
+        # The repo's index.html is the gateway PWA (needs a gateway, not useful on
+        # Pages). Overwrite it in the BUILD ONLY so the bare site URL opens Travel
+        # Mode. The committed file is untouched — the gateway still serves it at /app/.
+        run: |
+          cat > surfaces/app/www/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="0; url=travel.html">
+          <link rel="canonical" href="travel.html">
+          <title>LifeOS</title>
+          <a href="travel.html">Open LifeOS</a>
+          HTML
       - name: Upload the app shell
         uses: actions/upload-pages-artifact@v3
         with:
