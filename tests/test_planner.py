@@ -1,6 +1,13 @@
 import pytest
 
-from modules.horizon import planner
+from modules.horizon import gate, planner
+
+
+@pytest.fixture(autouse=True)
+def _gate_passed(monkeypatch):
+    # These tests isolate planner mechanics; lift the gate floor (covered in
+    # test_anti_hindrance) so a fresh graph doesn't inject the gate-ritual slot.
+    monkeypatch.setattr(gate, "gate_status", lambda g: {"cleared": True})
 
 
 class FakeClaude:

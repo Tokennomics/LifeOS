@@ -6,6 +6,7 @@ CLI:  python -m modules.horizon.retro [--offline] [--config path]
 import argparse
 import json
 
+from modules.horizon import core
 from modules.horizon.planner import week_id, week_tasks
 from substrate.graph import Graph
 
@@ -22,32 +23,27 @@ RETRO_SYSTEM = (
 def run_retro(graph: Graph, claude=None, week: str | None = None, source: str = "retro") -> dict:
     week = week or week_id()
     tasks = week_tasks(graph, week)
-    done = [t for t in tasks if t["attrs"].get("status") == "done"]
-    planned = len(tasks)
-    rate = round(len(done) / planned, 2) if planned else 0.0
+    task_views = [{"title": t["attrs"].get("title", ""), "status": t["attrs"].get("status", "open")}
+                  for t in tasks]
+    scored = core.retro(week, task_views)  # shared with Travel Mode — one scoring path
+    planned, done, rate = scored["planned"], scored["done"], scored["rate"]
 
     session = graph.session("horizon", SCOPES)
     session.create_entity(
         "metric",
-        {"type": "weekly_retro", "week": week, "planned": planned, "done": len(done), "rate": rate},
+        {"type": "weekly_retro", "week": week, "planned": planned, "done": done, "rate": rate},
         source=source,
     )
 
-    lines = [f"Retro {week}: {len(done)}/{planned} tasks done ({int(rate * 100)}%)."]
-    for t in tasks:
-        mark = "x" if t["attrs"].get("status") == "done" else " "
-        lines.append(f"[{mark}] {t['attrs'].get('title', '')}")
-
+    text = scored["text"]
     if claude is not None and claude.available and planned:
         stats = json.dumps({
-            "week": week, "planned": planned, "done": len(done), "rate": rate,
-            "tasks": [{"title": t["attrs"].get("title"), "status": t["attrs"].get("status")} for t in tasks],
+            "week": week, "planned": planned, "done": done, "rate": rate,
+            "tasks": task_views,
         })
-        lines.append(claude.complete(RETRO_SYSTEM, stats, max_tokens=1024).strip())
-    elif planned == 0:
-        lines.append("Nothing was planned this week — send /plan on Monday (or now).")
+        text += "\n" + claude.complete(RETRO_SYSTEM, stats, max_tokens=1024).strip()
 
-    return {"week": week, "planned": planned, "done": len(done), "rate": rate, "text": "\n".join(lines)}
+    return {"week": week, "planned": planned, "done": done, "rate": rate, "text": text}
 
 
 def main():

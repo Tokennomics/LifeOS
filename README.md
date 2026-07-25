@@ -3,6 +3,8 @@
 One context graph. Many agents. Compounding value on hardware you own.
 See the master build document for mission, laws, and roadmap.
 
+**Run the tests:** `python -m pytest` (73 passing; no API keys or network needed).
+
 ## Module registry status
 
 | Module | What ships today (P0) |
@@ -58,9 +60,34 @@ the APK needs Android Studio: `deploy\build-mobile.ps1` then `npx cap open andro
 iOS requires a Mac: `cd surfaces/app && npm i && npx cap add ios && npx cap open ios`.
 In native builds, set the gateway URL in the app's ⚙ Settings on first run.
 
-**API for the app:** `GET /v1/vision|/v1/week|/v1/today|/v1/graph|/v1/export`,
-`POST /v1/vision|/v1/plan|/v1/log|/v1/retro|/v1/capture`. Full graph export is one tap
+**API for the app:** `GET /v1/vision|/v1/week|/v1/goals|/v1/today|/v1/graph|/v1/parked|/v1/gate|/v1/export`,
+`POST /v1/vision|/v1/plan|/v1/log|/v1/retro|/v1/capture|/v1/focus`. Full graph export is one tap
 in Settings (Law 2).
+
+**Anti-hindrance mechanics (T3).** The planner encodes the owner's three named obstacles as
+behaviour, on the server and in Travel Mode alike: new-project captures are *parked, not
+planned* (`/parked`); stuck work is finished before new work starts, with a >2-cycle task
+surfaced as its "smallest remaining piece"; `/gate` reports honest v0.1-gate progress from
+real counts; deep work is shaped to the evening (never mornings) with a hard weekly cap
+while `vitals.energy_baseline: tired`; and a goal's `focus` flag makes it lead the week
+(gate-first) instead of losing to input order — `/focus <n>`, the ★ toggle in Travel Mode, or
+`POST /v1/focus`. The shared logic lives once in
+`modules/horizon/core.py` and its JS twin `surfaces/app/www/horizon-core.js`; golden fixtures
+run against both so they can never drift.
+
+### Travel Mode — standalone, offline, no server
+
+`surfaces/app/www/travel.html` is a self-contained PWA for running your week from a phone
+with **no gateway reachable at all** (travelling, airplane mode). It persists to the
+browser's **IndexedDB** and mirrors the server's deterministic offline fallbacks: paste your
+vision → get a weekly plan → `/log` daily → Sunday retro → `/capture`. Everything survives a
+close-and-reopen; nothing leaves the device. Install it from the home screen like any PWA.
+
+It publishes to GitHub Pages via `.github/workflows/pages.yml` (Settings → Pages → Source =
+"GitHub Actions"), reachable at `https://<owner>.github.io/<repo>/travel.html`. **Only the
+app shell is public** — all personal data stays in your browser. Export a JSON bundle from ⚙
+Settings when you're home; the forthcoming `POST /v1/import` reconciles it into the graph
+idempotently (every item carries a stable key + original timestamp).
 
 ## Quickstart (Windows)
 
@@ -95,7 +122,7 @@ After the bot's first accepted message it logs your Telegram user id — pin it 
 ## Run
 
 ```powershell
-# Telegram bot: /vision /plan /log /retro /capture (+ Mon 07:00 & Sun 19:00 pushes)
+# Telegram bot: /vision /plan /log /retro /capture /parked /gate /focus (+ Mon 07:00 & Sun 19:00 pushes)
 .venv\Scripts\python -m surfaces.bot.telegram
 
 # HTTP gateway

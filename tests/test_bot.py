@@ -1,4 +1,13 @@
+import pytest
+
+from modules.horizon import gate
 from surfaces.bot.telegram import TelegramBot
+
+
+@pytest.fixture(autouse=True)
+def _gate_passed(monkeypatch):
+    # Isolate the bot's plan/log/retro loop from the gate floor.
+    monkeypatch.setattr(gate, "gate_status", lambda g: {"cleared": True})
 
 
 def _update(text, user_id=42, chat_id=42):
@@ -48,6 +57,15 @@ def test_week_loop_commands(cfg, graph):
     assert captured == "Captured."
     _, bad = bot.handle_update(_update("/log x"))
     assert bad.startswith("Usage:")
+
+
+def test_focus_command_lists_and_toggles(cfg, graph):
+    bot = TelegramBot(cfg, graph=graph)
+    bot.handle_update(_update("/vision Freedom\n- Alpha\n- Bravo"))
+    _, listing = bot.handle_update(_update("/focus"))
+    assert "Alpha" in listing and "Bravo" in listing
+    _, toggled = bot.handle_update(_update("/focus 2"))
+    assert "★ Bravo" in toggled
 
 
 def test_non_message_updates_ignored(cfg, graph):

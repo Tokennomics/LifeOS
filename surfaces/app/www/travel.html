@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>LifeOS · Travel</title>
+  <meta name="theme-color" content="#0F1420">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="LifeOS Travel">
+  <link rel="manifest" href="travel.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Travel Mode reads amber (self/local), never green (AI) or red (error). */
+    .badge.travel { color: var(--spark); border-color: #4A3A22; }
+    .badge.travel::before { background: var(--spark); box-shadow: 0 0 8px var(--spark); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="dot"></span> LifeOS</div>
+    <div class="header-right">
+      <span class="badge travel">Travel · local only</span>
+      <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
+    </div>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <nav>
+    <button data-tab="today" class="tab active">Today</button>
+    <button data-tab="capture" class="tab">Capture</button>
+    <button data-tab="gate" class="tab">Gate</button>
+  </nav>
+
+  <dialog id="settings">
+    <h2>Travel Mode</h2>
+    <p class="hint" style="margin-top:0">You're offline by design. Everything you do here is saved on this phone only —
+      no server, no account. When you're home, export the bundle and import it into your graph (nothing is duplicated).</p>
+    <div class="row">
+      <button id="set-export" class="primary">Export my travel data</button>
+      <button id="set-close">Close</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button id="set-reset">Clear local data</button>
+    </div>
+  </dialog>
+
+  <div id="toast" hidden></div>
+
+  <script src="horizon-core.js"></script>
+  <script src="travel.js"></script>
+</body>
+</html>

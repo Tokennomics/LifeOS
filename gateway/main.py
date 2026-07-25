@@ -18,7 +18,7 @@ from gateway.auth import make_auth_dependency
 from gateway.claude import ClaudeGateway
 from gateway.modules_api import build_router
 from gateway.router import route
-from modules.horizon import planner, retro, vision_intake
+from modules.horizon import gate, planner, retro, vision_intake
 from modules.voiceos import capture as voice_capture
 from substrate import ROOT, load_config
 from substrate.bus import Bus
@@ -34,6 +34,11 @@ class TextIn(BaseModel):
 
 class LogIn(BaseModel):
     n: int
+
+
+class FocusIn(BaseModel):
+    goal_id: str
+    focus: bool = True
 
 
 def _count(graph: Graph, sql: str, params: tuple = ()) -> int:
@@ -100,9 +105,19 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     def week():
         return _week_payload(graph)
 
+    @app.get("/v1/goals", dependencies=[Depends(auth)])
+    def goals():
+        return {"goals": planner.list_goals(graph)}
+
+    @app.post("/v1/focus", dependencies=[Depends(auth)])
+    def focus(body: FocusIn):
+        """Gate-first (T3): the focused goal leads next week's plan."""
+        return planner.set_goal_focus(graph, body.goal_id, body.focus)
+
     @app.post("/v1/plan", dependencies=[Depends(auth)])
     def plan():
-        planner.plan_week(graph, claude=claude)
+        baseline = cfg.get("vitals", {}).get("energy_baseline", "tired")
+        planner.plan_week(graph, claude=claude, energy_baseline=baseline)
         return _week_payload(graph)
 
     @app.post("/v1/log", dependencies=[Depends(auth)])
@@ -139,6 +154,16 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     @app.post("/v1/capture", dependencies=[Depends(auth)])
     def do_capture(body: TextIn):
         return voice_capture.capture(body.text, graph, claude=claude)
+
+    @app.get("/v1/parked", dependencies=[Depends(auth)])
+    def parked():
+        """Distraction sink (T3): captured-not-abandoned project ideas."""
+        return {"parked": voice_capture.list_parked(graph)}
+
+    @app.get("/v1/gate", dependencies=[Depends(auth)])
+    def gate_status():
+        """Doubt rule (T3): honest v0.1-gate progress from real counts."""
+        return gate.gate_status(graph)
 
     # ---- Graph -----------------------------------------------------------
 

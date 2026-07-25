@@ -35,6 +35,12 @@ calendar:
   # Privacy default: free/busy only. Set true to also store event titles.
   store_titles: false
 
+vitals:
+  # Circadian baseline for the anti-hindrance planner (T3). While 'tired', the
+  # weekly plan is hard-capped (small weeks for a tired night owl) and deep work
+  # is shaped to the evening, never the morning. Set 'rested' to lift the cap.
+  energy_baseline: tired   # tired | rested
+
 anthropic:
   api_key: env:ANTHROPIC_API_KEY
   model_heavy: claude-opus-4-8    # planning, vision intake
