@@ -61,10 +61,15 @@ def _load(session, coord_id: str) -> dict:
 
 def _view(coord: dict) -> dict:
     a = coord["attrs"]
-    return {"id": coord["id"], "person_id": a.get("person_id"), "person_name": a.get("person_name"),
-            "status": a.get("status"), "slots": a.get("slots", []), "places": a.get("places", []),
+    view = {"id": coord["id"], "mode": a.get("mode", "pair"), "person_id": a.get("person_id"),
+            "person_name": a.get("person_name"), "status": a.get("status"),
+            "slots": a.get("slots", []), "places": a.get("places", []),
             "candidates": a.get("candidates", []), "approvals": a.get("approvals", {}),
             "event_id": a.get("event_id")}
+    if a.get("mode") == "group":
+        view.update({"crew_id": a.get("crew_id"), "crew_name": a.get("crew_name"),
+                     "quorum": a.get("quorum"), "responded": sorted(a.get("weights", {}))})
+    return view
 
 
 def propose(graph: Graph, person_id: str, slots, places, owner_weights: dict | None = None,
@@ -141,6 +146,108 @@ def approve(graph: Graph, coord_id: str, side: str, choice: int, source: str = "
         result.update({"status": "confirmed", "event_id": event_id, "meet": pick})
     else:
         result["status"] = a.get("status")
+
+    session.update_entity(coord_id, patch, source=source)
+    return result
+
+
+# ---- group (crew) coordination ---------------------------------------------
+
+
+def propose_group(graph: Graph, crew_id: str, slots, places, quorum: int = 2,
+                  source: str = "coordinate") -> dict:
+    """Open a crew coordination. Members respond with their own availability; a night
+    happens when `quorum` of them can make the same {time, place}."""
+    from modules.crews import crews
+
+    session = graph.session(MODULE, SCOPES)
+    crew = crews.get(graph, crew_id)          # raises ValueError if unknown
+    slots, places = _clean_labels(slots), _clean_labels(places)
+    if not slots or not places:
+        raise ValueError("need at least one proposed slot and one place")
+    if quorum < 2:
+        raise ValueError("quorum must be at least 2 (it takes two to meet)")
+
+    coord_id = session.create_entity("content", {
+        "type": "coordination", "mode": "group", "crew_id": crew_id, "crew_name": crew["name"],
+        "status": "collecting", "slots": slots, "places": places, "quorum": quorum,
+        "weights": {}, "candidates": [], "approvals": {}, "event_id": None, "proposed_at": _now(),
+    }, source=source)
+
+    ask = (f"{crew['name']} — when suits? Options: {', '.join(slots)}. "
+           f"Where: {', '.join(places)}. Reply with what works and we'll take the best {quorum}+.")
+    return {"coordination_id": coord_id, "status": "collecting", "crew": crew["name"],
+            "member_count": crew["member_count"], "slots": slots, "places": places,
+            "quorum": quorum, "ask": ask}
+
+
+def _rerank_group(session, coord: dict, source: str) -> dict:
+    a = coord["attrs"]
+    candidates = core.rank_group_candidates(
+        {"slots": a["slots"], "places": a["places"]}, a.get("weights", {}), a.get("quorum", 2))
+    status = "awaiting_approval" if candidates else "collecting"
+    session.update_entity(coord["id"], {"candidates": candidates, "status": status}, source=source)
+    return {"coordination_id": coord["id"], "status": status, "candidates": candidates}
+
+
+def respond_group(graph: Graph, coord_id: str, person_id: str, weights: dict | None = None,
+                  source: str = "coordinate") -> dict:
+    """One crew member submits their availability. Re-ranks after every response."""
+    from modules.crews import crews
+
+    session = graph.session(MODULE, SCOPES)
+    coord = _load(session, coord_id)
+    a = coord["attrs"]
+    if a.get("mode") != "group":
+        raise ValueError("not a group coordination")
+    if a.get("status") == "confirmed":
+        raise ValueError("coordination is already confirmed")
+    if person_id not in crews.members(graph, a["crew_id"]):
+        raise ValueError("not a member of this crew")
+
+    all_weights = {**a.get("weights", {}),
+                   person_id: _sanitize_weights(weights or {}, a["slots"], a["places"])}
+    session.update_entity(coord_id, {"weights": all_weights}, source=source)
+    coord = _load(session, coord_id)
+    result = _rerank_group(session, coord, source)
+    result["responded"] = sorted(all_weights)
+    return result
+
+
+def approve_group(graph: Graph, coord_id: str, person_id: str, choice: int,
+                  source: str = "coordinate") -> dict:
+    """Approve a candidate. Only people who can actually make that slot count toward its
+    quorum; when enough attendees approve the same option, the meet is written."""
+    session = graph.session(MODULE, SCOPES)
+    coord = _load(session, coord_id)
+    a = coord["attrs"]
+    if a.get("mode") != "group":
+        raise ValueError("not a group coordination")
+    if a.get("status") not in ("awaiting_approval", "confirmed"):
+        raise ValueError(f"coordination is {a.get('status')}, nothing to approve")
+    candidates = a.get("candidates", [])
+    if not isinstance(choice, int) or not 0 <= choice < len(candidates):
+        raise ValueError("choice out of range")
+    pick = candidates[choice]
+    if person_id not in pick["attendees"]:
+        raise ValueError("you're not available for that option — respond with your times first")
+
+    approvals = {**a.get("approvals", {}), person_id: choice}
+    backers = [pid for pid, c in approvals.items() if c == choice and pid in pick["attendees"]]
+    patch = {"approvals": approvals}
+    result = {"coordination_id": coord_id, "approvals": approvals,
+              "backers": sorted(backers), "quorum": a.get("quorum", 2), "status": a.get("status")}
+
+    if len(backers) >= a.get("quorum", 2):
+        event_id = session.create_entity("event", {
+            "type": "meet", "title": f"{a.get('crew_name', 'Crew')} — meet",
+            "start": pick["slot"], "place": pick["place"], "busy": True,
+            "crew_id": a.get("crew_id"), "source": "coordinate",
+        }, source=source)
+        for pid in sorted(backers):
+            session.create_edge(event_id, pid, "with", source=source)
+        patch.update({"status": "confirmed", "event_id": event_id})
+        result.update({"status": "confirmed", "event_id": event_id, "meet": pick})
 
     session.update_entity(coord_id, patch, source=source)
     return result
