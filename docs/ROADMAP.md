@@ -107,8 +107,23 @@ problem.
   peer content treated as untrusted, human approval mandatory. **Kill-gate:** ≥2 users who actually
   want to coordinate.
   _Engine substrate built (`modules/coordinate/`, 1:1 reconnect case): pure ranking core + graph flow
-  + `/v1/coordinate/*`, tested. The live cross-device feature (accounts, a reachable coordinator, the
-  second user's app) is the remaining, still-gated arc._
+  + `/v1/coordinate/*`, tested. Generalized to **crews** (`modules/crews/`): named groups with a topic
+  + home city, quorum-based group scheduling, directory-shaped browse. The live cross-device feature
+  (accounts, a reachable coordinator, the second user's app) is the remaining, still-gated arc._
+
+### Crew directory ("subs" for crews) — the public layer, NOT yet built
+The idea: crews as joinable, topic+place-scoped groups — land in a new city, join the local
+climbing crew. The **group primitive and scheduling are built** (above); what a *public* directory
+adds is a different product with obligations the local model doesn't have, and should be treated as
+its own phase with its own kill-gate:
+- **Identity + hosting** — accounts, a reachable server, per-user data isolation. Without this there
+  is nothing to discover across users.
+- **Trust & safety** — people meeting strangers from an app: reporting, blocking, moderation of crew
+  content, and a way to leave. Ship none of the directory until these exist.
+- **Location privacy** — a city-level crew reveals where you are. Coarse (city) only, opt-in, never
+  precise coordinates in a public listing.
+- **Sequencing:** private crews (done) → invite-only crews across accounts → public directory. Each
+  step only after the previous one has real users.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.

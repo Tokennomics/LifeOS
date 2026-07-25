@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
 from modules.coordinate import coordinator
+from modules.crews import crews
 from modules.hearth import spaces as hearth
 from modules.ledger import ledger
 from modules.memento import capsules, quests
@@ -111,6 +112,37 @@ class CoordApproveIn(BaseModel):
     coordination_id: str
     side: str                   # owner | peer
     choice: int                 # index into the ranked candidates
+
+
+class CrewIn(BaseModel):
+    name: str
+    topic: str = ""
+    city: str = ""
+    member_ids: list[str] = []
+
+
+class CrewJoinIn(BaseModel):
+    crew_id: str
+    person_id: str
+
+
+class GroupProposeIn(BaseModel):
+    crew_id: str
+    slots: list[str]
+    places: list[str]
+    quorum: int = 2
+
+
+class GroupRespondIn(BaseModel):
+    coordination_id: str
+    person_id: str
+    weights: dict = {}
+
+
+class GroupApproveIn(BaseModel):
+    coordination_id: str
+    person_id: str
+    choice: int
 
 
 def _graph(request: Request):
@@ -289,5 +321,35 @@ def build_router(auth) -> APIRouter:
     def coordinate_approve(request: Request, body: CoordApproveIn):
         return guard(lambda: coordinator.approve(
             _graph(request), body.coordination_id, body.side, body.choice))
+
+    # ---- Crews + group coordination --------------------------------------
+
+    @router.get("/crews")
+    def crews_browse(request: Request, topic: str = "", city: str = ""):
+        return {"crews": crews.browse(_graph(request), topic=topic, city=city)}
+
+    @router.post("/crews")
+    def crews_create(request: Request, body: CrewIn):
+        return guard(lambda: crews.create(
+            _graph(request), body.name, body.topic, body.city, body.member_ids))
+
+    @router.post("/crews/join")
+    def crews_join(request: Request, body: CrewJoinIn):
+        return guard(lambda: crews.join(_graph(request), body.crew_id, body.person_id))
+
+    @router.post("/coordinate/group/propose")
+    def coordinate_group_propose(request: Request, body: GroupProposeIn):
+        return guard(lambda: coordinator.propose_group(
+            _graph(request), body.crew_id, body.slots, body.places, body.quorum))
+
+    @router.post("/coordinate/group/respond")
+    def coordinate_group_respond(request: Request, body: GroupRespondIn):
+        return guard(lambda: coordinator.respond_group(
+            _graph(request), body.coordination_id, body.person_id, body.weights))
+
+    @router.post("/coordinate/group/approve")
+    def coordinate_group_approve(request: Request, body: GroupApproveIn):
+        return guard(lambda: coordinator.approve_group(
+            _graph(request), body.coordination_id, body.person_id, body.choice))
 
     return router

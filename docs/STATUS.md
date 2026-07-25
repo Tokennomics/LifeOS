@@ -56,6 +56,16 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   data, never instructions) — the sanctioned alternative to open agent-to-agent negotiation.
   Tested + simulated (8 tests). **This is the testable substrate; live cross-device use still needs
   accounts + a reachable coordinator (the NucBox) and ≥2 real users, per the roadmap gate.**
+- **Crews + group coordination.** `modules/crews/` — named groups with a **topic + home city**
+  ("Lisbon Climbing"), membership on the same grants ACL Hearth uses, and a directory-shaped
+  read (`browse(topic, city)`). `coordinator.propose_group/respond_group/approve_group` +
+  `/v1/crews`, `/v1/coordinate/group/*` generalize the engine to N people: **quorum, not
+  unanimity** (a crew night happens when enough can make it), attendance outranks mild
+  preference, and a venue veto only binds from people actually attending that slot. Confirmed
+  meets link only the people coming. 10 tests + simulation.
+  **Local-only by design:** crews are built from people already in your graph. A *public*
+  cross-user directory (land in a new city, join a local crew of strangers) additionally needs
+  accounts, a reachable host, moderation/reporting and location privacy — a separate arc.
 
 ## Next (from the 2026-07-18 brief)
 
