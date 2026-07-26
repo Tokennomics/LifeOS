@@ -116,8 +116,9 @@ The idea: crews as joinable, topic+place-scoped groups — land in a new city, j
 climbing crew. The **group primitive and scheduling are built** (above); what a *public* directory
 adds is a different product with obligations the local model doesn't have, and should be treated as
 its own phase with its own kill-gate:
-- **Identity + hosting** — accounts, a reachable server, per-user data isolation. Without this there
-  is nothing to discover across users. **← the one remaining blocker.**
+- **Identity + per-user isolation** — ✅ *built*: accounts, hashed credentials, revocable sessions,
+  per-account `owner_id` scoping enforced down at the substrate. **Hosting is what's left** — a
+  reachable server with TLS and backups. That's an ops decision (NucBox vs a VPS), not a design one.
 - **Trust & safety** — ✅ *built*: block/unblock, auditable reports with a moderation queue,
   leave-always-allowed, admin-gated invite/approve, blocked users excluded from coordination.
 - **Location privacy** — ✅ *city-level only* in the model (no coordinates on a crew); keep it that
@@ -126,9 +127,15 @@ its own phase with its own kill-gate:
   in, independent of listing), public events with topic+city, and intent-driven matching
   ("in Lisbon, want sushi night" → ranked public events/crews; private things never surface).
 - **Sequencing:** private crews ✅ → invite/request lifecycle + safety ✅ → admission policy +
-  intent discovery ✅ → **accounts + hosting (next)** → public directory across users.
-  Everything the directory needs is built except identity; the matching engine and the privacy
-  invariants are already in place and tested, so hosting is plumbing rather than design.
+  intent discovery ✅ → accounts + isolation ✅ → **hosting (next)** → public directory across users.
+
+**What the directory still needs, now that identity exists.** Each account is currently an
+island: `find_entities` and `_fetch_entity` are owner-scoped, so one user cannot see another's
+crews or events *at all* — including the public ones. Cross-user discovery therefore needs a
+deliberate, narrow sharing path (a public read that crosses owners for `visibility: public`
+crews/events only, ideally via the grants ACL rather than a scope hole), plus hosting. That is
+the next design decision, and it should be made carefully: it is the one place where the
+isolation guarantee is intentionally relaxed.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.

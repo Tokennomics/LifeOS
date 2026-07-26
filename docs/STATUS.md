@@ -97,6 +97,22 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   in Lisbon") — a feed you can't interrogate is one you can't trust. `POST /v1/feed/interested`
   is the popularity signal (idempotent, reversible). Same privacy invariant: private items are
   filtered before scoring and can never appear.
+- **Accounts + per-user isolation (the last blocker).** `gateway/accounts.py` +
+  `/v1/auth/{register,login,me,logout,logout-everywhere}`. Passwords are PBKDF2-HMAC-SHA256
+  with a per-account salt; session tokens are random 256-bit values of which only the SHA-256
+  is stored, so reading the database cannot impersonate anyone. Sessions are **stored and
+  therefore revocable** (single logout, or cut every session at once when a phone goes
+  missing) — stateless tokens would have been less work but revocation is a standing rule.
+  No new tables: accounts/sessions are `content` entities under a fixed SYSTEM owner.
+  **Mode is chosen by the data, not a flag:** with no accounts registered the gateway behaves
+  exactly as before (static token or open localhost); once any account exists, callers must
+  log in — and the configured owner key keeps working so the bot and local scripts don't break.
+  Each account gets its own `owner_id`, and `_graph(request)` resolves to that account's slice,
+  which scopes the entire module surface in one place.
+  **Isolation is now real, not nominal:** `_fetch_entity` honours the owner scope, so knowing
+  an id is no longer enough to read or write someone else's entity — an out-of-scope id is
+  indistinguishable from a missing one (404, not 500; `GraphError`/`ScopeError` now map to
+  404/400/403 across the API instead of surfacing as server errors).
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
