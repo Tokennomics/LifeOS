@@ -87,6 +87,16 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   Browse (`min_score=0`) shows everything local and public best-first; search
   (`only_matches=True`) returns only genuine matches. With no interests given it falls back to
   the graph's own `interest` entities — the ones VoiceOS already extracts from your captures.
+- **Feed.** `GET /v1/feed` — one ranked stream for **where you are and where you're going**:
+  scopes come from the cities you pass plus every stored travel intent (respecting its date
+  window, so a trip only feeds you its city while you're actually there). Ranking blends
+  interest match + a **saturating** crowd signal (40 interested beats 4, but not 10× — one big
+  event can't bury what you'd enjoy) + how soon it is. An item earns a slot on match *or*
+  popularity, so "could be interesting" still surfaces. Interests declared in an intent drive
+  that city's slice. Every item carries `reasons` ("matches sushi · 9 interested · while you're
+  in Lisbon") — a feed you can't interrogate is one you can't trust. `POST /v1/feed/interested`
+  is the popularity signal (idempotent, reversible). Same privacy invariant: private items are
+  filtered before scoring and can never appear.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.

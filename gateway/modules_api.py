@@ -149,6 +149,12 @@ class IntentIn(BaseModel):
     ends: str = ""
 
 
+class InterestIn(BaseModel):
+    event_id: str
+    person_id: str
+    going: bool = True
+
+
 class CrewJoinIn(BaseModel):
     crew_id: str
     person_id: str
@@ -486,5 +492,17 @@ def build_router(auth) -> APIRouter:
     @router.get("/discover/intents/{intent_id}")
     def discover_for_intent(request: Request, intent_id: str):
         return guard(lambda: discover.find_for_intent(_graph(request), intent_id))
+
+    @router.get("/feed")
+    def feed(request: Request, cities: str = "", interests: str = ""):
+        """Your feed: where you are + where you're going, ranked by match, crowd and timing."""
+        city_list = [c.strip() for c in cities.split(",") if c.strip()] or None
+        wants = [i.strip() for i in interests.split(",") if i.strip()] or None
+        return discover.feed(_graph(request), cities=city_list, interests=wants)
+
+    @router.post("/feed/interested")
+    def feed_interested(request: Request, body: InterestIn):
+        return guard(lambda: discover.mark_interest(
+            _graph(request), body.event_id, body.person_id, body.going))
 
     return router
