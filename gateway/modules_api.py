@@ -5,6 +5,8 @@ app.state. Every endpoint works with zero API keys (offline fallbacks in the mod
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from gateway.auth import caller_graph
+
 from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
 from modules.coordinate import coordinator
@@ -198,7 +200,9 @@ class GroupApproveIn(BaseModel):
 
 
 def _graph(request: Request):
-    return request.app.state.graph
+    """Every module read/write goes through here, so scoping it to the caller scopes
+    the whole module surface at once (config owner when there are no accounts)."""
+    return caller_graph(request)
 
 
 def _claude(request: Request):

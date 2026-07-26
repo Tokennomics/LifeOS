@@ -214,9 +214,21 @@ class GraphSession:
     # ---- reads ----------------------------------------------------------
 
     def _fetch_entity(self, entity_id: str):
+        """Fetch by id, honouring the session's owner scope.
+
+        find_entities has always filtered by owner; fetching by id did not, which made
+        multi-tenant isolation nominal rather than real — knowing an id was enough to read
+        or update another owner's entity. A scoped session now simply cannot see outside
+        its own owner, so an out-of-scope id is indistinguishable from a missing one.
+        """
         g = self.graph
         cur = g._execute(f"SELECT * FROM entities WHERE id = {g.ph}", (entity_id,))
-        return cur.fetchone()
+        row = cur.fetchone()
+        if row is None:
+            return None
+        if g.default_owner and row["owner_id"] != g.default_owner:
+            return None
+        return row
 
     def get_entity(self, entity_id: str) -> dict | None:
         row = self._fetch_entity(entity_id)
