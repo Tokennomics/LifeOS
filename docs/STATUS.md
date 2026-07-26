@@ -2,7 +2,7 @@
 
 _The one-page memory between phone-driven sessions. Update at the end of every PR._
 
-_Last updated: 2026-07-24_
+_Last updated: 2026-07-26_
 
 ## Where we are
 
@@ -12,7 +12,7 @@ reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone ab
 server. **T3 (anti-hindrance) was pulled ahead of T2** by the owner: T2's import has no
 user-facing value until he's home at the NucBox, while T3 improves daily use while travelling.
 
-**Tests:** `python -m pytest` → **104 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **219 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ## Shipped
@@ -131,9 +131,19 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   reach `requested` (or `member` where the admin declared the crew open), never `admin`; and every
   admin action on a crew you don't own needs a real admin grant — including on adminless public
   crews, where the "your own group stays open to you" leniency deliberately does not apply.
-  **Next:** cross-account *scheduling* — `respond_group` still reads the coordination
-  owner-scoped, so a member can't answer a session someone else opened. Same fix shape:
-  availability should be each member's own record, aggregated. Written up in ROADMAP.
+- **Cross-account scheduling.** A crew that spans accounts can now agree a night. Opening a group
+  session grants every current member `coord:participant` on the coordination;
+  `GraphSession.get_if_granted()` / `update_if_granted()` let them read it and add their own
+  availability without owning it, and `spaces_granted()` (the reverse of `grants_for`) means
+  `GET /v1/coordinate/group/mine` can show a member their sessions instead of them needing an id
+  passed out of band. **Authorisation is two things on purpose:** the grant is what lets you
+  *reach* the session; the crew is the authority on who *belongs* — membership is re-derived from
+  it on every action, so a forged grant row buys nothing and leaving/being blocked takes effect at
+  once. Quorum counts current members only, so someone who left can't be the reason a night goes
+  ahead. The confirmed meet is shared state on the coordination; the calendar entry is local —
+  `POST /v1/coordinate/group/calendar` writes it into *your* graph, because nobody writes an event
+  into someone else's. 11 tests + simulation (which is what caught the forged-grant and
+  stale-quorum bugs the tests had missed).
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
@@ -143,7 +153,7 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
   `substrate/graph.py` with `module=travel`, original timestamps, idempotency keys → skip
   already-imported. Every record the bundle carries already has a stable `key` + `ts`.
-- **T4 — Repo hygiene.** This file; suite green in CI (done, 104); README test command (done).
+- **T4 — Repo hygiene.** This file; suite green in CI (done, 219); README test command (done).
 
 ## Non-goals (do not build)
 

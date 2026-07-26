@@ -189,14 +189,19 @@ class GroupProposeIn(BaseModel):
 
 class GroupRespondIn(BaseModel):
     coordination_id: str
-    person_id: str
+    person_id: str = ""      # omitted -> the caller's own account (cross-account members)
     weights: dict = {}
 
 
 class GroupApproveIn(BaseModel):
     coordination_id: str
-    person_id: str
+    person_id: str = ""
     choice: int
+
+
+class GroupCalendarIn(BaseModel):
+    coordination_id: str
+    person_id: str = ""
 
 
 def _subject(request: Request, explicit: str | None) -> str:
@@ -481,15 +486,30 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: coordinator.propose_group(
             _graph(request), body.crew_id, body.slots, body.places, body.quorum))
 
+    @router.get("/coordinate/group/mine")
+    def coordinate_group_mine(request: Request, person_id: str = ""):
+        """Crew sessions you can answer — including ones opened in another account."""
+        subject = _subject(request, person_id)
+        return {"coordinations": coordinator.my_sessions(_graph(request), subject)}
+
     @router.post("/coordinate/group/respond")
     def coordinate_group_respond(request: Request, body: GroupRespondIn):
+        subject = _subject(request, body.person_id)
         return guard(lambda: coordinator.respond_group(
-            _graph(request), body.coordination_id, body.person_id, body.weights))
+            _graph(request), body.coordination_id, subject, body.weights))
 
     @router.post("/coordinate/group/approve")
     def coordinate_group_approve(request: Request, body: GroupApproveIn):
+        subject = _subject(request, body.person_id)
         return guard(lambda: coordinator.approve_group(
-            _graph(request), body.coordination_id, body.person_id, body.choice))
+            _graph(request), body.coordination_id, subject, body.choice))
+
+    @router.post("/coordinate/group/calendar")
+    def coordinate_group_calendar(request: Request, body: GroupCalendarIn):
+        """Put a confirmed crew night on your own calendar (idempotent)."""
+        subject = _subject(request, body.person_id)
+        return guard(lambda: coordinator.add_to_calendar(
+            _graph(request), body.coordination_id, subject))
 
     # ---- Discover (intent -> local public events/crews) -------------------
 

@@ -211,6 +211,25 @@ class GraphSession:
         return [{"subject": r["subject"], "scope": r["scope"], "space": r["space"],
                  "granted_at": r["granted_at"]} for r in cur.fetchall()]
 
+    def spaces_granted(self, subject: str, scopes) -> list[str]:
+        """The reverse of grants_for: which spaces has this subject been granted a role in?
+
+        `grants_for` answers "who is in this space", which only helps once you already know
+        the space. Finding a shared session that someone else opened *for you* needs the
+        other direction. Ids only — reading each space still goes through the normal checks.
+        """
+        wanted = sorted(set(scopes or ()))
+        if not wanted:
+            return []
+        self._need("content", "read")
+        g = self.graph
+        marks = ", ".join([g.ph] * len(wanted))
+        cur = g._execute(
+            f"SELECT DISTINCT space FROM grants WHERE subject = {g.ph} AND scope IN ({marks})",
+            (subject, *wanted),
+        )
+        return [r["space"] for r in cur.fetchall()]
+
     # ---- reads ----------------------------------------------------------
 
     def _fetch_entity(self, entity_id: str):
@@ -273,6 +292,53 @@ class GraphSession:
             params.append(value)
         sql += f" ORDER BY created_at LIMIT {int(limit)}"
         return [_row_to_entity(r) for r in g._execute(sql, tuple(params)).fetchall()]
+
+    def _granted(self, entity_id: str, subject: str, scopes) -> bool:
+        wanted = set(scopes or ())
+        return any(g["subject"] == subject and g["scope"] in wanted
+                   for g in self.grants_for(entity_id))
+
+    def get_if_granted(self, entity_id: str, subject: str, scopes) -> dict | None:
+        """Read an entity you don't own because you were explicitly GRANTED a role on it.
+
+        The other cross-owner path (`find_public`) is for things published to the world.
+        This one is for things shared with named participants — a crew's planning session
+        that its members, and only its members, should see. A grant is the permission; no
+        grant means the entity reads as missing, exactly as it does out of scope.
+        """
+        g = self.graph
+        row = g._execute(f"SELECT * FROM entities WHERE id = {g.ph}", (entity_id,)).fetchone()
+        if row is None:
+            return None
+        if not self._granted(entity_id, subject, scopes):
+            return None
+        self._need(row["kind"], "read")
+        return _row_to_entity(row)
+
+    def update_if_granted(self, entity_id: str, attrs_patch: dict, subject: str, scopes,
+                          *, source: str, confidence: float = 1.0) -> dict:
+        """Write to an entity you were granted a role on — a participant adding their own
+        availability to a shared session, not an edit of someone's private data.
+
+        The grant is the whole authorisation, so callers must keep the patch to what that
+        role legitimately covers; this is first-party module code, held to that discipline.
+        """
+        g = self.graph
+        row = g._execute(f"SELECT * FROM entities WHERE id = {g.ph}", (entity_id,)).fetchone()
+        if row is None or not self._granted(entity_id, subject, scopes):
+            raise GraphError(f"entity not found: {entity_id}")
+        self._need(row["kind"], "write")
+        current = row["attrs"]
+        merged = {**(json.loads(current) if isinstance(current, str) else current), **attrs_patch}
+        g._execute(
+            f"UPDATE entities SET attrs = {g.ph}, updated_at = {g.ph} WHERE id = {g.ph}",
+            (json.dumps(merged), now_iso(), entity_id),
+        )
+        self._record_provenance(entity_id, source, confidence)
+        g.conn.commit()
+        g.bus.publish("observation.created",
+                      {"target": "entity", "id": entity_id, "kind": row["kind"], "module": self.module})
+        return merged
 
     def get_public(self, entity_id: str) -> dict | None:
         """Fetch one published entity by id, whoever owns it. Unpublished ids read as
