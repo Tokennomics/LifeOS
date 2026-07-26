@@ -149,11 +149,32 @@ open) — never `admin` — and every admin-gated action on a crew you don't own
 admin grant, including on adminless public crews, where the "your own group stays open to you"
 leniency deliberately does not apply.
 
-**The next pass: cross-account *scheduling*.** A cross-account crew can now be formed but not yet
-scheduled — `coordinator.respond_group` reads the coordination through the owner-scoped path, so
-Bruno gets `unknown coordination` on a session Ana opened. The fix is the same shape as this one:
-a member's availability should be their **own** record that the coordinator aggregates, rather
-than a shared mutable blob in the organiser's graph. Deliberately not patched in here.
+**Cross-account scheduling — ✅ built.** A cross-account crew can now also be *scheduled*. Opening
+a group session grants every current crew member `coord:participant` on the coordination, and
+`GraphSession.get_if_granted()` / `update_if_granted()` make that grant the way a member in another
+account reaches a session they don't own. `spaces_granted()` is the reverse index, so a participant
+can find their sessions instead of being handed an id out of band.
+
+Authorisation is deliberately **two things, not one**, because they answer different questions:
+
+- the **grant** is what lets you *reach* the entity — without it the coordination is out of your
+  owner scope and reads as missing;
+- the **crew** is the authority on who *belongs*. A grant row needs only `content:write` to write,
+  so on its own it is an index, not a permission. Membership is re-derived from the crew on every
+  action, which is what makes a forged grant worthless and makes leaving or being blocked take
+  effect immediately rather than at the end of whatever was in flight.
+
+Two consequences worth keeping: quorum is computed over **current** members only (someone who left
+can't be the reason a night goes ahead, even though they answered while they were in it), and the
+confirmed meet is shared state on the coordination while a *calendar entry* is a local
+materialisation — `add_to_calendar` writes it into your own graph, because nobody writes an event
+into somebody else's.
+
+**Still open here:** grants themselves are not owner-authenticated at the substrate level — any
+session with `content:write` can write any row. Nothing exposed reaches that (the gateway only
+offers module functions, and both crews and coordinate re-derive authority from the crew), but if
+the ACL is going to carry more weight than this, `grant()` should learn who is allowed to write it.
+Its own ticket; it touches crews as much as coordinate.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.
