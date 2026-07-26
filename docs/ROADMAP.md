@@ -135,14 +135,25 @@ query (a caller cannot widen it), it is read-only, and scope checks still apply.
 `crews.directory()` and the whole of `discover` (find / intents / feed) now span accounts, while
 anything unpublished stays invisible even to someone who knows its id.
 
-**The next decision: what a member IS, across accounts.** Bruno can now *see* Ana's public crew
-but cannot *join* it, and that is a modelling question rather than a missing endpoint. Crew
-membership currently points at `person` entities, which are per-account: Ana cannot resolve
-Bruno's person, and Bruno cannot load Ana's crew through his own scope. Cross-account membership
-means membership should reference the **account** (`owner_id`/`account_id`), with the local
-`person` remaining the private, personal record. That touches the grants ACL, the coordinator's
-attendee model, and every `_names()`-style lookup — so it wants its own pass, not a patch.
-Deliberately not done here.
+**Cross-account membership — ✅ built.** A member subject is now either a local `person` (your
+own private record of someone you know — unchanged) or an **ACCOUNT** (who someone is across the
+system, which is what shared crews are built from). Bruno can browse the directory, join a
+drop-in crew or be approved into a curated one, appear in Ana's roster by handle, see it in his
+own `my_crews`, and leave whenever he likes — with none of it requiring an entity in the other
+person's graph.
+
+The trust boundary that makes this safe: **the grants ACL is deliberately shared across accounts;
+entity data is not.** Joining writes one ACL row about yourself and never touches the owner's
+entities. It can only ever put you in `requested` (or `member`, where the admin declared the crew
+open) — never `admin` — and every admin-gated action on a crew you don't own requires a real
+admin grant, including on adminless public crews, where the "your own group stays open to you"
+leniency deliberately does not apply.
+
+**The next pass: cross-account *scheduling*.** A cross-account crew can now be formed but not yet
+scheduled — `coordinator.respond_group` reads the coordination through the owner-scoped path, so
+Bruno gets `unknown coordination` on a session Ana opened. The fix is the same shape as this one:
+a member's availability should be their **own** record that the coordinator aggregates, rather
+than a shared mutable blob in the organiser's graph. Deliberately not patched in here.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.

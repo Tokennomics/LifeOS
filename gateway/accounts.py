@@ -22,10 +22,9 @@ import hashlib
 import hmac
 import secrets
 
-from substrate import new_id, now_iso
+from substrate import SYSTEM_OWNER, new_id, now_iso
 from substrate.graph import Graph
 
-SYSTEM_OWNER = "00000000-0000-4000-8000-000000000000"
 SCOPES = {"content:read", "content:write"}
 MODULE = "accounts"
 
