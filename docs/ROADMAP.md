@@ -118,7 +118,12 @@ adds is a different product with obligations the local model doesn't have, and s
 its own phase with its own kill-gate:
 - **Identity + per-user isolation** — ✅ *built*: accounts, hashed credentials, revocable sessions,
   per-account `owner_id` scoping enforced down at the substrate. **Hosting is what's left** — a
-  reachable server with TLS and backups. That's an ops decision (NucBox vs a VPS), not a design one.
+  reachable server with TLS and backups. **Decided 2026-07-26: a VPS**, on the owner's reasoning
+  that scaling the app needs one; the NucBox stays the personal/offline option rather than the
+  deployment target. `Dockerfile` + `deploy/docker-compose.yml` already cover most of it — what a
+  VPS adds is TLS (a reverse proxy; the gateway must never be exposed in plain HTTP, since sessions
+  are bearer tokens), scheduled `VACUUM INTO` backups off-box, a non-root container, and a health
+  check. See `docs/HANDOVER.md` for the ticket.
 - **Trust & safety** — ✅ *built*: block/unblock, auditable reports with a moderation queue,
   leave-always-allowed, admin-gated invite/approve, blocked users excluded from coordination.
 - **Location privacy** — ✅ *city-level only* in the model (no coordinates on a crew); keep it that

@@ -148,6 +148,18 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
 
+## Next — hosting on a VPS (decided 2026-07-26)
+
+Every social feature above is written and tested but exercisable only in the test suite, because
+there is no reachable host. The owner settled the long-open NucBox-vs-VPS question in favour of a
+**VPS**, on the reasoning that scaling the app needs one; the NucBox stays the personal/offline
+option. `Dockerfile` + `deploy/docker-compose.yml` already cover the app itself. The ticket is what
+a public box adds: **TLS via a reverse proxy** (blocking — sessions are bearer tokens and the
+gateway currently speaks plain HTTP on `0.0.0.0:8787`), scheduled `VACUUM INTO` backups kept
+off-box, a non-root container with the firewall down to 80/443, and a health check + restart
+policy. Then the first real two-phone test. Postgres is *not* part of this ticket — get the box up,
+measure, then decide. Full write-up in `docs/HANDOVER.md`.
+
 ## Next (from the 2026-07-18 brief)
 
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
