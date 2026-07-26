@@ -129,7 +129,12 @@ After the bot's first accepted message it logs your Telegram user id — pin it 
 .venv\Scripts\uvicorn gateway.main:create_app --factory --host 127.0.0.1 --port 8787
 ```
 
-Gateway endpoints: `GET /health`, `POST /v1/route {"text": ...}`, `POST /v1/vision {"text": ...}`.
+Gateway endpoints: `GET /health` (liveness, no auth), `GET /v1/stats` (row counts, auth
+required), `POST /v1/route {"text": ...}`, `POST /v1/vision {"text": ...}`.
+
+To put it on a public box, see **[`deploy/vps/README.md`](deploy/vps/README.md)** — TLS via
+Caddy, non-root containers, verified `VACUUM INTO` backups, and the gateway never exposed
+directly.
 
 Every module also runs standalone (all support `--offline`):
 

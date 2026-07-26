@@ -1,0 +1,34 @@
+# TLS for Life OS. Caddy obtains and renews a Let's Encrypt certificate automatically —
+# the only manual step is pointing an A/AAAA record at the box before the first start.
+#
+# This is a blocking requirement, not a nicety: sessions are bearer tokens, so on plain
+# HTTP every login and every subsequent request hands the token to anyone on the path.
+
+{
+	email {$LIFEOS_ACME_EMAIL}
+}
+
+{$LIFEOS_DOMAIN} {
+	encode zstd gzip
+
+	# The gateway sets permissive CORS for the Capacitor app (capacitor:// origin) and
+	# authenticates on the token, so the proxy adds transport security, not access control.
+	reverse_proxy gateway:8787
+
+	header {
+		# HSTS: once a browser has seen this it refuses to talk to the host over HTTP at
+		# all, which closes the downgrade window that a redirect alone leaves open.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

@@ -104,9 +104,20 @@ def create_app(cfg: dict | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        return {"ok": True, "env": cfg.get("env"),
-                "entities": _count(graph, "SELECT COUNT(*) AS n FROM entities"),
-                "claude": claude.available}
+        """Liveness only — this is the one route that answers before you authenticate.
+
+        It used to report the instance's total entity count. That was harmless on a private
+        NucBox and is not on a public box: an unauthenticated caller could watch the number
+        move and learn how much the system holds and when people use it. Anything that
+        counts what's inside now lives behind auth on /v1/stats; what stays here is exactly
+        what a load balancer, an uptime check and the PWA's mode badge need.
+        """
+        return {"ok": True, "env": cfg.get("env"), "claude": claude.available}
+
+    @app.get("/v1/stats", dependencies=[Depends(auth)])
+    def stats():
+        return {"entities": _count(graph, "SELECT COUNT(*) AS n FROM entities"),
+                "observations": _count(graph, "SELECT COUNT(*) AS n FROM observations")}
 
     @app.post("/v1/route", dependencies=[Depends(auth)])
     def route_text(body: TextIn):
