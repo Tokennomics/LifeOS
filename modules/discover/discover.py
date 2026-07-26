@@ -71,9 +71,13 @@ def profile_interests(graph: Graph, limit: int = 100) -> list[str]:
             if i["attrs"].get("name")]
 
 
-def _event_items(session) -> list[dict]:
+def _event_items(session, across_users: bool = True) -> list[dict]:
+    """Discovery reads PUBLISHED events across accounts by default — that's the point of a
+    directory. The matcher then filters again, so nothing unpublished can slip through even
+    if this is called with the owner-scoped reader."""
+    finder = session.find_public if across_users else session.find_entities
     out = []
-    for ev in session.find_entities("event", {"type": "social"}, limit=300):
+    for ev in finder("event", {"type": "social"}, limit=300):
         a = ev["attrs"]
         out.append({"id": ev["id"], "kind": "event", "title": a.get("title", ""),
                     "topic": a.get("topic", ""), "city": a.get("city", ""),
@@ -100,9 +104,10 @@ def mark_interest(graph: Graph, event_id: str, person_id: str, going: bool = Tru
     return {"event_id": event_id, "going": going, "going_count": len(interested)}
 
 
-def _crew_items(session) -> list[dict]:
+def _crew_items(session, across_users: bool = True) -> list[dict]:
+    finder = session.find_public if across_users else session.find_entities
     out = []
-    for crew in session.find_entities("content", {"type": "crew"}, limit=200):
+    for crew in finder("content", {"type": "crew"}, limit=200):
         a = crew["attrs"]
         out.append({"id": crew["id"], "kind": "crew", "title": a.get("name", ""),
                     "topic": a.get("topic", ""), "city": a.get("city", ""), "start": "",

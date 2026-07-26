@@ -237,6 +237,56 @@ class GraphSession:
         self._need(row["kind"], "read")
         return _row_to_entity(row)
 
+    # ---- the one deliberate crossing of the owner boundary ----------------
+
+    def find_public(self, kind: str, attr_equals: dict | None = None,
+                    limit: int = 100) -> list[dict]:
+        """Read PUBLISHED entities across owners — the only cross-tenant read there is.
+
+        Everything else in this class is owner-scoped, deliberately. A directory of public
+        crews and events cannot work under that rule, so this is the single, narrow hole,
+        and it is narrow by construction rather than by convention:
+
+          - `attrs.visibility == "public"` is forced into the query. A caller cannot widen
+            it, and an entity that was never explicitly published is invisible here even if
+            you know its id.
+          - Reads only. There is no cross-owner write path; joining or editing someone
+            else's thing still has to go through their own scope.
+          - Scope checks still apply, so a module without `<domain>:read` gets nothing.
+
+        Anything sensitive is safe as long as it is never marked public — which is why
+        `visibility` is only ever set by an explicit publish/create choice.
+        """
+        self._need(kind, "read")
+        g = self.graph
+        sql = f"SELECT * FROM entities WHERE kind = {g.ph}"
+        params: list = [kind]
+        clauses = dict(attr_equals or {})
+        clauses["visibility"] = "public"          # forced; overrides any caller value
+        for key, value in clauses.items():
+            if not _ATTR_KEY_RE.match(key):
+                raise GraphError(f"invalid attr key: {key!r}")
+            if g.dialect == "sqlite":
+                sql += f" AND json_extract(attrs, '$.{key}') = {g.ph}"
+            else:
+                sql += f" AND attrs->>'{key}' = {g.ph}"
+            params.append(value)
+        sql += f" ORDER BY created_at LIMIT {int(limit)}"
+        return [_row_to_entity(r) for r in g._execute(sql, tuple(params)).fetchall()]
+
+    def get_public(self, entity_id: str) -> dict | None:
+        """Fetch one published entity by id, whoever owns it. Unpublished ids read as
+        missing, exactly as they do through the owner-scoped path."""
+        g = self.graph
+        row = g._execute(f"SELECT * FROM entities WHERE id = {g.ph}", (entity_id,)).fetchone()
+        if row is None:
+            return None
+        entity = _row_to_entity(row)
+        if entity["attrs"].get("visibility") != "public":
+            return None
+        self._need(entity["kind"], "read")
+        return entity
+
     def find_entities(self, kind: str, attr_equals: dict | None = None, limit: int = 100) -> list[dict]:
         self._need(kind, "read")
         g = self.graph
