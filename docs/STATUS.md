@@ -113,6 +113,16 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   an id is no longer enough to read or write someone else's entity — an out-of-scope id is
   indistinguishable from a missing one (404, not 500; `GraphError`/`ScopeError` now map to
   404/400/403 across the API instead of surfacing as server errors).
+- **Cross-account public discovery.** `GraphSession.find_public()` / `get_public()` — the single
+  deliberate crossing of the owner boundary, narrow *by construction*: `visibility == "public"` is
+  forced into the query so a caller can't widen it, it's **read-only** (there is no cross-owner
+  write), and scope checks still apply. `crews.directory()` + `GET /v1/crews/directory` and all of
+  `discover` (find / intents / feed) now span accounts. Proven with two real accounts: Bruno sees
+  Ana's published crews and events, sees a public crew's **size but not its roster**, and cannot
+  reach anything private — not by listing, not by id, not by asking for `visibility=private`.
+  **Boundary:** Bruno can *see* Ana's crew but not *join* it yet — membership points at per-account
+  `person` entities, so cross-account joining needs membership to reference the **account**. That's
+  a modelling pass, written up in ROADMAP, deliberately not patched in here.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.

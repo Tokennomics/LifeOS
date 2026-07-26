@@ -159,25 +159,37 @@ def members(graph: Graph, crew_id: str) -> list[str]:
 
 
 def browse(graph: Graph, topic: str = "", city: str = "", visibility: str = "",
-           limit: int = 50) -> list[dict]:
+           limit: int = 50, across_users: bool = False) -> list[dict]:
     """Directory-shaped read: filter by topic/city, and by visibility.
 
-    `visibility="public"` is the DIRECTORY query — the only view a stranger should ever
-    get. Default ("") is the local owner's view of their own graph.
+    Default is the owner's own view of their own crews. `across_users=True` is the real
+    DIRECTORY — it spans accounts and, by construction, can only ever return crews their
+    admins explicitly published.
     """
     session = graph.session(MODULE, SCOPES)
+    if across_users:
+        crews_found = session.find_public("content", {"type": "crew"}, limit=limit)
+    else:
+        crews_found = session.find_entities("content", {"type": "crew"}, limit=limit)
+        if visibility:
+            crews_found = [c for c in crews_found
+                           if c["attrs"].get("visibility", "private") == visibility]
     out = []
-    for crew in session.find_entities("content", {"type": "crew"}, limit=limit):
+    for crew in crews_found:
         a = crew["attrs"]
         if topic and _key(a.get("topic")) != _key(topic):
             continue
         if city and _key(a.get("city")) != _key(city):
             continue
-        if visibility and a.get("visibility", "private") != visibility:
-            continue
         out.append(_view(session, crew))
     out.sort(key=lambda c: (-c["member_count"], c["name"]))
     return out
+
+
+def directory(graph: Graph, topic: str = "", city: str = "", limit: int = 50) -> list[dict]:
+    """The public crew directory: every published crew, whoever owns it. Land in a new
+    city, see who's climbing there."""
+    return browse(graph, topic=topic, city=city, limit=limit, across_users=True)
 
 
 def my_crews(graph: Graph, person_id: str) -> list[dict]:

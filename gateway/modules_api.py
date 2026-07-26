@@ -397,6 +397,12 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: crews.set_policy(
             _graph(request), body.crew_id, body.visibility, body.admission, body.by))
 
+    @router.get("/crews/directory")
+    def crews_directory(request: Request, topic: str = "", city: str = ""):
+        """The cross-account public directory — every published crew, whoever owns it.
+        Declared before /crews/{crew_id} so the literal path wins."""
+        return {"crews": crews.directory(_graph(request), topic=topic, city=city)}
+
     @router.get("/crews/{crew_id}")
     def crews_get(request: Request, crew_id: str):
         return guard(lambda: crews.get(_graph(request), crew_id))

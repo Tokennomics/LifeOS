@@ -129,13 +129,20 @@ its own phase with its own kill-gate:
 - **Sequencing:** private crews ✅ → invite/request lifecycle + safety ✅ → admission policy +
   intent discovery ✅ → accounts + isolation ✅ → **hosting (next)** → public directory across users.
 
-**What the directory still needs, now that identity exists.** Each account is currently an
-island: `find_entities` and `_fetch_entity` are owner-scoped, so one user cannot see another's
-crews or events *at all* — including the public ones. Cross-user discovery therefore needs a
-deliberate, narrow sharing path (a public read that crosses owners for `visibility: public`
-crews/events only, ideally via the grants ACL rather than a scope hole), plus hosting. That is
-the next design decision, and it should be made carefully: it is the one place where the
-isolation guarantee is intentionally relaxed.
+**Cross-account public reads — ✅ built.** `GraphSession.find_public()` / `get_public()` are the
+single, narrow crossing of the owner boundary: `attrs.visibility == "public"` is *forced* into the
+query (a caller cannot widen it), it is read-only, and scope checks still apply. On top of it,
+`crews.directory()` and the whole of `discover` (find / intents / feed) now span accounts, while
+anything unpublished stays invisible even to someone who knows its id.
+
+**The next decision: what a member IS, across accounts.** Bruno can now *see* Ana's public crew
+but cannot *join* it, and that is a modelling question rather than a missing endpoint. Crew
+membership currently points at `person` entities, which are per-account: Ana cannot resolve
+Bruno's person, and Bruno cannot load Ana's crew through his own scope. Cross-account membership
+means membership should reference the **account** (`owner_id`/`account_id`), with the local
+`person` remaining the private, personal record. That touches the grants ACL, the coordinator's
+attendee model, and every `_names()`-style lookup — so it wants its own pass, not a patch.
+Deliberately not done here.
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.
