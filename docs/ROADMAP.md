@@ -1,6 +1,6 @@
 # LifeOS — Roadmap (PARKED until the v0.1 gate passes)
 
-_Written 2026-07-24. This is a **parked** map, not a work queue. Nothing here is built until
+_Written 2026-07-24, extended 2026-07-26 (Phase 3b — dating). This is a **parked** map, not a work queue. Nothing here is built until
 the v0.1 gate passes (28 days of daily self-use; check `/gate`). By the product's own
 distraction-sink rule: **captured, not abandoned — current gate first.** Re-read `docs/STATUS.md`
 for what's actually shipped._
@@ -175,6 +175,67 @@ session with `content:write` can write any row. Nothing exposed reaches that (th
 offers module functions, and both crews and coordinate re-derive authority from the crew), but if
 the ACL is going to carry more weight than this, `grant()` should learn who is allowed to write it.
 Its own ticket; it touches crews as much as coordinate.
+### Phase 3b — Dating: intent-based, mutual-consent, meet-through-shared-activity — NOT built
+
+The owner's idea (2026-07-26): "seamless dating for people who want it." It fits — but it is a
+**category change, not another crew type**, and this section exists so that is decided once,
+while rested, rather than re-litigated at 1am with the machinery half-written.
+
+**Why it fits.** Most of it already exists and is tested: accounts + per-account isolation,
+interest matching (`modules/discover/core.py`), city + date-window intents ("in Lisbon 12–19 Aug"),
+the mutual-consent coordinator (both humans ratify; nothing is auto-booked), block / unblock /
+auditable reports, and — as of cross-account scheduling — a grant-shaped way to share exactly one
+thing with exactly the people entitled to it. Dating is those pieces with the **consent gate turned
+up**, not a new subsystem.
+
+**The shape to build (and the shape NOT to).** Not a swipe app. **Intent-based, mutual-consent,
+meet-through-shared-activity**: you go to the sushi night or the climbing crew you were going to
+anyway, and interest is only ever *revealed when it is mutual*. That is differentiated (it is the
+standing complaint about the swipe model), it is safer (first meetings are in public, in a group,
+around an activity), and it reuses machinery already proven instead of starting a new one.
+
+**The one hard invariant nothing in LifeOS currently satisfies:** *dating availability must never be
+visible to a non-match.* `find_public` is exactly the wrong primitive here — it publishes to the
+world by design. Dating needs the **grant** shape: nothing readable until a mutual match writes the
+row, and the row revocable by either side, unilaterally, forever. Design it as "invisible until
+mutual", not "visible with a low rank" — the same rule already enforced in `discover` (privacy is a
+filter applied *before* scoring), held one notch stricter.
+
+**Three obligations that are not choices:**
+
+1. **Age assurance.** Legally required for a dating service and not satisfiable by a checkbox.
+   A real dependency, not a nice-to-have — and it needs a third party, which means it is the
+   first LifeOS feature that cannot be "works with no API key."
+2. **Special-category personal data (GDPR Art. 9).** Orientation and relationship intent are not
+   ordinary attributes. Different legal basis, different retention, different breach consequences,
+   and the owner is EU-based. The standing rule "no secrets in the repo, ever" acquires a sibling:
+   **no orientation or dating-intent data on any public-readable path, ever** — not in
+   `find_public`, not in the feed, not in `reasons` strings, not in a crew roster.
+3. **Physical safety of 1:1 stranger meetings.** A crew is a group with an admin. A date is one
+   person alone with someone they met online. Reporting must work *after* the meet and outside any
+   crew context, and a report about a person must be able to outlive the crew it happened in.
+
+**Sequencing — this comes after hosting, and that is not negotiable.** Every item above needs a
+reachable box with TLS and backups; a directory of real people looking for dates is a far worse
+thing to run on a URL that can't be reached from a phone. It is also the first feature where
+shipping it badly harms *users* rather than the owner.
+
+**Kill-gates, in order — each must pass before the next is written:**
+- **G0 — hosting.** TLS, backups, a reachable host. Nothing starts before this.
+- **G1 — the invariant, proven.** A mutual-match gate with a test suite that proves a non-match
+  cannot see dating availability: not by listing, not by id, not by feed, not by asking for
+  `visibility=public`, not via a forged grant. Same standard the isolation work was held to —
+  simulated with real accounts, not just unit-tested.
+- **G2 — age assurance integrated** and failing closed (no assurance ⇒ no dating surface at all).
+- **G3 — post-meet safety.** Report/block that works outside a crew, with a moderation queue that
+  a solo operator can actually service. If it cannot be serviced, do not ship the feature.
+- **G4 — real users.** ≥2 people who actually asked for it, per the Phase 3 gate. Building a
+  dating product for a user base of one is the single most expensive way to learn nothing.
+
+**Explicitly out of scope even after all gates pass:** location sharing finer than city level;
+"who's nearby right now"; any auto-introduction the humans didn't both ratify; storing dating
+intent on the same entity as anything published.
+
 - **Phase 4 — Developer platform, vetted cohort (post multi-user validation).** Open to a handful of
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.
@@ -202,6 +263,13 @@ vs. budget (over-budget → degrade to propose-only).
 6. **Shared-kernel containers as the isolation boundary for untrusted code** — use WASM / microVM.
 7. **Betting cross-user negotiation on A2A** — A2A does discovery + delegation, not negotiation; keep
    cross-user logic in our own bounded coordinator.
+8. **A swipe-style dating surface, or any dating feature before Phase 3b's gates** — orientation and
+   relationship intent are GDPR Art. 9 data, age assurance is a legal precondition, and 1:1 stranger
+   meetings carry a physical-safety duty a "visible with a low rank" privacy model cannot discharge.
+   Build the mutual-consent, meet-through-shared-activity shape or build nothing.
+9. **Precise (sub-city) location anywhere in the social layer** — crews, events, discovery, feed and
+   dating are all city-level by design. "Who's nearby right now" is the feature that turns a
+   directory into a stalking tool, and it cannot be retrofitted safely once the data exists.
 
 ---
 
