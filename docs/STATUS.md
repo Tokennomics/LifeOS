@@ -120,9 +120,20 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   `discover` (find / intents / feed) now span accounts. Proven with two real accounts: Bruno sees
   Ana's published crews and events, sees a public crew's **size but not its roster**, and cannot
   reach anything private — not by listing, not by id, not by asking for `visibility=private`.
-  **Boundary:** Bruno can *see* Ana's crew but not *join* it yet — membership points at per-account
-  `person` entities, so cross-account joining needs membership to reference the **account**. That's
-  a modelling pass, written up in ROADMAP, deliberately not patched in here.
+- **Cross-account membership.** A member subject is a local `person` (your private record of
+  someone you know — unchanged) **or an ACCOUNT** (who you are across the system). A traveller can
+  browse the directory, join a drop-in crew or be approved into a curated one, show up in the
+  owner's roster by handle, see it in their own `my_crews`, and leave at will — none of it needing
+  an entity in the other person's graph. `SYSTEM_OWNER` moved to `substrate` so modules resolve an
+  account's handle (and only the handle) without importing the gateway.
+  **The trust boundary:** the grants ACL is deliberately shared across accounts; entity data is
+  not. Joining writes one ACL row about yourself, never the owner's entities; it can only ever
+  reach `requested` (or `member` where the admin declared the crew open), never `admin`; and every
+  admin action on a crew you don't own needs a real admin grant — including on adminless public
+  crews, where the "your own group stays open to you" leniency deliberately does not apply.
+  **Next:** cross-account *scheduling* — `respond_group` still reads the coordination
+  owner-scoped, so a member can't answer a session someone else opened. Same fix shape:
+  availability should be each member's own record, aggregated. Written up in ROADMAP.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.

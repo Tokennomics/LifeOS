@@ -159,7 +159,7 @@ class InterestIn(BaseModel):
 
 class CrewJoinIn(BaseModel):
     crew_id: str
-    person_id: str
+    person_id: str | None = None    # omit to act as your own account (cross-account joins)
 
 
 class CrewActIn(BaseModel):
@@ -197,6 +197,17 @@ class GroupApproveIn(BaseModel):
     coordination_id: str
     person_id: str
     choice: int
+
+
+def _subject(request: Request, explicit: str | None) -> str:
+    """Who the action is for: an explicit local person, or — when omitted — the caller's
+    own ACCOUNT, which is the identity shared crews are built from."""
+    if explicit:
+        return explicit
+    caller = getattr(request.state, "caller", None)
+    if caller and caller.get("account_id"):
+        return caller["account_id"]
+    raise HTTPException(status_code=400, detail="person_id required (or sign in with an account)")
 
 
 def _graph(request: Request):
@@ -417,15 +428,18 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/crews/invite/accept")
     def crews_accept(request: Request, body: CrewJoinIn):
-        return guard(lambda: crews.accept_invite(_graph(request), body.crew_id, body.person_id))
+        subject = _subject(request, body.person_id)
+        return guard(lambda: crews.accept_invite(_graph(request), body.crew_id, subject))
 
     @router.post("/crews/invite/decline")
     def crews_decline(request: Request, body: CrewJoinIn):
-        return guard(lambda: crews.decline_invite(_graph(request), body.crew_id, body.person_id))
+        subject = _subject(request, body.person_id)
+        return guard(lambda: crews.decline_invite(_graph(request), body.crew_id, subject))
 
     @router.post("/crews/request")
     def crews_request(request: Request, body: CrewJoinIn):
-        return guard(lambda: crews.request_join(_graph(request), body.crew_id, body.person_id))
+        subject = _subject(request, body.person_id)
+        return guard(lambda: crews.request_join(_graph(request), body.crew_id, subject))
 
     @router.post("/crews/request/approve")
     def crews_approve(request: Request, body: CrewActIn):
@@ -438,7 +452,8 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/crews/leave")
     def crews_leave(request: Request, body: CrewJoinIn):
-        return guard(lambda: crews.leave(_graph(request), body.crew_id, body.person_id))
+        subject = _subject(request, body.person_id)
+        return guard(lambda: crews.leave(_graph(request), body.crew_id, subject))
 
     @router.post("/crews/block")
     def crews_block(request: Request, body: CrewActIn):

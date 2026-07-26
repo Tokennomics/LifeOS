@@ -13,6 +13,11 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
+# The scope the system itself owns: accounts, sessions — records that belong to no user's
+# personal graph and must stay out of every owner-scoped view. It lives here rather than in
+# the gateway so modules can resolve an account identity without importing a surface.
+SYSTEM_OWNER = "00000000-0000-4000-8000-000000000000"
+
 
 def load_config(path: str | None = None) -> dict:
     """Load config.yaml, resolving "env:NAME" values from the environment."""
