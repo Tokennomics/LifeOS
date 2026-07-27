@@ -198,3 +198,30 @@ mark {
   .task.just-done .box, .spark-burst { animation: none; }
   .spark-burst { display: none; }
 }
+
+/* ---------- shared in from another app's share sheet ---------- */
+
+.shared-text {
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.5;
+  word-break: break-word;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-field);
+  padding: 13px 14px;
+  margin-top: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+/* The verdict is stated BEFORE you commit — the distraction sink is most useful at exactly
+   the moment it is least visible. */
+.verdict {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid var(--growth);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.verdict.park { border-left-color: var(--spark-deep); color: var(--spark); }

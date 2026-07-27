@@ -35,6 +35,21 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   - **The daily gesture got a body.** A week-progress ring, a pop on the checkbox, a short haptic,
     and exactly one quiet flare when the last task of the week lands — rationed so it keeps
     meaning something. All motion is <500ms and honours `prefers-reduced-motion`.
+  - **Share to LifeOS (Web Share Target).** Capture used to cost six steps: unlock, find the app,
+    open, Capture tab, type, tap. Now: highlight anything in any app → share → LifeOS → done. That
+    matters more than it sounds, because the anti-hindrance sorter only ever fires on things that
+    actually got captured. The confirm screen **names the decision before you commit** — "Captured,
+    not abandoned — current gate first." when the shared thing classifies as a new-project idea —
+    since the distraction sink is most useful at exactly the moment it is least visible.
+    `parseShare` is pure and tested against the shapes real Android apps send (title+url; link
+    inside `text` with no url; duplicated title; url echoed inside text; pre-joined "title — url"),
+    because naive concatenation puts the URL in twice on the one screen whose whole promise is "one
+    gesture, no editing". The launch URL is scrubbed via `replaceState`, so a reload or a task
+    restore cannot capture the same thing twice — verified in a real browser, along with discard
+    writing nothing and a hostile payload rendering as text. Plus a manifest **shortcut**
+    (long-press the icon → Capture). **Android/Chrome only:** iOS Safari has no share target and
+    degrades to the existing flow; the Capacitor APK would need its own native intent filter, which
+    is deliberately not done here.
   - **Capture search** with match highlighting, appearing only once there are ≥8 items (a filter
     over four notes is furniture). Re-render restores focus and caret so typing isn't interrupted.
   - **Share sheet export** (`navigator.share` with a file, falling back to download) — a silent

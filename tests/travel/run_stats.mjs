@@ -208,6 +208,51 @@ test("an unplanned week is 0%, and is NOT 'complete'", () => {
   assert.deepEqual(S.weekProgress([], "2026-W31"), { planned: 0, done: 0, pct: 0, complete: false });
 });
 
+/* ---- share target ---- */
+
+test("Chrome's shape: title + url, joined once", () => {
+  assert.equal(S.parseShare("?title=Sushi%20in%20Lisbon&url=https://ex.com/a"),
+               "Sushi in Lisbon — https://ex.com/a");
+});
+
+test("the app that puts the link in `text` and sends no url", () => {
+  assert.equal(S.parseShare("?text=https://ex.com/a"), "https://ex.com/a");
+});
+
+test("a duplicated title is not captured twice", () => {
+  assert.equal(S.parseShare("?title=Great%20read&text=Great%20read&url=https://ex.com/a"),
+               "Great read — https://ex.com/a");
+});
+
+test("a url echoed inside text is not captured twice", () => {
+  assert.equal(S.parseShare("?text=Look%20at%20https://ex.com/a&url=https://ex.com/a"),
+               "Look at https://ex.com/a");
+});
+
+test("the pre-joined 'title url' case collapses to one line", () => {
+  assert.equal(S.parseShare("?title=Great%20read&text=Great%20read%20https://ex.com/a"),
+               "Great read https://ex.com/a");
+});
+
+test("plain selected text with nothing else", () => {
+  assert.equal(S.parseShare("?text=the%20thing%20I%20highlighted"), "the thing I highlighted");
+});
+
+test("newlines and runs of whitespace collapse — a capture is one line", () => {
+  assert.equal(S.parseShare("?text=two%0A%0A%20%20lines"), "two lines");
+});
+
+test("nothing shared is empty, not a crash", () => {
+  for (const q of ["", "?", "?title=&text=&url=", null, undefined]) {
+    assert.equal(S.parseShare(q), "", `for ${JSON.stringify(q)}`);
+  }
+});
+
+test("a hostile payload comes back verbatim — escaping is the view's job", () => {
+  assert.equal(S.parseShare("?text=" + encodeURIComponent('<img src=x onerror=alert(1)>')),
+               '<img src=x onerror=alert(1)>');
+});
+
 if (failures) {
   console.error(`\n${failures} travel-stats check(s) failed.`);
   process.exit(1);
