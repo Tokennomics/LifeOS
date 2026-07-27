@@ -2,7 +2,7 @@
 
 _The one-page memory between phone-driven sessions. Update at the end of every PR._
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-27_
 
 ## Where we are
 
@@ -12,7 +12,7 @@ reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone ab
 server. **T3 (anti-hindrance) was pulled ahead of T2** by the owner: T2's import has no
 user-facing value until he's home at the NucBox, while T3 improves daily use while travelling.
 
-**Tests:** `python -m pytest` → **219 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **245 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ## Shipped
@@ -25,6 +25,27 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   (rename/add/remove) instead of re-pasting; the retro persists across reload; delete a capture
   or parked idea. Gate honesty fix (server + Travel): `retros_completed` counts distinct weeks,
   so re-running a week's retro can't inflate gate progress.
+- **Travel Mode — craft + Journey (2026-07-27).** The single-player product is the foundation the
+  network multiplies, so this pass went into the surface actually in daily use.
+  - **Journey tab** — the compounding made visible, which is the structural retention advantage a
+    graph has over a habit tracker (`docs/GROWTH.md`): days in vs. days shown up, tasks finished,
+    longest run, a 12-week activity grid (Monday-aligned, so a column is a real week), per-week
+    planned-vs-finished bars, and **recall** — something you wrote on this day of the month, a
+    while back, because that is what makes the pile a memory rather than a landfill.
+  - **The daily gesture got a body.** A week-progress ring, a pop on the checkbox, a short haptic,
+    and exactly one quiet flare when the last task of the week lands — rationed so it keeps
+    meaning something. All motion is <500ms and honours `prefers-reduced-motion`.
+  - **Capture search** with match highlighting, appearing only once there are ≥8 items (a filter
+    over four notes is furniture). Re-render restores focus and caret so typing isn't interrupted.
+  - **Share sheet export** (`navigator.share` with a file, falling back to download) — a silent
+    download into a folder you can't browse is not a backup a phone-only owner would ever find.
+  - **Deliberately not built:** loss-aversion streaks, scores, grades, badges, or any red. The
+    streak reports what happened and never asks for anything; an unlogged today reads as *still
+    open*, not broken. Per GROWTH.md, engagement bought that way doesn't produce meetings.
+  - New pure module `surfaces/app/www/travel-stats.js` (Travel-only, **no Python twin**) with 21
+    checks in `tests/travel/run_stats.mjs`, run under pytest. Verified by driving the real page in
+    headless Chromium: every figure, search, week-completion and the gate cross-checked, no JS
+    errors.
 - **T3 — Anti-hindrance planner mechanics.** All four obstacles encoded as product behaviour,
   working on BOTH the server and in Travel Mode via one shared pure core
   (`modules/horizon/core.py` ⇄ `surfaces/app/www/horizon-core.js`):
@@ -144,6 +165,25 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   `POST /v1/coordinate/group/calendar` writes it into *your* graph, because nobody writes an event
   into someone else's. 11 tests + simulation (which is what caught the forged-grant and
   stale-quorum bugs the tests had missed).
+- **Crew invite links — the growth loop.** `modules/crews/invites.py` +
+  `/v1/crews/invite-link{,/redeem,/revoke}`. The public directory only helps where there are
+  already people; a link works from zero — paste it into the group chat you're already in and the
+  group becomes a crew. This is the one mechanic that functions *before* the network exists, and
+  it means the first crew can be **imported** rather than recruited (rationale in `docs/GROWTH.md`).
+  **A link is a capability and is held to session-token discipline:** 256 random bits with only the
+  SHA-256 stored (the token is shown once and is never re-readable), bounded *twice over* by expiry
+  (7d, hard-capped at 90d) and use count (25), revocable instantly, and it can never confer `admin`
+  — an admin invites people to the crew, not to their own privileges. **A block outranks an
+  invite**, which is the obvious hole in any share-link design. Every refusal reads identically
+  ("that link isn't valid") so a token can't be used to probe what exists. Invites live under
+  `SYSTEM_OWNER` alongside accounts and sessions — that is what lets a holder in any other account
+  resolve one without reaching into anybody's personal graph.
+  **Membership now confers read access** (`_load_visible` gained a third route via
+  `get_if_granted`): links made *private cross-account crews* possible for the first time, and the
+  read path hadn't caught up — a member couldn't see the very group they'd just joined, and such a
+  crew couldn't schedule at all. `my_crews` uses `spaces_granted` to find them, since an unlisted
+  crew in someone else's graph appears in no other index. 17 tests; two of the three bugs here were
+  found by simulation, not by the suite.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
@@ -182,7 +222,7 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
   `substrate/graph.py` with `module=travel`, original timestamps, idempotency keys → skip
   already-imported. Every record the bundle carries already has a stable `key` + `ts`.
-- **T4 — Repo hygiene.** This file; suite green in CI (done, 219); README test command (done).
+- **T4 — Repo hygiene.** This file; suite green in CI (done, 245); README test command (done).
 
 ## Non-goals (do not build)
 

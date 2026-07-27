@@ -141,7 +141,8 @@ def _authorise(graph: Graph, session, coord: dict, subject: str, is_mine: bool,
     """
     from modules.crews import crews
 
-    members = set(crews.members(graph, coord["attrs"]["crew_id"]))
+    # `subject` is passed so a member of a PRIVATE cross-account crew can read it at all.
+    members = set(crews.members(graph, coord["attrs"]["crew_id"], subject))
     if is_mine:
         _sync_participants(session, coord, members, source)
     if subject not in members:

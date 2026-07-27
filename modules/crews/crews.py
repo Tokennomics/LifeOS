@@ -55,15 +55,25 @@ def _load(session, crew_id: str) -> dict:
     return crew
 
 
-def _load_visible(session, crew_id: str) -> tuple[dict, bool]:
-    """A crew you own, or someone else's PUBLISHED one. Returns (crew, is_mine).
+def _load_visible(session, crew_id: str, subject: str | None = None) -> tuple[dict, bool]:
+    """A crew you own, one you BELONG to, or someone else's PUBLISHED one.
 
-    Cross-account joining has to start from a crew you don't own, so the read falls back
-    to the published path. `is_mine` then decides how strict the admin rules are.
+    Returns (crew, is_mine); `is_mine` then decides how strict the admin rules are.
+
+    Three routes because there are three genuinely different reasons to be allowed to read
+    a crew, and the middle one is easy to forget: **membership itself confers read access.**
+    Invite links made private cross-account crews possible, and without this a member of one
+    could not see the very group they had just joined — the crew is in nobody's public
+    listing and not in their graph. The membership grant is the permission, exactly as it is
+    for a shared planning session.
     """
     crew = session.get_entity(crew_id)
     if crew is not None and crew["attrs"].get("type") == "crew":
         return crew, True
+    if subject:
+        crew = session.get_if_granted(crew_id, subject, {ADMIN, MEMBER})
+        if crew is not None and crew["kind"] == "content" and crew["attrs"].get("type") == "crew":
+            return crew, False
     crew = session.get_public(crew_id)
     if crew is None or crew["kind"] != "content" or crew["attrs"].get("type") != "crew":
         raise ValueError("unknown crew")
@@ -159,10 +169,11 @@ def _names(session, ids: list[str]) -> list[dict]:
     return out
 
 
-def _reload_view(session, crew_id: str) -> dict:
+def _reload_view(session, crew_id: str, subject: str | None = None) -> dict:
     """Re-read for the response after a state change — works for someone else's published
-    crew too, so a successful cross-account join doesn't fail on the way back out."""
-    crew, _ = _load_visible(session, crew_id)
+    crew, and for a private one you're a member of, so a successful cross-account join
+    doesn't fail on the way back out."""
+    crew, _ = _load_visible(session, crew_id, subject)
     return _view(session, crew)
 
 
@@ -215,14 +226,16 @@ def create(graph: Graph, name: str, topic: str = "", city: str = "",
     return _reload_view(session, crew_id)
 
 
-def get(graph: Graph, crew_id: str) -> dict:
+def get(graph: Graph, crew_id: str, subject: str | None = None) -> dict:
+    """`subject` is the caller's identity — it is what makes a private crew readable by
+    its own members, and is ignored for crews you own or that were published."""
     session = graph.session(MODULE, SCOPES)
-    return _reload_view(session, crew_id)
+    return _reload_view(session, crew_id, subject)
 
 
-def members(graph: Graph, crew_id: str) -> list[str]:
+def members(graph: Graph, crew_id: str, subject: str | None = None) -> list[str]:
     session = graph.session(MODULE, SCOPES)
-    return [m["id"] for m in _reload_view(session, crew_id)["members"]]
+    return [m["id"] for m in _reload_view(session, crew_id, subject)["members"]]
 
 
 def browse(graph: Graph, topic: str = "", city: str = "", visibility: str = "",
@@ -274,6 +287,15 @@ def my_crews(graph: Graph, person_id: str) -> list[dict]:
         seen.add(crew["id"])
         if _state_of(session, crew["id"], person_id) in (ADMIN, MEMBER):
             out.append(_view(session, crew))
+    # A PRIVATE crew you joined by invite link is in neither list — not yours, never
+    # published — so the grants you hold are the only index that can find it.
+    for crew_id in session.spaces_granted(person_id, {ADMIN, MEMBER}):
+        if crew_id in seen:
+            continue
+        seen.add(crew_id)
+        crew = session.get_if_granted(crew_id, person_id, {ADMIN, MEMBER})
+        if crew is not None and crew["kind"] == "content" and crew["attrs"].get("type") == "crew":
+            out.append(_view(session, crew))
     return out
 
 
@@ -282,7 +304,7 @@ def my_crews(graph: Graph, person_id: str) -> list[dict]:
 def invite(graph: Graph, crew_id: str, person_id: str, by: str | None = None,
            source: str = MODULE) -> dict:
     session = graph.session(MODULE, SCOPES)
-    crew, mine = _load_visible(session, crew_id)
+    crew, mine = _load_visible(session, crew_id, by)
     if not _subject_exists(session, person_id):
         raise ValueError("unknown person")
     _require_admin(session, crew_id, by, source, mine)
@@ -292,16 +314,16 @@ def invite(graph: Graph, crew_id: str, person_id: str, by: str | None = None,
     if state in (ADMIN, MEMBER):
         return {**_view(session, crew), "invited_now": False}
     _set_state(session, crew_id, person_id, INVITED, source)
-    return {**_reload_view(session, crew_id), "invited_now": True}
+    return {**_reload_view(session, crew_id, by), "invited_now": True}
 
 
 def accept_invite(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:
     session = graph.session(MODULE, SCOPES)
-    _load(session, crew_id)
+    _load_visible(session, crew_id, person_id)
     if _state_of(session, crew_id, person_id) != INVITED:
         raise ValueError("no open invite for that person")
     _set_state(session, crew_id, person_id, MEMBER, source)
-    return {**_reload_view(session, crew_id), "joined": True}
+    return {**_reload_view(session, crew_id, person_id), "joined": True}
 
 
 def decline_invite(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:
@@ -323,7 +345,7 @@ def request_join(graph: Graph, crew_id: str, person_id: str, source: str = MODUL
     invite -> refused, approval -> queued for an admin, open -> admitted on the spot.
     """
     session = graph.session(MODULE, SCOPES)
-    crew, _mine = _load_visible(session, crew_id)
+    crew, _mine = _load_visible(session, crew_id, person_id)
     if not _subject_exists(session, person_id):
         raise ValueError("unknown person")
     admission = _effective_admission(crew["attrs"])
@@ -337,9 +359,9 @@ def request_join(graph: Graph, crew_id: str, person_id: str, source: str = MODUL
 
     if admission == "open":
         _set_state(session, crew_id, person_id, MEMBER, source)
-        return {**_reload_view(session, crew_id), "requested": False, "joined": True}
+        return {**_reload_view(session, crew_id, person_id), "requested": False, "joined": True}
     _set_state(session, crew_id, person_id, REQUESTED, source)
-    return {**_reload_view(session, crew_id), "requested": True, "joined": False}
+    return {**_reload_view(session, crew_id, person_id), "requested": True, "joined": False}
 
 
 def set_policy(graph: Graph, crew_id: str, visibility: str | None = None,
@@ -366,23 +388,23 @@ def set_policy(graph: Graph, crew_id: str, visibility: str | None = None,
 def approve_request(graph: Graph, crew_id: str, person_id: str, by: str | None = None,
                     source: str = MODULE) -> dict:
     session = graph.session(MODULE, SCOPES)
-    _, mine = _load_visible(session, crew_id)
+    _, mine = _load_visible(session, crew_id, by)
     _require_admin(session, crew_id, by, source, mine)
     if _state_of(session, crew_id, person_id) != REQUESTED:
         raise ValueError("no open request from that person")
     _set_state(session, crew_id, person_id, MEMBER, source)
-    return {**_reload_view(session, crew_id), "approved": person_id}
+    return {**_reload_view(session, crew_id, by), "approved": person_id}
 
 
 def deny_request(graph: Graph, crew_id: str, person_id: str, by: str | None = None,
                  source: str = MODULE) -> dict:
     session = graph.session(MODULE, SCOPES)
-    _, mine = _load_visible(session, crew_id)
+    _, mine = _load_visible(session, crew_id, by)
     _require_admin(session, crew_id, by, source, mine)
     if _state_of(session, crew_id, person_id) != REQUESTED:
         raise ValueError("no open request from that person")
     _set_state(session, crew_id, person_id, None, source)
-    return {**_reload_view(session, crew_id), "denied": person_id}
+    return {**_reload_view(session, crew_id, by), "denied": person_id}
 
 
 def join(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:
@@ -402,11 +424,14 @@ def join(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> di
 def leave(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:
     """Anyone can always leave — no approval, no friction."""
     session = graph.session(MODULE, SCOPES)
-    _load_visible(session, crew_id)          # you can always walk out of someone else's crew
+    crew, _ = _load_visible(session, crew_id, person_id)   # walk out of someone else's crew too
     if _state_of(session, crew_id, person_id) not in (ADMIN, MEMBER):
         raise ValueError("not a member of that crew")
     _set_state(session, crew_id, person_id, None, source)
-    return {**_reload_view(session, crew_id), "left": True}
+    # Rendered from the crew read on the way IN: leaving is exactly what removes your right
+    # to read it again, so re-fetching here would make a successful exit throw. `_view` still
+    # re-reads the grants, so the roster it returns is the post-departure one.
+    return {**_view(session, crew), "left": True}
 
 
 # ---- safety -----------------------------------------------------------------
@@ -415,23 +440,23 @@ def block(graph: Graph, crew_id: str, person_id: str, by: str | None = None,
           source: str = MODULE) -> dict:
     """Remove someone and stop them coming back. Terminal until unblocked."""
     session = graph.session(MODULE, SCOPES)
-    _, mine = _load_visible(session, crew_id)
+    _, mine = _load_visible(session, crew_id, by)
     if not _subject_exists(session, person_id):
         raise ValueError("unknown person")
     _require_admin(session, crew_id, by, source, mine)
     _set_state(session, crew_id, person_id, BLOCKED, source)
-    return {**_reload_view(session, crew_id), "blocked": person_id}
+    return {**_reload_view(session, crew_id, by), "blocked": person_id}
 
 
 def unblock(graph: Graph, crew_id: str, person_id: str, by: str | None = None,
             source: str = MODULE) -> dict:
     session = graph.session(MODULE, SCOPES)
-    _, mine = _load_visible(session, crew_id)
+    _, mine = _load_visible(session, crew_id, by)
     _require_admin(session, crew_id, by, source, mine)
     if _state_of(session, crew_id, person_id) != BLOCKED:
         raise ValueError("that person isn't blocked")
     _set_state(session, crew_id, person_id, None, source)
-    return {**_reload_view(session, crew_id), "unblocked": person_id}
+    return {**_reload_view(session, crew_id, by), "unblocked": person_id}
 
 
 def is_blocked(graph: Graph, crew_id: str, person_id: str) -> bool:

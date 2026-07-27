@@ -10,7 +10,7 @@ from gateway.auth import caller_graph
 from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
 from modules.coordinate import coordinator
-from modules.crews import crews
+from modules.crews import crews, invites
 from modules.discover import discover
 from modules.hearth import spaces as hearth
 from modules.ledger import ledger
@@ -202,6 +202,23 @@ class GroupApproveIn(BaseModel):
 class GroupCalendarIn(BaseModel):
     coordination_id: str
     person_id: str = ""
+
+
+class InviteLinkIn(BaseModel):
+    crew_id: str
+    by: str | None = None
+    ttl_hours: int = 24 * 7
+    max_uses: int = 25
+
+
+class InviteRedeemIn(BaseModel):
+    token: str
+    person_id: str = ""      # omitted -> the caller's own account
+
+
+class InviteRevokeIn(BaseModel):
+    invite_id: str
+    by: str | None = None
 
 
 def _subject(request: Request, explicit: str | None) -> str:
@@ -419,9 +436,17 @@ def build_router(auth) -> APIRouter:
         Declared before /crews/{crew_id} so the literal path wins."""
         return {"crews": crews.directory(_graph(request), topic=topic, city=city)}
 
+    @router.get("/crews/invite-link")
+    def crews_invite_links(request: Request, crew_id: str, by: str = ""):
+        """Links issued for a crew (admin only) — state, never the secret. Declared before
+        /crews/{crew_id} so the literal path wins."""
+        return {"invites": guard(lambda: invites.for_crew(
+            _graph(request), crew_id, _subject(request, by)))}
+
     @router.get("/crews/{crew_id}")
     def crews_get(request: Request, crew_id: str):
-        return guard(lambda: crews.get(_graph(request), crew_id))
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: crews.get(_graph(request), crew_id, caller.get("account_id")))
 
     @router.post("/crews/join")
     def crews_join(request: Request, body: CrewJoinIn):
@@ -445,6 +470,24 @@ def build_router(auth) -> APIRouter:
     def crews_request(request: Request, body: CrewJoinIn):
         subject = _subject(request, body.person_id)
         return guard(lambda: crews.request_join(_graph(request), body.crew_id, subject))
+
+    @router.post("/crews/invite-link")
+    def crews_invite_link(request: Request, body: InviteLinkIn):
+        """Mint a shareable join link. The token comes back ONCE — it is never re-readable."""
+        return guard(lambda: invites.create(
+            _graph(request), body.crew_id, _subject(request, body.by),
+            body.ttl_hours, body.max_uses))
+
+    @router.post("/crews/invite-link/redeem")
+    def crews_invite_redeem(request: Request, body: InviteRedeemIn):
+        """Join by holding the link — works for a private crew you could never have found."""
+        subject = _subject(request, body.person_id)
+        return guard(lambda: invites.redeem(_graph(request), body.token, subject))
+
+    @router.post("/crews/invite-link/revoke")
+    def crews_invite_revoke(request: Request, body: InviteRevokeIn):
+        return guard(lambda: invites.revoke(
+            _graph(request), body.invite_id, _subject(request, body.by)))
 
     @router.post("/crews/request/approve")
     def crews_approve(request: Request, body: CrewActIn):

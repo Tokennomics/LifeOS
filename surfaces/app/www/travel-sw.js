@@ -1,8 +1,9 @@
 // LifeOS Travel Mode service worker: cache the whole shell so it loads with no
 // network at all. There is no API here — all data lives in IndexedDB, never cached.
-const CACHE = "lifeos-travel-v3";
+const CACHE = "lifeos-travel-v4";
 const SHELL = [
-  "./travel.html", "./travel.js", "./horizon-core.js", "./style.css", "./travel.webmanifest",
+  "./travel.html", "./travel.js", "./horizon-core.js", "./travel-stats.js",
+  "./style.css", "./travel.css", "./travel.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png",
 ];
 

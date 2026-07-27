@@ -245,6 +245,35 @@ intent on the same entity as anything published.
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.
 
+### Growth — see `docs/GROWTH.md` (researched 2026-07-27)
+
+Written in answer to "what makes this a hyper-growth app?". Two findings govern everything else:
+
+1. **The shape is already right, and the shape is the hard part.** "Come for the tool, stay for
+   the network" is the best-documented cold-start solution, and LifeOS has it by construction —
+   Travel Mode/Horizon is a complete single-player product needing no server, no account and no
+   second human; crews and discovery are the network on top. Most social apps have to bolt the
+   tool on afterwards and starve before they manage it.
+2. **The constraint is density, not features.** Below a critical density every arrival finds an
+   empty room. LifeOS's *atomic network* is **one crew, in one city, that actually meets twice** —
+   not a user count. Until that exists, shipping more features is the behaviour the product's own
+   distraction sink was built to punish. The most likely failure mode of this project right now is
+   a beautiful, well-tested social network that has never had two people in it at once.
+
+The competitive wedge, which is already built: Timeleft proved people show up when you remove
+"who do I invite?", but it is **one-shot and not relational**; Luma and Partiful need a scene you
+already have or must host yourself. A crew is durable, topic- and city-scoped, with quorum
+scheduling — repeatable where one is disposable and the other is a flyer.
+
+**Recommended next build: shareable crew invite links** — the only true growth loop available,
+and the only one that works *before* a directory has anyone in it, because it turns a group chat
+that already exists into a crew in one paste. Then: instrument the activation event (likely
+"attended a crew night"), the post-meet loop (Timeleft's gap), ICS export.
+
+**Not recommended, with reasons in GROWTH.md:** feeds/streaks/gamification (buy engagement, not
+meetings — and a streak is a hindrance with a bow on it), growth notifications (5+ in week one
+triggers uninstalls), a second city before the first crew meets twice.
+
 **Metrics that move the plan:** proposal-acceptance rate (gates autonomy escalation); any >0 unintended
 external action → freeze autonomy; user count (gates inter-user + platform work); per-module AI spend
 vs. budget (over-budget → degrade to propose-only).
