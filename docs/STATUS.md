@@ -148,17 +148,34 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
 
-## Next — hosting on a VPS (decided 2026-07-26)
+## Hosting — VPS deployment (decided and written 2026-07-26)
 
-Every social feature above is written and tested but exercisable only in the test suite, because
-there is no reachable host. The owner settled the long-open NucBox-vs-VPS question in favour of a
-**VPS**, on the reasoning that scaling the app needs one; the NucBox stays the personal/offline
-option. `Dockerfile` + `deploy/docker-compose.yml` already cover the app itself. The ticket is what
-a public box adds: **TLS via a reverse proxy** (blocking — sessions are bearer tokens and the
-gateway currently speaks plain HTTP on `0.0.0.0:8787`), scheduled `VACUUM INTO` backups kept
-off-box, a non-root container with the firewall down to 80/443, and a health check + restart
-policy. Then the first real two-phone test. Postgres is *not* part of this ticket — get the box up,
-measure, then decide. Full write-up in `docs/HANDOVER.md`.
+The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning
+that scaling the app needs one; the NucBox stays the personal/offline option. `deploy/vps/` now
+holds the whole path — `compose.yml`, `Caddyfile`, `.env.example` and a runbook:
+
+- **TLS is not optional here.** Sessions are bearer tokens, so plain HTTP hands the token to
+  anyone on the path. Caddy terminates TLS with automatic Let's Encrypt, sets HSTS, and is the
+  only thing listening. **The gateway has no `ports:` at all** — it exists only on the compose
+  network, so 8787 cannot be reached from outside even by accident.
+- **Backups that were actually opened.** `tools/backup.py` uses `VACUUM INTO`, because copying a
+  live SQLite file in WAL mode can restore corrupt — and it *usually looks fine*, which is the
+  dangerous part. Every snapshot is integrity-checked and row-counted as it is taken; retention
+  prunes by mtime and never touches files it didn't write. Verified against a running gateway:
+  a row written through the API while the connection was open and still in the WAL was present
+  in the snapshot. 8 tests.
+- **`/health` is liveness only now.** It used to report the instance's total entity count without
+  authentication — harmless on a private box, an information leak on a public one (watch the
+  number move, learn how much the system holds and when people use it). Counts moved to
+  `GET /v1/stats`, behind auth. `/health` keeps exactly what a load balancer, an uptime check and
+  the PWA's mode badge need.
+- Non-root containers (uid 10001), `no-new-privileges`, firewall to 80/443, keys-only SSH,
+  health check + restart policy, secrets from the environment only.
+
+**Still the owner's to do, and not automatable from here: provision the box and point DNS at it.**
+Everything after that is `docker compose up -d --build`. Postgres is deliberately excluded —
+`substrate/graph.py` already parameterises the dialect, so the port is real when a measurement
+asks for it, not because a VPS felt like it deserved a bigger database.
 
 ## Next (from the 2026-07-18 brief)
 

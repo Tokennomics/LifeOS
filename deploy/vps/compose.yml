@@ -1,0 +1,93 @@
+# Life OS on a public VPS.
+#
+#   cd deploy/vps && docker compose up -d --build
+#
+# The difference from deploy/docker-compose.yml (the NucBox/LAN path) is entirely about
+# facing the internet: the gateway is NOT published on a host port — Caddy terminates TLS
+# and is the only thing listening — the containers run non-root and read-only, and there is
+# a backup job. Secrets come from the host environment or a .env file beside this one,
+# which is gitignored and must never be committed.
+#
+# Required in the environment: LIFEOS_DOMAIN, LIFEOS_ACME_EMAIL, LIFEOS_GATEWAY_TOKEN.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"      # ACME HTTP-01 challenge + the redirect to 443
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - LIFEOS_DOMAIN
+      - LIFEOS_ACME_EMAIL
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data          # issued certificates — losing this re-runs ACME
+      - caddy_config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: ../..
+    command: sh -c "python -m substrate.migrate && uvicorn gateway.main:create_app --factory --host 0.0.0.0 --port 8787"
+    restart: unless-stopped
+    # No `ports:` on purpose. The gateway speaks plain HTTP and is reachable only from the
+    # compose network; publishing 8787 here would put bearer-token logins on the wire and
+    # quietly bypass every rule below.
+    expose:
+      - "8787"
+    environment:
+      - ANTHROPIC_API_KEY
+      - LIFEOS_GATEWAY_TOKEN
+    volumes:
+      - lifeos_data:/app/data
+    healthcheck:
+      # /health is liveness only and needs no credentials — that is what it is for.
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8787/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+  bot:
+    build:
+      context: ../..
+    command: sh -c "python -m substrate.migrate && python -m surfaces.bot.telegram"
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_TOKEN
+      - TELEGRAM_OWNER_CHAT_ID
+      - ANTHROPIC_API_KEY
+      - LIFEOS_CALENDAR_ICS
+    volumes:
+      - lifeos_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
+  backup:
+    # A snapshot every 6 hours, verified on the way out, 14 kept. See tools/backup.py for
+    # why this is VACUUM INTO and not a file copy.
+    build:
+      context: ../..
+    restart: unless-stopped
+    command: >
+      sh -c 'while true; do
+        python -m tools.backup --dest /backups --keep 14 || echo "BACKUP FAILED";
+        sleep 21600;
+      done'
+    volumes:
+      - lifeos_data:/app/data
+      - ./backups:/backups
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  lifeos_data:
+  caddy_data:
+  caddy_config:

@@ -20,6 +20,7 @@ def test_health_and_offline_vision_flow(cfg):
     assert health["ok"] is True
     assert health["env"] == "sqlite"
     assert health["claude"] is False
+    assert "entities" not in health      # liveness only — counts live behind auth
 
     routed = client.post("/v1/route", json={"text": "plan my goals for the quarter"}).json()
     assert routed["module"] == "horizon"
@@ -30,7 +31,7 @@ def test_health_and_offline_vision_flow(cfg):
     assert body["status"] == "created"
     assert body["goals"] == 2
 
-    assert client.get("/health").json()["entities"] == 3  # vision + 2 goals
+    assert client.get("/v1/stats").json()["entities"] == 3  # vision + 2 goals
 
 
 def test_auth_enforced_when_token_set(cfg):
@@ -41,6 +42,8 @@ def test_auth_enforced_when_token_set(cfg):
     ok = client.post("/v1/route", json={"text": "hi"}, headers={"Authorization": "Bearer secret"})
     assert ok.status_code == 200
     assert client.get("/health").status_code == 200  # health stays open
+    assert client.get("/v1/stats").status_code == 401           # but counts do not
+    assert client.get("/v1/stats", headers={"Authorization": "Bearer secret"}).status_code == 200
 
 
 def test_mobile_api_roundtrip(cfg):

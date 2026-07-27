@@ -36,6 +36,19 @@ in anyone else's graph.
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
 social layer is exercisable only in the test suite until there is a reachable host.
 
+## The VPS — **written; two steps are the owner's**
+
+Everything below was the ticket, and `deploy/vps/` now implements it: `compose.yml`, `Caddyfile`,
+`.env.example`, a runbook, `tools/backup.py` (+8 tests), a non-root `Dockerfile`, and `/health`
+slimmed to liveness with counts moved behind auth on `/v1/stats`. Smoke-tested against a running
+gateway, including taking a snapshot of the live WAL-mode database while it was open.
+
+**What is left, and cannot be done from here: provision the box and point DNS at it.** Then
+`cd deploy/vps && cp .env.example .env && docker compose up -d --build`. DNS must resolve *before*
+the first start or the ACME challenge fails.
+
+<details><summary>The original ticket write-up, kept for context</summary>
+
 ## Do next — **the VPS** (decided 2026-07-26)
 
 The owner's call, verbatim in intent: *"we'll need to build it on a VPS if we want to actually
@@ -65,6 +78,8 @@ and probably fine for the first hundred users, but "scale the app" eventually me
 `json_extract` vs `->>`), so the port is real but not free. **Do not do it as part of the VPS
 ticket** — get the box up first, measure, then decide. Postgres migration is still on the
 Don't-build list until there is a reason.
+
+</details>
 
 **After the VPS:** T2 reconciliation (`POST /v1/import` — ingest the Travel Mode bundle with
 original timestamps + idempotency keys; format `lifeos-travel-export/v1`, see `buildBundle()` in
