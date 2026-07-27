@@ -2,7 +2,7 @@
 
 _The one-page memory between phone-driven sessions. Update at the end of every PR._
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-27_
 
 ## Where we are
 
@@ -12,7 +12,7 @@ reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone ab
 server. **T3 (anti-hindrance) was pulled ahead of T2** by the owner: T2's import has no
 user-facing value until he's home at the NucBox, while T3 improves daily use while travelling.
 
-**Tests:** `python -m pytest` → **219 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **244 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ## Shipped
@@ -144,6 +144,25 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   `POST /v1/coordinate/group/calendar` writes it into *your* graph, because nobody writes an event
   into someone else's. 11 tests + simulation (which is what caught the forged-grant and
   stale-quorum bugs the tests had missed).
+- **Crew invite links — the growth loop.** `modules/crews/invites.py` +
+  `/v1/crews/invite-link{,/redeem,/revoke}`. The public directory only helps where there are
+  already people; a link works from zero — paste it into the group chat you're already in and the
+  group becomes a crew. This is the one mechanic that functions *before* the network exists, and
+  it means the first crew can be **imported** rather than recruited (rationale in `docs/GROWTH.md`).
+  **A link is a capability and is held to session-token discipline:** 256 random bits with only the
+  SHA-256 stored (the token is shown once and is never re-readable), bounded *twice over* by expiry
+  (7d, hard-capped at 90d) and use count (25), revocable instantly, and it can never confer `admin`
+  — an admin invites people to the crew, not to their own privileges. **A block outranks an
+  invite**, which is the obvious hole in any share-link design. Every refusal reads identically
+  ("that link isn't valid") so a token can't be used to probe what exists. Invites live under
+  `SYSTEM_OWNER` alongside accounts and sessions — that is what lets a holder in any other account
+  resolve one without reaching into anybody's personal graph.
+  **Membership now confers read access** (`_load_visible` gained a third route via
+  `get_if_granted`): links made *private cross-account crews* possible for the first time, and the
+  read path hadn't caught up — a member couldn't see the very group they'd just joined, and such a
+  crew couldn't schedule at all. `my_crews` uses `spaces_granted` to find them, since an unlisted
+  crew in someone else's graph appears in no other index. 17 tests; two of the three bugs here were
+  found by simulation, not by the suite.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
@@ -182,7 +201,7 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
   `substrate/graph.py` with `module=travel`, original timestamps, idempotency keys → skip
   already-imported. Every record the bundle carries already has a stable `key` + `ts`.
-- **T4 — Repo hygiene.** This file; suite green in CI (done, 219); README test command (done).
+- **T4 — Repo hygiene.** This file; suite green in CI (done, 244); README test command (done).
 
 ## Non-goals (do not build)
 
