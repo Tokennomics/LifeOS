@@ -225,3 +225,19 @@ mark {
   line-height: 1.5;
 }
 .verdict.park { border-left-color: var(--spark-deep); color: var(--spark); }
+
+/* ---------- the coach: proposals, never actions ---------- */
+
+.prop {
+  border-left: 2px solid var(--calm);
+  padding: 2px 0 2px 12px;
+  margin: 14px 0 0;
+}
+.prop:first-of-type { margin-top: 6px; }
+.prop-title { font-family: var(--serif); font-size: 17.5px; line-height: 1.35; }
+.prop-why { color: var(--muted); font-size: 13.5px; line-height: 1.5; margin-top: 5px; }
+.prop-acts { display: flex; gap: 8px; margin-top: 10px; }
+/* Blue, not amber: these are observations about you, not the app claiming credit. The
+   accept button is the only warm thing here, because it is the only thing that writes. */
+.prop[data-kind="right_size"] { border-left-color: var(--spark-deep); }
+.prop[data-kind="stuck"] { border-left-color: var(--warn); }

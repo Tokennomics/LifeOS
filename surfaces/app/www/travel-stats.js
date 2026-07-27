@@ -40,7 +40,7 @@
     if (isEntity(item, "task") && attrs(item).status === "done") {
       return dayOf(attrs(item).done_at || item.ts);
     }
-    if (isEntity(item, "content")) return dayOf(item.ts);
+    if (isEntity(item, "content") && attrs(item).type !== "coach_dismissed") return dayOf(item.ts);
     if (isEntity(item, "metric") && attrs(item).type === "weekly_retro") return dayOf(item.ts);
     return "";
   }
@@ -148,7 +148,8 @@
   function searchCaptures(items, query, type) {
     const q = String(query || "").trim().toLowerCase();
     return (items || [])
-      .filter((i) => isEntity(i, "content") && (!type || attrs(i).type === type))
+      .filter((i) => isEntity(i, "content") && attrs(i).type !== "coach_dismissed"
+        && (!type || attrs(i).type === type))
       .filter((i) => !q || String(attrs(i).text || "").toLowerCase().includes(q))
       .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
   }
@@ -166,7 +167,7 @@
     const cutoff = Date.parse(today) - minAgeDays * DAY_MS;
     const dayOfMonth = today.slice(8);
     const hits = (items || [])
-      .filter((i) => isEntity(i, "content")
+      .filter((i) => isEntity(i, "content") && attrs(i).type === "capture"
         && dayOf(i.ts).slice(8) === dayOfMonth
         && Date.parse(dayOf(i.ts)) <= cutoff)
       .sort((a, b) => (a.ts < b.ts ? 1 : -1));

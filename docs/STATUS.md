@@ -12,7 +12,7 @@ reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone ab
 server. **T3 (anti-hindrance) was pulled ahead of T2** by the owner: T2's import has no
 user-facing value until he's home at the NucBox, while T3 improves daily use while travelling.
 
-**Tests:** `python -m pytest` → **245 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **246 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ## Shipped
@@ -50,6 +50,19 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
     (long-press the icon → Capture). **Android/Chrome only:** iOS Safari has no share target and
     degrades to the existing flow; the Capacitor APK would need its own native intent filter, which
     is deliberately not done here.
+  - **The coach — a propose-only agent (Phase 1a, autonomy L0).** `travel-coach.js` reads the log
+    and returns ranked proposals; Today renders them as cards. **It writes nothing** — accepting is
+    the write, and accepting is a tap. All arithmetic, **no API key**. It proposes: draft this week;
+    **right-size it** ("you planned 10 and finished 4 — try committing to 1"), which is the piece
+    nothing on the market does, since every other tool will happily let you add forty things
+    forever; a goal with nothing finished for ≥3 real weeks (measured from ISO week dates, not
+    position in the list of weeks you happened to plan); a word in ≥3 *distinct* captures that
+    matches none of your goals; and a week that never got its retro. Every proposal carries its
+    evidence, at most three show at once, and dismissals persist by stable id. Most of its 22 tests
+    are about staying **quiet**: no trend from under three weeks, a goal never started is not
+    "stuck", one rambling note repeating a word is not a pattern. Two bugs came from driving it in a
+    browser — it offered to shrink a week that was already planned, and asked the same question
+    twice at two sizes.
   - **Capture search** with match highlighting, appearing only once there are ≥8 items (a filter
     over four notes is furniture). Re-render restores focus and caret so typing isn't interrupted.
   - **Share sheet export** (`navigator.share` with a file, falling back to download) — a silent
@@ -237,7 +250,7 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
   `substrate/graph.py` with `module=travel`, original timestamps, idempotency keys → skip
   already-imported. Every record the bundle carries already has a stable `key` + `ts`.
-- **T4 — Repo hygiene.** This file; suite green in CI (done, 245); README test command (done).
+- **T4 — Repo hygiene.** This file; suite green in CI (done, 246); README test command (done).
 
 ## Non-goals (do not build)
 
