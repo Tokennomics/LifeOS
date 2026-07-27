@@ -40,7 +40,7 @@
     if (isEntity(item, "task") && attrs(item).status === "done") {
       return dayOf(attrs(item).done_at || item.ts);
     }
-    if (isEntity(item, "content")) return dayOf(item.ts);
+    if (isEntity(item, "content") && attrs(item).type !== "coach_dismissed") return dayOf(item.ts);
     if (isEntity(item, "metric") && attrs(item).type === "weekly_retro") return dayOf(item.ts);
     return "";
   }
@@ -148,7 +148,8 @@
   function searchCaptures(items, query, type) {
     const q = String(query || "").trim().toLowerCase();
     return (items || [])
-      .filter((i) => isEntity(i, "content") && (!type || attrs(i).type === type))
+      .filter((i) => isEntity(i, "content") && attrs(i).type !== "coach_dismissed"
+        && (!type || attrs(i).type === type))
       .filter((i) => !q || String(attrs(i).text || "").toLowerCase().includes(q))
       .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0));
   }
@@ -166,7 +167,7 @@
     const cutoff = Date.parse(today) - minAgeDays * DAY_MS;
     const dayOfMonth = today.slice(8);
     const hits = (items || [])
-      .filter((i) => isEntity(i, "content")
+      .filter((i) => isEntity(i, "content") && attrs(i).type === "capture"
         && dayOf(i.ts).slice(8) === dayOfMonth
         && Date.parse(dayOf(i.ts)) <= cutoff)
       .sort((a, b) => (a.ts < b.ts ? 1 : -1));
@@ -185,7 +186,41 @@
     };
   }
 
+  /* Turn a Web Share Target payload into one line of capture text.
+   *
+   * Lives here because this is where Travel's tested pure logic goes, and this needs testing
+   * badly: Android apps are wildly inconsistent about what they put where. Chrome sends the
+   * page title in `title` and the link in `url`; many apps put the link inside `text` and
+   * send no `url` at all; some duplicate the title into `text`; Twitter-likes send
+   * "title — url" pre-joined. Naively concatenating all three gives you the URL twice and
+   * the title twice, on the one screen whose entire promise is "one gesture, no editing".
+   *
+   * Returns "" when there is nothing worth capturing, so the caller falls through to the
+   * normal app rather than showing an empty confirmation. */
+  function parseShare(search) {
+    let params;
+    try {
+      params = new URLSearchParams(String(search || "").replace(/^\?/, ""));
+    } catch (e) {
+      return "";
+    }
+    const clean = (v) => String(v || "").replace(/\s+/g, " ").trim();
+    const parts = [];
+    for (const part of [clean(params.get("title")), clean(params.get("text")), clean(params.get("url"))]) {
+      if (!part) continue;
+      // Drop anything already contained in what we kept — that covers the duplicated title,
+      // the URL echoed inside text, and the pre-joined "title — url" case at once.
+      if (parts.some((kept) => kept.includes(part))) continue;
+      // ...and if this part swallows an earlier one, replace rather than append.
+      const swallowed = parts.findIndex((kept) => part.includes(kept));
+      if (swallowed >= 0) parts[swallowed] = part;
+      else parts.push(part);
+    }
+    return parts.join(" — ").slice(0, 2000);
+  }
+
   return {
-    activityDays, streak, heatmap, weekHistory, totals, searchCaptures, onThisDay, weekProgress,
+    activityDays, streak, heatmap, weekHistory, totals, searchCaptures, onThisDay,
+    weekProgress, parseShare,
   };
 });

@@ -17,12 +17,13 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID()
 const MODULE = "travel";
 const Core = HorizonCore;   // shared, byte-identical logic (horizon-core.js) — no drift with Python.
 const Stats = TravelStats;  // Travel-only, pure, tested by tests/travel/run_stats.mjs.
+const Coach = TravelCoach;  // propose-only (L0): it suggests, every write is still your tap.
 // Travel Mode is the tired-night-owl context by definition; the planner runs the
 // same anti-hindrance rules the server uses at energy_baseline: tired.
 const BASELINE = "tired";
 
 const state = { tab: "today", items: [], editing: false, busy: false, enter: true,
-                query: "", justDone: null };
+                query: "", justDone: null, shared: "" };
 
 const today = () => nowISO().slice(0, 10);
 
@@ -160,8 +161,8 @@ async function doVision(text) {
 }
 
 /* Weekly plan via the shared anti-hindrance core (boredom + energy shaping + cap). */
-async function doPlan(week) {
-  const cap = Core.weeklyCap(BASELINE);
+async function doPlan(week, limit) {
+  const cap = limit ? Math.min(limit, Core.weeklyCap(BASELINE)) : Core.weeklyCap(BASELINE);
   const existing = weekTasks(week);
   if (existing.length >= cap) return { week, tasks: existing.length, method: "already-planned" };
 
@@ -181,7 +182,7 @@ async function doPlan(week) {
   for (const g of goals) goalKeyByTitle[g.attrs.title || ""] = g.key;
 
   let count = 0;
-  for (const d of descriptors) {
+  for (const d of descriptors.slice(0, cap)) {
     const extra = { cycles: d.cycles, smallest_piece: d.smallest_piece, gate: d.gate };
     if (d.origin === "reuse" && d.id) {
       const task = state.items.find((i) => i.key === d.id);
@@ -258,6 +259,17 @@ async function doCapture(text) {
   }
   await createEntity("content", { type: "capture", text });
   return { parked: false };
+}
+
+/* Proposals you've waved away. Stored like everything else, so a dismissal survives a
+   reload — an assistant that re-raises what you declined is one you stop reading. */
+function dismissedIds() {
+  return entities("content").filter((c) => c.attrs.type === "coach_dismissed")
+    .map((c) => c.attrs.proposal_id);
+}
+
+function coachProposals() {
+  return Coach.proposals(state.items, today(), weekId(), dismissedIds(), 3);
 }
 
 /* Doubt rule (T3): honest v0.1-gate progress from what's actually on this phone.
@@ -356,7 +368,8 @@ async function act(fn, okMsg) {
 function render() {
   const view = $("#view");
   const views = { today: todayView, capture: captureView, journey: journeyView, gate: gateView };
-  view.innerHTML = (views[state.tab] || todayView)();
+  // A pending share takes over the whole view: you came here to do exactly one thing.
+  view.innerHTML = state.shared ? sharedView() : (views[state.tab] || todayView)();
   view.classList.toggle("enter", state.enter);
   state.enter = false;
   wire(view);
@@ -390,6 +403,7 @@ function todayView() {
   let html = "";
 
   if (v) html += pulseCard();
+  if (v) html += coachCard();
 
   if (!v) {
     html += `<div class="card"><h2>Start here</h2>
@@ -447,6 +461,28 @@ function todayView() {
   return html;
 }
 
+/* The coach, as cards you either accept or wave away.
+ *
+ * Rendered where the decisions are rather than on a tab of its own, and capped at three:
+ * an assistant that surfaces nine observations has told you nothing. Every card shows its
+ * evidence, and nothing here has written anything — the accept button is the write. */
+function coachCard() {
+  const proposals = coachProposals();
+  if (!proposals.length) return "";
+  const verb = { plan: "Draft it", plan_smaller: "Plan that", retro: "Run it",
+                 focus_goal: "Make it the focus", search: "Show me" };
+  return `<div class="card"><h2>Worth a look</h2>
+    ${proposals.map((p) => `<div class="prop" data-kind="${esc(p.kind)}">
+        <div class="prop-title">${esc(p.title)}</div>
+        <div class="prop-why">${esc(p.why)}</div>
+        <div class="prop-acts">
+          <button class="pill warm" data-accept="${esc(p.id)}">${esc(verb[p.action] || "Do it")}</button>
+          <button class="pill" data-dismiss="${esc(p.id)}">Not now</button>
+        </div></div>`).join("")}
+    <p class="hint">Suggestions only — nothing here changed anything. Each one is counted from
+    what's on this phone, never guessed.</p></div>`;
+}
+
 /* A feed row with a delete (✕) button, for captures and parked ideas. */
 function delRow(key, inner) {
   return `<div class="feed-item" style="display:flex;justify-content:space-between;align-items:center;gap:10px">
@@ -462,6 +498,26 @@ function highlight(text, query) {
   if (!q) return safe;
   const needle = esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return safe.replace(new RegExp(needle, "gi"), (m) => `<mark>${m}</mark>`);
+}
+
+/* Something arrived from another app's share sheet.
+ *
+ * Shown for confirmation rather than saved silently, and the confirmation names the
+ * DECISION: this is the moment the distraction sink is most useful and least visible, so
+ * "this will be parked, not planned" gets said before you commit, not discovered later. */
+function sharedView() {
+  const parked = Core.isProjectIdea(state.shared);
+  return `<div class="card hero"><h2>Shared to LifeOS</h2>
+      <div class="shared-text">${esc(state.shared)}</div>
+      <div class="verdict ${parked ? "park" : "keep"}">${parked
+        ? esc(Core.PARK_MESSAGE)
+        : "Captured with the rest of your week."}</div>
+      <div class="row2" style="margin-top:14px">
+        <button class="primary" data-act="shared-save">${parked ? "Park it" : "Capture it"}</button>
+        <button class="ghost" data-act="shared-drop" style="flex:none">Discard</button>
+      </div>
+      <p class="hint">Shared straight from another app. It stays on this phone like everything
+      else here.</p></div>`;
 }
 
 function captureView() {
@@ -645,6 +701,46 @@ function wire(root) {
 
   on("[data-act=retro]", () => act(async () => { await doRetro(weekId()); render(); }));
 
+  on("[data-accept]", (el) => act(async () => {
+    const p = coachProposals().find((x) => x.id === el.dataset.accept);
+    if (!p) return render();
+    // Accepting is the ONLY thing that writes. The coach never did.
+    if (p.action === "plan") await doPlan(weekId());
+    else if (p.action === "plan_smaller") await doPlan(weekId(), p.limit);
+    else if (p.action === "retro") await doRetro(p.week);
+    else if (p.action === "focus_goal") {
+      const g = state.items.find((i) => i.key === p.goalKey);
+      if (g) await patchEntity(g, { focus: true });
+    } else if (p.action === "search") {
+      state.query = p.query;
+      state.tab = "capture";
+      document.querySelectorAll("nav .tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === "capture"));
+    }
+    // Acting on it retires it too, so a done suggestion can't come back.
+    await createEntity("content", { type: "coach_dismissed", proposal_id: p.id, accepted: true });
+    buzz(12);
+    render();
+  }));
+
+  on("[data-dismiss]", (el) => act(async () => {
+    await createEntity("content", { type: "coach_dismissed", proposal_id: el.dataset.dismiss,
+                                    accepted: false });
+    render();
+  }));
+
+  on("[data-act=shared-save]", () => act(async () => {
+    const text = state.shared;
+    state.shared = "";
+    const r = await doCapture(text);
+    state.tab = "capture";
+    document.querySelectorAll("nav .tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === "capture"));
+    buzz(12);
+    render();
+    toast(r.parked ? "Parked ✔" : "Captured ✔");
+  }));
+
+  on("[data-act=shared-drop]", () => { state.shared = ""; render(); });
+
   on("[data-act=capture]", () => act(async () => {
     const text = $("#capture-text").value.trim();
     if (!text) return toast("Nothing to capture.");
@@ -683,12 +779,29 @@ if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("travel-sw.js").catch(() => {});
 }
 
+/* Read anything the launch URL carried — a share payload, or the manifest shortcut's tab —
+ * then scrub it with replaceState so a reload or a task restore cannot capture the same
+ * thing twice. */
+function readLaunchUrl() {
+  const shared = Stats.parseShare(location.search);
+  const tab = new URLSearchParams(location.search.replace(/^\?/, "")).get("tab");
+  if (shared) state.shared = shared;
+  if (tab && ["today", "capture", "journey", "gate"].includes(tab)) {
+    state.tab = tab;
+    document.querySelectorAll("nav .tab").forEach((x) => x.classList.toggle("active", x.dataset.tab === tab));
+  }
+  if ((shared || tab) && window.history && history.replaceState) {
+    history.replaceState({}, "", location.pathname);
+  }
+}
+
 async function boot() {
   try {
     state.items = await dbAll();
   } catch (e) {
     toast("⚠ Local storage unavailable: " + e.message);
   }
+  readLaunchUrl();
   render();
 }
 

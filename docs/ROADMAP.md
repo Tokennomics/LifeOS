@@ -98,6 +98,48 @@ problem.
   L0/L1 (e.g. Horizon weekly-plan drafter, Reconnect nudge drafter), wrapped in durable execution with
   per-run budgets. No inter-user features. **Kill-gate:** advance only if a majority of proposals are
   accepted and agents run ~2 weeks with **zero** unintended writes.
+### Phase 1a — the coach: propose-only, single-player — ✅ **built** (2026-07-27)
+
+The first real piece of the agentic layer, and deliberately the smallest one that is
+genuinely useful. `surfaces/app/www/travel-coach.js` reads the item log and returns ranked
+**proposals**; the Today tab renders them as cards. **It writes nothing.** Accepting is the
+write, and accepting is a tap. That is L0 in the dial above, and this is what L0 looks like
+when it is a product rather than a promise.
+
+What it proposes, all from arithmetic on stored counts and **no API key anywhere**:
+
+- **Draft this week** — nothing planned yet.
+- **Right-size the week** — the piece nothing on the market does. Four weeks at 40%
+  completion becomes *"you planned 10 and finished 4; try committing to 1."* Todoist and
+  friends will happily let you add forty things forever; refusing to is the product.
+- **A stuck goal** — nothing finished on it for ≥3 real weeks (measured from ISO week dates,
+  not from position in the list of weeks you happen to have planned).
+- **A recurring theme** — a word in ≥3 *distinct* captures that appears in none of your
+  goals: "either a goal you haven't admitted to, or noise worth clearing."
+- **A week that never got its retro** — the part that compounds, and what the gate counts.
+
+The discipline that makes it worth reading, and the reason most of its tests are about
+staying silent:
+
+- **Every proposal carries its evidence.** A coach that says "do less" without the count is
+  a nag. Same spirit as the doubt rule: check the metric, don't re-decide.
+- **At most three at a time.** Nine observations is the same as none.
+- **Dismissals persist**, keyed by a stable proposal id. An assistant that re-raises what
+  you declined is one you stop reading.
+- **It refuses to speak early.** No trend from fewer than three weeks; a goal never started
+  is not "stuck"; one rambling note repeating a word is not a pattern.
+
+**Next in this arc, in order.** (a) An LLM pass that only ever *rewords* an existing
+proposal — never invents one, never changes the numbers, and is strictly optional.
+(b) The daily triage brief (Phase 2). (c) Only then, and only behind the Phase 1 kill-gate
+below, anything that acts without a tap.
+
+**What must NOT happen next, however tempting:** letting the coach write on your behalf
+because the proposals have been good for a fortnight. The kill-gate is ~2 weeks at L0/L1
+with **zero** unintended writes, and "the suggestions seemed right" is not that measurement.
+Nor should the coach ever reach a crew: acting toward other people is a different risk
+class and belongs behind Phase 3's gate, not this one.
+
 - **Phase 2 — Urgency/Triage OS (parallel-able).** Triage/interruption module + static info card.
   **Kill-gate:** ship the manual dead-man's-switch only with clear best-effort disclaimers, verified
   multi-channel delivery, and never touching emergency services; otherwise ship only the info card.
