@@ -15,12 +15,22 @@ const uid = () => (crypto.randomUUID ? crypto.randomUUID()
   : "x-" + Date.now() + "-" + Math.random().toString(16).slice(2));
 
 const MODULE = "travel";
-const Core = HorizonCore; // shared, byte-identical logic (horizon-core.js) — no drift with Python.
+const Core = HorizonCore;   // shared, byte-identical logic (horizon-core.js) — no drift with Python.
+const Stats = TravelStats;  // Travel-only, pure, tested by tests/travel/run_stats.mjs.
 // Travel Mode is the tired-night-owl context by definition; the planner runs the
 // same anti-hindrance rules the server uses at energy_baseline: tired.
 const BASELINE = "tired";
 
-const state = { tab: "today", items: [], editing: false, busy: false, enter: true };
+const state = { tab: "today", items: [], editing: false, busy: false, enter: true,
+                query: "", justDone: null };
+
+const today = () => nowISO().slice(0, 10);
+
+/* A short tap when something lands. Silent everywhere it isn't supported, and never
+ * used for anything the user didn't just do with their thumb. */
+function buzz(ms) {
+  try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) { /* not supported */ }
+}
 
 /* ---------- IndexedDB (single 'items' store, keyed by stable key) ---------- */
 
@@ -250,36 +260,13 @@ async function doCapture(text) {
   return { parked: false };
 }
 
-/* Distinct calendar days (UTC) with any activity — logs, captures, retros. */
-function activityDays() {
-  const days = new Set();
-  for (const t of entities("task").filter((x) => x.attrs.status === "done")) days.add((t.attrs.done_at || t.ts || "").slice(0, 10));
-  for (const c of entities("content")) days.add((c.ts || "").slice(0, 10));
-  for (const r of entities("metric").filter((m) => m.attrs.type === "weekly_retro")) days.add((r.ts || "").slice(0, 10));
-  days.delete("");
-  return days;
-}
-
-/* Current show-up streak + whether today is already logged. Reinforces the habit
-   the gate measures — the streak holds through today until you log again. */
-function streakInfo() {
-  const days = activityDays();
-  const loggedToday = days.has(nowISO().slice(0, 10));
-  const d = new Date();
-  if (!loggedToday) d.setUTCDate(d.getUTCDate() - 1); // today not logged yet → count from yesterday
-  let streak = 0;
-  while (days.has(d.toISOString().slice(0, 10))) {
-    streak++;
-    d.setUTCDate(d.getUTCDate() - 1);
-  }
-  return { streak, loggedToday };
-}
-
-/* Doubt rule (T3): honest v0.1-gate progress from what's actually on this phone. */
+/* Doubt rule (T3): honest v0.1-gate progress from what's actually on this phone.
+   Day counting lives in travel-stats.js so the gate and the Journey tab can never
+   quote different numbers at you. */
 function computeGate() {
   const done = entities("task").filter((t) => t.attrs.status === "done");
   const retroWeeks = new Set(entities("metric").filter((m) => m.attrs.type === "weekly_retro").map((m) => m.attrs.week));
-  return Core.gateFromCounts(activityDays().size, done.length, retroWeeks.size);
+  return Core.gateFromCounts(Stats.activityDays(state.items).size, done.length, retroWeeks.size);
 }
 
 /* ---------- export (the reconciliation bundle T2 imports) ---------- */
@@ -294,16 +281,37 @@ function buildBundle() {
   };
 }
 
+const bundleName = () => `lifeos-travel-${weekId()}.json`;
+
 function exportBundle() {
   const blob = new Blob([JSON.stringify(buildBundle(), null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `lifeos-travel-${weekId()}.json`;
+  a.download = bundleName();
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* Hand the bundle to the phone's own share sheet — AirDrop, Files, a note to yourself.
+ * A silent download into a folder you can't browse is not a backup you'd ever find again,
+ * and this app's only user is on a phone. Falls back to the download when sharing a file
+ * isn't supported, and a cancelled share is not an error. */
+async function shareBundle() {
+  const file = new File([JSON.stringify(buildBundle(), null, 2)], bundleName(),
+                        { type: "application/json" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title: "LifeOS travel data" });
+      return "shared";
+    } catch (e) {
+      if (e && e.name === "AbortError") return "cancelled";
+    }
+  }
+  exportBundle();
+  return "downloaded";
 }
 
 /* ---------- helpers ---------- */
@@ -319,6 +327,15 @@ function toast(msg) {
   el.hidden = false;
   clearTimeout(el._t);
   el._t = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
+/* One quiet flare, then it removes itself. Skipped entirely under reduced-motion (the
+   stylesheet hides it), so this never leaves a stray node behind. */
+function flare() {
+  const el = document.createElement("div");
+  el.className = "spark-burst";
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 700);
 }
 
 async function act(fn, okMsg) {
@@ -338,11 +355,31 @@ async function act(fn, okMsg) {
 
 function render() {
   const view = $("#view");
-  const views = { today: todayView, capture: captureView, gate: gateView };
+  const views = { today: todayView, capture: captureView, journey: journeyView, gate: gateView };
   view.innerHTML = (views[state.tab] || todayView)();
   view.classList.toggle("enter", state.enter);
   state.enter = false;
   wire(view);
+}
+
+/* The one thing you see first, every day: how long you've kept showing up, and how far
+   through this week's plan you are. Both are counts, never scores. */
+function pulseCard() {
+  const s = Stats.streak(state.items, today());
+  const p = Stats.weekProgress(state.items, weekId());
+  const label = p.planned ? `${p.done}/${p.planned}` : "–";
+  const sub = s.loggedToday
+    ? (p.complete ? "Week's plan is done" : "Logged today")
+    : (s.current ? "Still open — today isn't spent yet" : "Nothing logged yet");
+  const parts = [sub];
+  if (s.best > s.current) parts.push(`best ${s.best}`);
+  return `<div class="card hero"><div class="pulse">
+      <div class="ring ${p.complete ? "full" : ""}" style="--pct:${p.pct}">
+        <span class="ring-label">${label}</span></div>
+      <div class="pulse-copy">
+        <div class="streak-n">${s.current} <small>day${s.current === 1 ? "" : "s"} running</small></div>
+        <div class="streak-sub">${esc(parts.join(" · "))}</div>
+      </div></div></div>`;
 }
 
 function todayView() {
@@ -352,13 +389,7 @@ function todayView() {
   const v = visions()[0];
   let html = "";
 
-  if (v) {
-    const s = streakInfo();
-    html += `<div class="card"><div class="kv"><span>Gate streak</span>
-        <span class="v">${s.streak} day${s.streak === 1 ? "" : "s"}</span></div>
-      <div class="kv" style="border:none"><span>Today</span>
-        <span class="v">${s.loggedToday ? "logged ✓" : "not yet"}</span></div></div>`;
-  }
+  if (v) html += pulseCard();
 
   if (!v) {
     html += `<div class="card"><h2>Start here</h2>
@@ -398,7 +429,8 @@ function todayView() {
       : `<p class="empty">Create your plan above first.</p>`;
   } else {
     html += tasks.map((t, i) => `
-      <div class="task ${t.attrs.status === "done" ? "done" : ""}" data-log="${t.key}" data-n="${i + 1}">
+      <div class="task ${t.attrs.status === "done" ? "done" : ""}${t.key === state.justDone ? " just-done" : ""}"
+           data-log="${t.key}" data-n="${i + 1}">
         <div class="box">${t.attrs.status === "done" ? "✓" : ""}</div>
         <div><div class="title">${esc(t.attrs.title)}</div>
         ${t.attrs.if_then ? `<div class="ifthen">${esc(t.attrs.if_then)}</div>` : ""}</div>
@@ -422,20 +454,105 @@ function delRow(key, inner) {
     <button class="pill bad" data-del-content="${key}" style="flex:none">✕</button></div>`;
 }
 
+/* Highlight the matched substring, on ALREADY-ESCAPED text — the query is escaped too,
+   so nothing user-written is ever re-interpreted as markup. */
+function highlight(text, query) {
+  const safe = esc(text);
+  const q = String(query || "").trim();
+  if (!q) return safe;
+  const needle = esc(q).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return safe.replace(new RegExp(needle, "gi"), (m) => `<mark>${m}</mark>`);
+}
+
 function captureView() {
-  const recent = entities("content").filter((c) => c.attrs.type === "capture").sort(byTs).reverse();
-  const parked = entities("content").filter((c) => c.attrs.type === "parked_idea").sort(byTs).reverse();
+  const q = state.query;
+  const recent = Stats.searchCaptures(state.items, q, "capture");
+  const parked = Stats.searchCaptures(state.items, q, "parked_idea");
+  const total = Stats.searchCaptures(state.items, "").length;
+
   let html = `<div class="card"><h2>Capture a thought</h2>
       <textarea id="capture-text" placeholder="Anything — a task, an idea, a name. Saved locally; syncs to the graph when you're home."></textarea>
       <button class="primary" data-act="capture">Capture</button>
-      <p class="hint">A new-project idea gets parked, not planned — captured so it's not lost, but the current gate keeps priority.</p></div>
-    <div class="card"><h2>Recent captures</h2>
-      ${recent.length ? recent.map((r) => delRow(r.key, esc(r.attrs.text))).join("")
-                      : `<p class="empty">Nothing captured yet.</p>`}
+      <p class="hint">A new-project idea gets parked, not planned — captured so it's not lost, but the current gate keeps priority.</p></div>`;
+
+  // Search only appears once there's a pile worth searching — a filter over four notes
+  // is furniture, not a feature.
+  if (total >= 8) {
+    html += `<div class="card"><div class="search-row">
+        <input class="field" id="capture-search" type="search" placeholder="Search everything you've captured"
+               value="${esc(q)}" autocomplete="off">
+        <span class="count-chip">${recent.length + parked.length}/${total}</span>
+      </div></div>`;
+  }
+
+  html += `<div class="card"><h2>Recent captures</h2>
+      ${recent.length ? recent.map((r) => delRow(r.key, highlight(r.attrs.text, q))).join("")
+                      : `<p class="empty">${q ? "Nothing matches that." : "Nothing captured yet."}</p>`}
     </div>`;
   html += `<div class="card"><h2>Parked ideas</h2>
-      ${parked.length ? parked.map((r) => delRow(r.key, `<div class="kind">parked</div>` + esc(r.attrs.text))).join("")
-                      : `<p class="empty">Distraction-free. New-project ideas you park land here.</p>`}</div>`;
+      ${parked.length ? parked.map((r) => delRow(r.key, `<div class="kind">parked</div>` + highlight(r.attrs.text, q))).join("")
+                      : `<p class="empty">${q ? "Nothing parked matches that." : "Distraction-free. New-project ideas you park land here."}</p>`}</div>`;
+  return html;
+}
+
+/* The Journey tab — the pile made legible.
+ *
+ * Everything here is a count of something that actually happened. No score, no grade, no
+ * projection: the point is that a graph you keep adding to is worth more every week, and
+ * that is only motivating if you can see it. */
+function journeyView() {
+  const t = Stats.totals(state.items, today());
+  if (!t.daysShownUp) {
+    return `<div class="card"><h2>Your journey</h2>
+      <p class="empty">Nothing to show yet — log a task or capture a thought and this fills in.</p>
+      <p class="hint">Everything on this tab is counted from what's on this phone. Nothing is estimated,
+      and nothing is sent anywhere.</p></div>`;
+  }
+
+  const s = Stats.streak(state.items, today());
+  const heat = Stats.heatmap(state.items, today(), 84);
+  const weeks = Stats.weekHistory(state.items, 8);
+  const recall = Stats.onThisDay(state.items, today());
+
+  let html = `<div class="card hero"><h2>Your journey</h2>
+    <p class="big">${t.spanDays} day${t.spanDays === 1 ? "" : "s"} in · showed up on ${t.daysShownUp} of them</p>
+    <div class="stat-grid">
+      <div class="stat grow"><div class="n">${t.tasksDone}</div><div class="l">tasks finished</div></div>
+      <div class="stat warm"><div class="n">${s.best}</div><div class="l">longest run (days)</div></div>
+      <div class="stat"><div class="n">${t.captures}</div><div class="l">thoughts captured</div></div>
+      <div class="stat"><div class="n">${t.retros}</div><div class="l">weeks reviewed</div></div>
+    </div></div>`;
+
+  html += `<div class="card"><h2>Last 12 weeks</h2>
+    <div class="heat">${'<i data-pad="1"></i>'.repeat(heat.pad)}${heat.cells.map((c) => `<i data-l="${c.level}"${c.day === today() ? ' data-today="1"' : ""}
+      title="${c.day}: ${c.count} thing${c.count === 1 ? "" : "s"}"></i>`).join("")}</div>
+    <p class="hint">One dot per day, newest at the right — a column is a week, Monday at the top.
+    Gaps are just gaps; you were living.</p></div>`;
+
+  if (weeks.length) {
+    html += `<div class="card"><h2>How the weeks went</h2>
+      <div class="bars">${weeks.map((w) => `
+        <div class="bar" title="${esc(w.week)}: ${w.done}/${w.planned}">
+          <div class="track"><div class="fill ${w.rate ? "" : "none"}" style="height:${Math.max(w.rate, 3)}%"></div></div>
+          <div class="wk">${esc(w.week.slice(-3))}</div>
+        </div>`).join("")}</div>
+      <p class="hint">Planned versus finished, per week. Only weeks you planned appear — a week you
+      never planned isn't a week you failed.</p></div>`;
+  }
+
+  if (recall) {
+    const when = recall.ts.slice(0, 10);
+    html += `<div class="card"><h2>You wrote this</h2>
+      <div class="recall"><div class="when">${esc(when)}</div>
+      <div class="what">${esc(recall.attrs.text)}</div></div>
+      <p class="hint">Same day of the month, a while back. This is what the pile is for.</p></div>`;
+  }
+
+  if (t.parked) {
+    html += `<div class="card"><div class="kv" style="border:none"><span>Ideas parked, not lost</span>
+      <span class="v">${t.parked}</span></div>
+      <p class="hint">${esc(Core.PARK_MESSAGE)}</p></div>`;
+  }
   return html;
 }
 
@@ -497,9 +614,34 @@ function wire(root) {
   on("[data-del-content]", (el) => act(async () => { await removeItem(el.dataset.delContent); render(); }, "Removed"));
 
   root.querySelectorAll(".task").forEach((el) => el.addEventListener("click", () => act(async () => {
+    const before = Stats.weekProgress(state.items, weekId());
     await toggleLog(el.dataset.log);
+    const after = Stats.weekProgress(state.items, weekId());
+    const finished = after.done > before.done;
+    state.justDone = finished ? el.dataset.log : null;   // one-shot: the pop plays once
+    buzz(finished ? 14 : 8);
     render();
+    state.justDone = null;
+    // The last task of the week is the only moment that gets a flare. Rationing it is
+    // what keeps it meaning something.
+    if (finished && after.complete && !before.complete) {
+      flare();
+      buzz([18, 60, 26]);
+      toast("Week's plan is done ✔");
+    }
   })));
+
+  const search = root.querySelector("#capture-search");
+  if (search) {
+    search.addEventListener("input", () => {
+      state.query = search.value;
+      render();
+      // Re-focus and restore the caret: re-rendering the list must not eject you
+      // from the box you're typing in.
+      const next = $("#capture-search");
+      if (next) { next.focus(); next.setSelectionRange(next.value.length, next.value.length); }
+    });
+  }
 
   on("[data-act=retro]", () => act(async () => { await doRetro(weekId()); render(); }));
 
@@ -524,6 +666,10 @@ document.querySelectorAll("nav .tab").forEach((b) => b.addEventListener("click",
 $("#settings-btn").addEventListener("click", () => $("#settings").showModal());
 $("#set-close").addEventListener("click", () => $("#settings").close());
 $("#set-export").addEventListener("click", () => { exportBundle(); toast("Bundle downloaded — import it at home."); });
+$("#set-share").addEventListener("click", () => act(async () => {
+  const how = await shareBundle();
+  if (how !== "cancelled") toast(how === "shared" ? "Sent ✔" : "Bundle downloaded — import it at home.");
+}));
 $("#set-reset").addEventListener("click", () => act(async () => {
   if (!confirm("Erase all Travel Mode data on this phone? Export first if you want to keep it.")) return;
   await dbClear();

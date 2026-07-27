@@ -12,7 +12,7 @@ reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone ab
 server. **T3 (anti-hindrance) was pulled ahead of T2** by the owner: T2's import has no
 user-facing value until he's home at the NucBox, while T3 improves daily use while travelling.
 
-**Tests:** `python -m pytest` → **244 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **245 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ## Shipped
@@ -25,6 +25,27 @@ user-facing value until he's home at the NucBox, while T3 improves daily use whi
   (rename/add/remove) instead of re-pasting; the retro persists across reload; delete a capture
   or parked idea. Gate honesty fix (server + Travel): `retros_completed` counts distinct weeks,
   so re-running a week's retro can't inflate gate progress.
+- **Travel Mode — craft + Journey (2026-07-27).** The single-player product is the foundation the
+  network multiplies, so this pass went into the surface actually in daily use.
+  - **Journey tab** — the compounding made visible, which is the structural retention advantage a
+    graph has over a habit tracker (`docs/GROWTH.md`): days in vs. days shown up, tasks finished,
+    longest run, a 12-week activity grid (Monday-aligned, so a column is a real week), per-week
+    planned-vs-finished bars, and **recall** — something you wrote on this day of the month, a
+    while back, because that is what makes the pile a memory rather than a landfill.
+  - **The daily gesture got a body.** A week-progress ring, a pop on the checkbox, a short haptic,
+    and exactly one quiet flare when the last task of the week lands — rationed so it keeps
+    meaning something. All motion is <500ms and honours `prefers-reduced-motion`.
+  - **Capture search** with match highlighting, appearing only once there are ≥8 items (a filter
+    over four notes is furniture). Re-render restores focus and caret so typing isn't interrupted.
+  - **Share sheet export** (`navigator.share` with a file, falling back to download) — a silent
+    download into a folder you can't browse is not a backup a phone-only owner would ever find.
+  - **Deliberately not built:** loss-aversion streaks, scores, grades, badges, or any red. The
+    streak reports what happened and never asks for anything; an unlogged today reads as *still
+    open*, not broken. Per GROWTH.md, engagement bought that way doesn't produce meetings.
+  - New pure module `surfaces/app/www/travel-stats.js` (Travel-only, **no Python twin**) with 21
+    checks in `tests/travel/run_stats.mjs`, run under pytest. Verified by driving the real page in
+    headless Chromium: every figure, search, week-completion and the gate cross-checked, no JS
+    errors.
 - **T3 — Anti-hindrance planner mechanics.** All four obstacles encoded as product behaviour,
   working on BOTH the server and in Travel Mode via one shared pure core
   (`modules/horizon/core.py` ⇄ `surfaces/app/www/horizon-core.js`):
@@ -201,7 +222,7 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
   `substrate/graph.py` with `module=travel`, original timestamps, idempotency keys → skip
   already-imported. Every record the bundle carries already has a stable `key` + `ts`.
-- **T4 — Repo hygiene.** This file; suite green in CI (done, 244); README test command (done).
+- **T4 — Repo hygiene.** This file; suite green in CI (done, 245); README test command (done).
 
 ## Non-goals (do not build)
 

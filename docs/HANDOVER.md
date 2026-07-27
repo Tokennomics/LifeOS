@@ -88,6 +88,9 @@ stops being NucBox-shaped once there's a server.
 
 ## Gotchas — read these before touching anything
 
+- **`travel-stats.js` is Travel-only and has NO Python twin** — unlike `horizon-core.js`. Editing it
+  alone is correct; editing `horizon-core.js` alone is not (see below). Its checks live in
+  `tests/travel/run_stats.mjs`, run by `tests/test_travel_stats.py`.
 - **Never edit only one side of the twin core.** `modules/horizon/core.py` and
   `surfaces/app/www/horizon-core.js` are line-for-line twins. Change one, mirror the other, or the
   golden suite fails CI. A diff in `tests/golden/cases.json` is a *reviewed behaviour change*,

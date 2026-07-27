@@ -1,0 +1,200 @@
+/* Travel Mode — the parts of "Lumen" that only exist on the phone.
+ *
+ * Loaded after style.css. Everything here is either (a) making the accumulating graph
+ * visible, or (b) making the one interaction you perform every day — logging a task —
+ * feel like something rather than nothing.
+ *
+ * Motion rules: short, once, and never blocking. Every animation below is under 500ms and
+ * respects prefers-reduced-motion, because a delight that repeats 40 times a week stops
+ * being a delight and starts being a wait.
+ */
+
+/* Travel Mode reads amber (self/local), never green (AI) or red (error). */
+.badge.travel { color: var(--spark); border-color: #4A3A22; }
+.badge.travel::before { background: var(--spark); box-shadow: 0 0 8px var(--spark); }
+
+/* ---------- the daily header: streak + week ring ---------- */
+
+.pulse {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ring {
+  --pct: 0;
+  position: relative;
+  flex: none;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background:
+    conic-gradient(var(--growth) calc(var(--pct) * 1%), var(--line-soft) 0);
+  transition: background .6s cubic-bezier(.2,.8,.2,1);
+}
+.ring::before {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--surface-1);
+}
+.ring .ring-label {
+  position: relative;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.ring.full { background: conic-gradient(var(--growth) 100%, var(--growth) 0); }
+.ring.full .ring-label { color: var(--growth); }
+
+.pulse-copy { min-width: 0; }
+.pulse-copy .streak-n {
+  font-family: var(--serif);
+  font-size: 30px;
+  line-height: 1.1;
+  letter-spacing: -.02em;
+}
+.pulse-copy .streak-n small {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+.pulse-copy .streak-sub { color: var(--muted); font-size: 13.5px; margin-top: 3px; }
+
+/* ---------- task rows: the one gesture you repeat ---------- */
+
+.task { transition: opacity .25s ease, transform .12s cubic-bezier(.2,.8,.2,1); }
+.task:active { transform: scale(.985); }
+.task .box { transition: background .2s ease, border-color .2s ease, transform .3s cubic-bezier(.2,1.4,.4,1); }
+.task.just-done .box { animation: pop .42s cubic-bezier(.2,1.4,.4,1); }
+
+@keyframes pop {
+  0%   { transform: scale(1); }
+  38%  { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+
+/* A single quiet flare when the last task of the week lands. Once, then gone. */
+.spark-burst {
+  position: fixed;
+  left: 50%;
+  top: 42%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 50%;
+  background: var(--growth);
+  pointer-events: none;
+  z-index: 40;
+  animation: flare .62s cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes flare {
+  0%   { opacity: .9; transform: scale(1); box-shadow: 0 0 0 0 rgba(99,206,139,.45); }
+  100% { opacity: 0;  transform: scale(3.4); box-shadow: 0 0 0 46px rgba(99,206,139,0); }
+}
+
+/* ---------- the Journey tab ---------- */
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 4px;
+}
+.stat {
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-field);
+  padding: 12px 13px;
+}
+.stat .n {
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.15;
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.stat .l { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.stat.warm .n { color: var(--spark); }
+.stat.grow .n { color: var(--growth); }
+
+/* 12 weeks of showing up, one dot per day. Columns are weeks, rows are weekdays —
+   the same shape as a calendar, so a gap looks like a gap. */
+.heat {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 1fr);
+  gap: 3px;
+  margin-top: 6px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+}
+.heat::-webkit-scrollbar { display: none; }
+.heat i {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--line-soft);
+}
+.heat i[data-l="1"] { background: #3C5C46; }
+.heat i[data-l="2"] { background: #4E9268; }
+.heat i[data-l="3"] { background: var(--growth); }
+.heat i[data-pad="1"] { background: transparent; }
+.heat i[data-today="1"] { outline: 1.5px solid var(--spark); outline-offset: 1px; }
+
+/* Weekly completion, oldest to newest. Bars, because a sparkline on a phone is a smudge. */
+.bars { display: flex; align-items: stretch; gap: 8px; height: 104px; margin-top: 10px; }
+.bars .bar { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+/* The fill is sized against its own track, not the column — otherwise the week label
+   steals height from the bar and 100% stops looking different from 70%. */
+.bars .track { flex: 1; display: flex; align-items: flex-end; }
+.bars .fill {
+  width: 100%;
+  border-radius: 5px 5px 2px 2px;
+  background: linear-gradient(180deg, var(--growth), #3C7A54);
+  min-height: 3px;
+  transition: height .5s cubic-bezier(.2,.8,.2,1);
+}
+.bars .fill.none { background: var(--line); }
+.bars .wk { font-size: 10.5px; color: var(--faint); text-align: center; letter-spacing: -.01em; }
+
+.recall {
+  border-left: 2px solid var(--spark-deep);
+  padding: 2px 0 2px 12px;
+  margin-top: 4px;
+}
+.recall .when { color: var(--spark); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.recall .what { font-family: var(--serif); font-size: 17px; line-height: 1.45; margin-top: 4px; }
+
+/* ---------- capture search ---------- */
+
+.search-row { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+.search-row .field { flex: 1; }
+.count-chip {
+  flex: none;
+  color: var(--faint);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+mark {
+  background: rgba(240,169,74,.22);
+  color: var(--spark);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* ---------- misc ---------- */
+
+.card.hero { background: linear-gradient(180deg, #161D2E, var(--surface-1)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .task, .task .box, .ring, .bars .fill { transition: none; }
+  .task.just-done .box, .spark-burst { animation: none; }
+  .spark-burst { display: none; }
+}

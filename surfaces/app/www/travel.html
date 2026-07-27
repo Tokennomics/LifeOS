@@ -12,11 +12,7 @@
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
-  <style>
-    /* Travel Mode reads amber (self/local), never green (AI) or red (error). */
-    .badge.travel { color: var(--spark); border-color: #4A3A22; }
-    .badge.travel::before { background: var(--spark); box-shadow: 0 0 8px var(--spark); }
-  </style>
+  <link rel="stylesheet" href="travel.css">
 </head>
 <body>
   <header>
@@ -32,6 +28,7 @@
   <nav>
     <button data-tab="today" class="tab active">Today</button>
     <button data-tab="capture" class="tab">Capture</button>
+    <button data-tab="journey" class="tab">Journey</button>
     <button data-tab="gate" class="tab">Gate</button>
   </nav>
 
@@ -40,10 +37,11 @@
     <p class="hint" style="margin-top:0">You're offline by design. Everything you do here is saved on this phone only —
       no server, no account. When you're home, export the bundle and import it into your graph (nothing is duplicated).</p>
     <div class="row">
-      <button id="set-export" class="primary">Export my travel data</button>
+      <button id="set-share" class="primary">Share / save my data</button>
       <button id="set-close">Close</button>
     </div>
     <div class="row" style="margin-top:8px">
+      <button id="set-export">Download as a file</button>
       <button id="set-reset">Clear local data</button>
     </div>
   </dialog>
@@ -51,6 +49,7 @@
   <div id="toast" hidden></div>
 
   <script src="horizon-core.js"></script>
+  <script src="travel-stats.js"></script>
   <script src="travel.js"></script>
 </body>
 </html>
