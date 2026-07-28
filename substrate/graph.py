@@ -95,36 +95,39 @@ class GraphSession:
         if not allowed:
             raise ScopeError(f"module {self.module!r} lacks scope {domain}:{action}")
 
-    def _record_provenance(self, target_id: str, source: str, confidence: float) -> None:
+    def _record_provenance(self, target_id: str, source: str, confidence: float, created_at: str | None = None) -> None:
         if not source:
             raise ProvenanceError("every graph write needs a source")
         if not (0.0 <= confidence <= 1.0):
             raise ProvenanceError(f"confidence must be in [0,1], got {confidence}")
         g = self.graph
+        ts = created_at or now_iso()
         g._execute(
             f"INSERT INTO observations (id, entity_id, module, confidence, source, created_at) "
             f"VALUES ({g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph})",
-            (new_id(), target_id, self.module, confidence, source, now_iso()),
+            (new_id(), target_id, self.module, confidence, source, ts),
         )
 
     # ---- writes ---------------------------------------------------------
 
     def create_entity(self, kind: str, attrs: dict | None = None, *, source: str,
                       confidence: float = 1.0, owner_id: str | None = None,
-                      entity_id: str | None = None) -> str:
+                      entity_id: str | None = None, created_at: str | None = None,
+                      updated_at: str | None = None) -> str:
         self._need(kind, "write")
         owner = owner_id or self.graph.default_owner
         if not owner:
             raise GraphError("owner_id required (no default owner configured)")
         g = self.graph
         eid = entity_id or new_id()
-        ts = now_iso()
+        ts = created_at or now_iso()
+        uts = updated_at or ts
         g._execute(
             f"INSERT INTO entities (id, kind, attrs, owner_id, created_at, updated_at) "
             f"VALUES ({g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph})",
-            (eid, kind, json.dumps(attrs or {}), owner, ts, ts),
+            (eid, kind, json.dumps(attrs or {}), owner, ts, uts),
         )
-        self._record_provenance(eid, source, confidence)
+        self._record_provenance(eid, source, confidence, created_at=ts)
         g.conn.commit()
         g.bus.publish("observation.created", {"target": "entity", "id": eid, "kind": kind, "module": self.module})
         return eid
@@ -147,7 +150,8 @@ class GraphSession:
         return merged
 
     def create_edge(self, src: str, dst: str, rel: str, *, weight: float = 1.0,
-                    attrs: dict | None = None, source: str, confidence: float = 1.0) -> str:
+                    attrs: dict | None = None, source: str, confidence: float = 1.0,
+                    edge_id: str | None = None, created_at: str | None = None) -> str:
         if rel not in RELS:
             raise GraphError(f"unknown edge rel: {rel!r} (known: {sorted(RELS)})")
         srow = self._fetch_entity(src)
@@ -159,16 +163,17 @@ class GraphSession:
         self._need(srow["kind"], "write")
         self._need(drow["kind"], "read")
         g = self.graph
-        edge_id = new_id()
+        eid = edge_id or new_id()
+        ts = created_at or now_iso()
         g._execute(
             f"INSERT INTO edges (id, src, dst, rel, weight, attrs, created_at) "
             f"VALUES ({g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph}, {g.ph})",
-            (edge_id, src, dst, rel, weight, json.dumps(attrs or {}), now_iso()),
+            (eid, src, dst, rel, weight, json.dumps(attrs or {}), ts),
         )
-        self._record_provenance(edge_id, source, confidence)
+        self._record_provenance(eid, source, confidence, created_at=ts)
         g.conn.commit()
-        g.bus.publish("observation.created", {"target": "edge", "id": edge_id, "rel": rel, "module": self.module})
-        return edge_id
+        g.bus.publish("observation.created", {"target": "edge", "id": eid, "rel": rel, "module": self.module})
+        return eid
 
     def grant(self, subject: str, scope: str, space: str, *, source: str,
               confidence: float = 1.0) -> None:

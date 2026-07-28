@@ -3,7 +3,7 @@ Ledger, Calibre, Hearth). Mounted by gateway.main; handlers pull graph/claude of
 app.state. Every endpoint works with zero API keys (offline fallbacks in the modules)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from gateway.auth import caller_graph
 
@@ -219,6 +219,13 @@ class InviteRedeemIn(BaseModel):
 class InviteRevokeIn(BaseModel):
     invite_id: str
     by: str | None = None
+
+
+class ImportIn(BaseModel):
+    schema_name: str = Field(..., alias="schema")
+    exported_at: str
+    source: str
+    items: list[dict]
 
 
 def _subject(request: Request, explicit: str | None) -> str:
@@ -592,5 +599,13 @@ def build_router(auth) -> APIRouter:
     def feed_interested(request: Request, body: InterestIn):
         return guard(lambda: discover.mark_interest(
             _graph(request), body.event_id, body.person_id, body.going))
+
+    # ---- Travel Mode / Reconciliation ------------------------------------
+
+    @router.post("/import")
+    def travel_import(request: Request, body: ImportIn):
+        from modules.travel import reconcile
+        data = body.model_dump(by_alias=True) if hasattr(body, "model_dump") else body.dict(by_alias=True)
+        return guard(lambda: reconcile.reconcile(_graph(request), data))
 
     return router
