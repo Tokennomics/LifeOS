@@ -228,6 +228,10 @@ class ImportIn(BaseModel):
     items: list[dict]
 
 
+class CoachRewordIn(BaseModel):
+    proposals: list[dict]
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -337,6 +341,7 @@ def build_router(auth) -> APIRouter:
     # ---- Steward ---------------------------------------------------------
 
     @router.get("/admin")
+    @router.get("/steward/queue")
     def admin_items(request: Request):
         return {"items": steward_actions.open_items(_graph(request))}
 
@@ -345,11 +350,20 @@ def build_router(auth) -> APIRouter:
         return steward_scanners.scan(_graph(request))
 
     @router.post("/admin/act")
+    @router.post("/steward/approve")
     def admin_act(request: Request, body: AdminActIn):
         if body.action not in ("approve", "dismiss"):
             raise HTTPException(status_code=400, detail="action must be approve or dismiss")
         fn = steward_actions.approve if body.action == "approve" else steward_actions.dismiss
         return guard(lambda: fn(_graph(request), body.item_id))
+
+    # ---- Coach Reword ----------------------------------------------------
+
+    @router.post("/coach/reword")
+    def coach_reword(request: Request, body: CoachRewordIn):
+        from modules.horizon import coach_reword
+        claude = _claude(request)
+        return {"proposals": coach_reword.reword_proposals(body.proposals, claude_gateway=claude)}
 
     # ---- Vitals ----------------------------------------------------------
 

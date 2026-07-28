@@ -14,7 +14,7 @@ from modules.horizon.planner import week_id
 from modules.reconnect import decay
 from substrate.graph import Graph
 
-SCOPES = {"admin:read", "admin:write", "tasks:read", "content:read", "people:read"}
+SCOPES = {"admin:read", "admin:write", "tasks:read", "content:read", "people:read", "metrics:read"}
 KEYWORDS = ("renew", "bill", "cancel", "book", "appointment", "pay", "insurance",
             "subscription", "invoice", "tax", "register", "rego", "licence", "license")
 STALE_DAYS = 14
@@ -64,5 +64,13 @@ def scan(graph: Graph, source: str = "steward-scan") -> dict:
             emit("reconnect", person["id"], f"Reconnect with {person['name']}",
                  f"{person['days_since']:.0f} days since contact (cadence {person['cadence_days']}d). "
                  f"Approve to schedule it this week.")
+
+    retros = session.find_entities("metric", {"type": "weekly_retro"}, limit=200)
+    completed_weeks = {m.get("attrs", {}).get("week") for m in retros if m.get("attrs", {}).get("week")}
+    tasks = session.find_entities("task", limit=500)
+    past_task_weeks = {t.get("attrs", {}).get("week") for t in tasks if t.get("attrs", {}).get("week") and t["attrs"]["week"] < week}
+    for unretro_week in sorted(past_task_weeks - completed_weeks):
+        emit("missing_retro", f"retro-{unretro_week}", f"Run retro for {unretro_week}",
+             f"Week {unretro_week} completed without a retro. Approve to schedule the retro ritual.")
 
     return {"created": created, "open": len(session.find_entities("admin_item", {"status": "open"}, limit=200))}
