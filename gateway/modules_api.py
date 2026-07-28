@@ -2,7 +2,7 @@
 Ledger, Calibre, Hearth). Mounted by gateway.main; handlers pull graph/claude off
 app.state. Every endpoint works with zero API keys (offline fallbacks in the modules)."""
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from gateway.auth import caller_graph
@@ -607,5 +607,26 @@ def build_router(auth) -> APIRouter:
         from modules.travel import reconcile
         data = body.model_dump(by_alias=True) if hasattr(body, "model_dump") else body.dict(by_alias=True)
         return guard(lambda: reconcile.reconcile(_graph(request), data))
+
+    # ---- ICS Calendar Export ---------------------------------------------
+
+    @router.get("/calendar/export.ics")
+    def calendar_export(request: Request):
+        from modules.calendars import export
+        content = export.export_user_ics(_graph(request))
+        return Response(content=content, media_type="text/calendar")
+
+    @router.get("/crews/{crew_id}/export.ics")
+    def crew_calendar_export(request: Request, crew_id: str):
+        from modules.calendars import export
+        content = export.export_crew_ics(_graph(request), crew_id)
+        return Response(content=content, media_type="text/calendar")
+
+    # ---- Triage OS Brief -------------------------------------------------
+
+    @router.get("/triage/brief")
+    def triage_brief(request: Request):
+        from modules.triage import brief
+        return brief.generate_triage_brief(_graph(request))
 
     return router
