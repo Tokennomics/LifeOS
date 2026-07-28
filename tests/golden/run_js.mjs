@@ -8,10 +8,10 @@
  */
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const Core = (await import(path.join(here, "..", "..", "surfaces", "app", "www", "horizon-core.js"))).default;
+const Core = (await import(pathToFileURL(path.join(here, "..", "..", "surfaces", "app", "www", "horizon-core.js")).href)).default;
 const cases = JSON.parse(fs.readFileSync(path.join(here, "cases.json"), "utf8"));
 
 /* Numeric-aware deep equality: JSON has one number type, so 1.0 (Python) and 1
