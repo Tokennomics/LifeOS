@@ -318,6 +318,21 @@ class CalendarSyncIn(BaseModel):
     ics_content: str
 
 
+class FinancialGoalIn(BaseModel):
+    title: str
+    target_amount: float
+    current_amount: float = 0.0
+    currency: str = "USD"
+
+
+class FinancialProgressIn(BaseModel):
+    amount_delta: float
+
+
+class UserBundleRestoreIn(BaseModel):
+    bundle_data: dict
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -973,5 +988,36 @@ def build_router(auth) -> APIRouter:
     def calendar_sync_import_endpoint(request: Request, body: CalendarSyncIn):
         from modules.calendar import sync_engine
         return guard(lambda: sync_engine.import_ics_feed(_graph(request), body.ics_content))
+
+    # ---- AI Weekly Auto-Planner ----------------------------------------
+
+    @router.post("/horizon/planner/auto-draft")
+    def auto_draft_planner_endpoint(request: Request, week: str = "W01"):
+        from modules.horizon import auto_planner
+        return guard(lambda: auto_planner.auto_draft_week_plan(_graph(request), week=week))
+
+    # ---- Financial Goal Tracker ----------------------------------------
+
+    @router.post("/finance/goals")
+    def create_financial_goal_endpoint(request: Request, body: FinancialGoalIn):
+        from modules.finance import budget_tracker
+        return guard(lambda: budget_tracker.create_financial_goal(_graph(request), body.title, body.target_amount, body.current_amount, body.currency))
+
+    @router.post("/finance/goals/{goal_id}/progress")
+    def log_financial_progress_endpoint(request: Request, goal_id: str, body: FinancialProgressIn):
+        from modules.finance import budget_tracker
+        return guard(lambda: budget_tracker.log_financial_progress(_graph(request), goal_id, body.amount_delta))
+
+    @router.get("/finance/summary")
+    def get_financial_summary_endpoint(request: Request):
+        from modules.finance import budget_tracker
+        return budget_tracker.get_financial_summary(_graph(request))
+
+    # ---- Backup Restore Engine -----------------------------------------
+
+    @router.post("/export/restore")
+    def restore_user_bundle_endpoint(request: Request, body: UserBundleRestoreIn):
+        from modules.backup import import_graph
+        return guard(lambda: import_graph.restore_user_bundle(_graph(request), body.bundle_data))
 
     return router
