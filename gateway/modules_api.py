@@ -292,6 +292,11 @@ class NotificationEnqueueIn(BaseModel):
     body: str = ""
 
 
+class VenueLinkIn(BaseModel):
+    target_id: str
+    place_info: dict
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -867,5 +872,22 @@ def build_router(auth) -> APIRouter:
     def notification_dispatch(request: Request):
         from modules.notifications import dispatcher
         return dispatcher.dispatch_pending(_graph(request))
+
+    # ---- Google Maps Venues & Places ------------------------------------
+
+    @router.get("/venues/search")
+    def venues_search(query: str, city: str = "", category: str = ""):
+        from modules.venues import places
+        return guard(lambda: places.search_venues(query, city=city, category=category))
+
+    @router.get("/venues/{place_id}")
+    def venue_details(place_id: str):
+        from modules.venues import places
+        return guard(lambda: places.get_venue_details(place_id))
+
+    @router.post("/venues/link")
+    def venue_link(request: Request, body: VenueLinkIn):
+        from modules.venues import places
+        return guard(lambda: places.link_venue(_graph(request), body.target_id, body.place_info))
 
     return router
