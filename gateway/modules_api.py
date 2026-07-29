@@ -297,6 +297,19 @@ class VenueLinkIn(BaseModel):
     place_info: dict
 
 
+class RoutineCreateIn(BaseModel):
+    name: str
+    trigger: str
+    time_of_day: str = "morning"
+    items: list[str] = []
+
+
+class VaultNoteIn(BaseModel):
+    title: str
+    content: str
+    tags: list[str] = []
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -889,5 +902,41 @@ def build_router(auth) -> APIRouter:
     def venue_link(request: Request, body: VenueLinkIn):
         from modules.venues import places
         return guard(lambda: places.link_venue(_graph(request), body.target_id, body.place_info))
+
+    # ---- Habit Routines --------------------------------------------------
+
+    @router.post("/routines")
+    def create_routine_endpoint(request: Request, body: RoutineCreateIn):
+        from modules.routines import tracker
+        return guard(lambda: tracker.create_routine(_graph(request), body.name, body.trigger, body.time_of_day, body.items))
+
+    @router.post("/routines/{routine_id}/complete")
+    def complete_routine_endpoint(request: Request, routine_id: str):
+        from modules.routines import tracker
+        return guard(lambda: tracker.log_routine_completion(_graph(request), routine_id))
+
+    @router.get("/routines/streaks")
+    def get_routines_streaks_endpoint(request: Request):
+        from modules.routines import tracker
+        return tracker.get_routines_status(_graph(request))
+
+    # ---- Personal Knowledge Vault ----------------------------------------
+
+    @router.post("/vault/notes")
+    def create_vault_note_endpoint(request: Request, body: VaultNoteIn):
+        from modules.vault import semantic_notes
+        return guard(lambda: semantic_notes.save_note(_graph(request), body.title, body.content, body.tags))
+
+    @router.get("/vault/search")
+    def search_vault_endpoint(request: Request, query: str = "", tag: str = ""):
+        from modules.vault import semantic_notes
+        return semantic_notes.search_vault(_graph(request), query=query, tag=tag)
+
+    # ---- Energy & Focus Balance Analytics --------------------------------
+
+    @router.get("/horizon/energy-balance")
+    def energy_balance_endpoint(request: Request):
+        from modules.horizon import energy_balance
+        return energy_balance.get_energy_balance(_graph(request))
 
     return router

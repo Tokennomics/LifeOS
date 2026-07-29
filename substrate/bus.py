@@ -16,6 +16,7 @@ TOPICS = {
     "energy.updated",
     "admin.detected",
     "notification.enqueued",
+    "routine.completed",
 }
 
 
