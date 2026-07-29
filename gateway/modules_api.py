@@ -351,6 +351,38 @@ class GoalDependencyIn(BaseModel):
     depends_on_goal_id: str
 
 
+class SsoLoginIn(BaseModel):
+    provider: str
+    provider_user_id: str
+    email: str = ""
+    phone: str = ""
+    name: str = ""
+
+
+class SsoLinkIn(BaseModel):
+    account_id: str
+    provider: str
+    provider_user_id: str
+
+
+class BillingCustomerIn(BaseModel):
+    account_id: str
+    email: str = ""
+
+
+class BillingSubscribeIn(BaseModel):
+    account_id: str
+    plan_id: str = "pro"
+    payment_token: str = "tok_mock"
+
+
+class SystemLogIn(BaseModel):
+    level: str = "INFO"
+    module: str
+    message: str
+    metadata: dict = {}
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -1073,5 +1105,51 @@ def build_router(auth) -> APIRouter:
     def get_goal_blockers_endpoint(request: Request, goal_id: str):
         from modules.horizon import blocker_solver
         return guard(lambda: blocker_solver.get_goal_blockers(_graph(request), goal_id))
+
+    # ---- Multi-Provider SSO Identity ------------------------------------
+
+    @router.post("/auth/sso/login")
+    def sso_login_endpoint(request: Request, body: SsoLoginIn):
+        from modules.accounts import sso_auth
+        return guard(lambda: sso_auth.authenticate_sso(_graph(request), body.provider, body.provider_user_id, body.email, body.phone, body.name))
+
+    @router.post("/auth/sso/link")
+    def sso_link_endpoint(request: Request, body: SsoLinkIn):
+        from modules.accounts import sso_auth
+        return guard(lambda: sso_auth.link_identity_provider(_graph(request), body.account_id, body.provider, body.provider_user_id))
+
+    @router.get("/auth/providers")
+    def get_sso_providers_endpoint():
+        from modules.accounts import sso_auth
+        return sso_auth.get_supported_providers()
+
+    # ---- Billing & Payments Gateway -------------------------------------
+
+    @router.post("/billing/customer")
+    def create_billing_customer_endpoint(request: Request, body: BillingCustomerIn):
+        from modules.billing import payments
+        return guard(lambda: payments.create_customer(_graph(request), body.account_id, body.email))
+
+    @router.post("/billing/subscribe")
+    def subscribe_billing_plan_endpoint(request: Request, body: BillingSubscribeIn):
+        from modules.billing import payments
+        return guard(lambda: payments.subscribe_plan(_graph(request), body.account_id, body.plan_id, body.payment_token))
+
+    @router.get("/billing/status")
+    def get_billing_status_endpoint(request: Request, account_id: str):
+        from modules.billing import payments
+        return guard(lambda: payments.get_billing_status(_graph(request), account_id))
+
+    # ---- Structured System Logger & Telemetry ----------------------------
+
+    @router.post("/system/log")
+    def log_system_event_endpoint(request: Request, body: SystemLogIn):
+        from modules.telemetry import system_logger
+        return guard(lambda: system_logger.log_system_event(_graph(request), body.level, body.module, body.message, body.metadata))
+
+    @router.get("/system/logs")
+    def get_system_logs_endpoint(request: Request, level: str | None = None, limit: int = 100):
+        from modules.telemetry import system_logger
+        return system_logger.get_system_logs(_graph(request), level=level, limit=limit)
 
     return router
