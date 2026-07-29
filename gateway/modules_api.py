@@ -383,6 +383,15 @@ class SystemLogIn(BaseModel):
     metadata: dict = {}
 
 
+class SanitizeIn(BaseModel):
+    text: str
+
+
+class TokenVerifyIn(BaseModel):
+    data: dict
+    signature: str
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -1151,5 +1160,18 @@ def build_router(auth) -> APIRouter:
     def get_system_logs_endpoint(request: Request, level: str | None = None, limit: int = 100):
         from modules.telemetry import system_logger
         return system_logger.get_system_logs(_graph(request), level=level, limit=limit)
+
+    # ---- Security Hardening & Threat Defense -----------------------------
+
+    @router.post("/security/sanitize")
+    def sanitize_text_endpoint(body: SanitizeIn):
+        from modules.security import sanitizer
+        return sanitizer.scan_prompt_injection(body.text)
+
+    @router.post("/security/verify-token")
+    def verify_token_endpoint(body: TokenVerifyIn):
+        from modules.security import crypto_tokens
+        valid = crypto_tokens.verify_payload(body.data, body.signature)
+        return {"valid": valid}
 
     return router
