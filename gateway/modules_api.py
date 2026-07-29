@@ -310,6 +310,14 @@ class VaultNoteIn(BaseModel):
     tags: list[str] = []
 
 
+class AssistantChatIn(BaseModel):
+    message: str
+
+
+class CalendarSyncIn(BaseModel):
+    ics_content: str
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -938,5 +946,32 @@ def build_router(auth) -> APIRouter:
     def energy_balance_endpoint(request: Request):
         from modules.horizon import energy_balance
         return energy_balance.get_energy_balance(_graph(request))
+
+    # ---- AI Life Assistant Chat Gateway ----------------------------------
+
+    @router.post("/assistant/chat")
+    def assistant_chat_endpoint(request: Request, body: AssistantChatIn):
+        from gateway import assistant_chat
+        claude = getattr(request.app.state, "claude", None)
+        return guard(lambda: assistant_chat.process_assistant_message(_graph(request), body.message, claude=claude))
+
+    # ---- Retro Forecast & Auto Generator ---------------------------------
+
+    @router.get("/horizon/retro/forecast")
+    def retro_forecast_endpoint(request: Request, goal_id: str):
+        from modules.horizon import retro_forecaster
+        return guard(lambda: retro_forecaster.forecast_goal_completion(_graph(request), goal_id))
+
+    @router.post("/horizon/retro/auto-generate")
+    def auto_generate_retro_endpoint(request: Request):
+        from modules.horizon import retro_forecaster
+        return retro_forecaster.generate_auto_retro(_graph(request))
+
+    # ---- Multi-Calendar Sync Importer -----------------------------------
+
+    @router.post("/calendar/sync-import")
+    def calendar_sync_import_endpoint(request: Request, body: CalendarSyncIn):
+        from modules.calendar import sync_engine
+        return guard(lambda: sync_engine.import_ics_feed(_graph(request), body.ics_content))
 
     return router
