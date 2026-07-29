@@ -15,6 +15,7 @@ TOPICS = {
     "capsule.unlocked",
     "energy.updated",
     "admin.detected",
+    "notification.enqueued",
 }
 
 

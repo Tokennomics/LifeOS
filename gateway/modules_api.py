@@ -285,6 +285,13 @@ class EventFeedbackIn(BaseModel):
     notes: str = ""
 
 
+class NotificationEnqueueIn(BaseModel):
+    channel: str
+    recipient: str
+    title: str
+    body: str = ""
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -841,5 +848,24 @@ def build_router(auth) -> APIRouter:
     def export_bundle(request: Request):
         from modules.backup import export_graph
         return export_graph.export_user_bundle(_graph(request))
+
+    # ---- System Health & Diagnostics -------------------------------------
+
+    @router.get("/health/diagnostics")
+    def health_diagnostics(request: Request):
+        from modules.health import diagnostics
+        return diagnostics.run_diagnostics(_graph(request))
+
+    # ---- Notification Dispatcher -----------------------------------------
+
+    @router.post("/notifications/enqueue")
+    def notification_enqueue(request: Request, body: NotificationEnqueueIn):
+        from modules.notifications import dispatcher
+        return guard(lambda: dispatcher.enqueue_notification(_graph(request), body.channel, body.recipient, body.title, body.body))
+
+    @router.post("/notifications/dispatch")
+    def notification_dispatch(request: Request):
+        from modules.notifications import dispatcher
+        return dispatcher.dispatch_pending(_graph(request))
 
     return router
