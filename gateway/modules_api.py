@@ -275,6 +275,16 @@ class DatingInterestIn(BaseModel):
     activity_id: str
 
 
+class ManifestValidateIn(BaseModel):
+    manifest: dict
+
+
+class EventFeedbackIn(BaseModel):
+    event_id: str
+    rating: int
+    notes: str = ""
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -805,5 +815,31 @@ def build_router(auth) -> APIRouter:
         from modules.dating import mutual_match
         caller = getattr(request.state, "caller", None)
         return {"matches": mutual_match.check_matches(_graph(request), account_id=caller)}
+
+    # ---- Platform Manifest Validation ------------------------------------
+
+    @router.post("/platform/validate")
+    def platform_validate(request: Request, body: ManifestValidateIn):
+        from modules.platform import manifest
+        return guard(lambda: manifest.validate_manifest(body.manifest))
+
+    # ---- Growth & Crew Activation ----------------------------------------
+
+    @router.post("/crews/{crew_id}/feedback")
+    def crew_event_feedback(request: Request, crew_id: str, body: EventFeedbackIn):
+        from modules.growth import feedback
+        return guard(lambda: feedback.record_event_feedback(_graph(request), crew_id, body.event_id, body.rating, body.notes))
+
+    @router.get("/crews/{crew_id}/activation")
+    def crew_activation(request: Request, crew_id: str):
+        from modules.growth import feedback
+        return feedback.crew_activation_status(_graph(request), crew_id)
+
+    # ---- Data Portability Export Bundle ----------------------------------
+
+    @router.get("/export/bundle")
+    def export_bundle(request: Request):
+        from modules.backup import export_graph
+        return export_graph.export_user_bundle(_graph(request))
 
     return router
