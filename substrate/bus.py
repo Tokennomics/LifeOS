@@ -12,6 +12,7 @@ TOPICS = {
     "plan.updated",
     "event.attended",
     "capsule.dropped",
+    "capsule.unlocked",
     "energy.updated",
     "admin.detected",
 }

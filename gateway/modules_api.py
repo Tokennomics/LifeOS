@@ -241,6 +241,21 @@ class ParkedPromoteIn(BaseModel):
     target_level: str = "goal"
 
 
+class TimeCapsuleIn(BaseModel):
+    text: str
+    unlock_at: str
+
+
+class PersonNoteIn(BaseModel):
+    person_id: str
+    note: str
+
+
+class DecisionOutcomeIn(BaseModel):
+    happened: bool
+    reflection: str = ""
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -683,5 +698,41 @@ def build_router(auth) -> APIRouter:
     def parked_promote(request: Request, idea_id: str, body: ParkedPromoteIn):
         from modules.horizon import parked_sorter
         return guard(lambda: parked_sorter.promote_parked(_graph(request), idea_id, body.target_level))
+
+    # ---- Memento Time Capsules -------------------------------------------
+
+    @router.post("/capsules/time")
+    def capsule_time_drop(request: Request, body: TimeCapsuleIn):
+        from modules.memento import time_capsules
+        return guard(lambda: time_capsules.drop_time_capsule(_graph(request), body.text, body.unlock_at))
+
+    @router.post("/capsules/unlock-time")
+    def capsule_time_unlock(request: Request):
+        from modules.memento import time_capsules
+        return time_capsules.check_time_unlocks(_graph(request))
+
+    # ---- Reconnect Touch History & Notes ---------------------------------
+
+    @router.get("/reconnect/history/{person_id}")
+    def reconnect_history(request: Request, person_id: str):
+        from modules.reconnect import touch_history
+        return guard(lambda: touch_history.get_touch_history(_graph(request), person_id))
+
+    @router.post("/reconnect/notes")
+    def reconnect_add_note(request: Request, body: PersonNoteIn):
+        from modules.reconnect import touch_history
+        return guard(lambda: touch_history.add_person_note(_graph(request), body.person_id, body.note))
+
+    # ---- Calibre Decision Reviews ----------------------------------------
+
+    @router.get("/decisions/pending")
+    def decisions_pending(request: Request):
+        from modules.calibre import review
+        return {"pending": review.pending_reviews(_graph(request))}
+
+    @router.post("/decisions/{decision_id}/outcome")
+    def decision_outcome(request: Request, decision_id: str, body: DecisionOutcomeIn):
+        from modules.calibre import review
+        return guard(lambda: review.record_outcome(_graph(request), decision_id, body.happened, body.reflection))
 
     return router
