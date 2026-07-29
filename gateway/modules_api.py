@@ -333,6 +333,24 @@ class UserBundleRestoreIn(BaseModel):
     bundle_data: dict
 
 
+class AuditLogIn(BaseModel):
+    event_type: str
+    actor_id: str = "system"
+    details: dict = {}
+
+
+class JournalEntryIn(BaseModel):
+    wins: list[str] = []
+    gratitude: list[str] = []
+    reflection: str = ""
+    mood_rating: int = 5
+
+
+class GoalDependencyIn(BaseModel):
+    goal_id: str
+    depends_on_goal_id: str
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -1019,5 +1037,41 @@ def build_router(auth) -> APIRouter:
     def restore_user_bundle_endpoint(request: Request, body: UserBundleRestoreIn):
         from modules.backup import import_graph
         return guard(lambda: import_graph.restore_user_bundle(_graph(request), body.bundle_data))
+
+    # ---- System Audit Logger --------------------------------------------
+
+    @router.post("/security/audit-log")
+    def log_security_event_endpoint(request: Request, body: AuditLogIn):
+        from modules.security import audit_logger
+        return guard(lambda: audit_logger.log_security_event(_graph(request), body.event_type, body.actor_id, body.details))
+
+    @router.get("/security/audit-log")
+    def get_security_audit_log_endpoint(request: Request, limit: int = 100):
+        from modules.security import audit_logger
+        return audit_logger.get_security_audit_log(_graph(request), limit=limit)
+
+    # ---- Personal Reflection Journal -------------------------------------
+
+    @router.post("/journal/entries")
+    def create_journal_entry_endpoint(request: Request, body: JournalEntryIn):
+        from modules.memento import journal
+        return guard(lambda: journal.log_journal_entry(_graph(request), body.wins, body.gratitude, body.reflection, body.mood_rating))
+
+    @router.get("/journal/entries")
+    def get_journal_entries_endpoint(request: Request, limit: int = 50):
+        from modules.memento import journal
+        return journal.get_journal_entries(_graph(request), limit=limit)
+
+    # ---- Goal Dependency & Blocker Solver --------------------------------
+
+    @router.post("/goals/dependency")
+    def link_goal_dependency_endpoint(request: Request, body: GoalDependencyIn):
+        from modules.horizon import blocker_solver
+        return guard(lambda: blocker_solver.link_goal_dependency(_graph(request), body.goal_id, body.depends_on_goal_id))
+
+    @router.get("/goals/{goal_id}/blockers")
+    def get_goal_blockers_endpoint(request: Request, goal_id: str):
+        from modules.horizon import blocker_solver
+        return guard(lambda: blocker_solver.get_goal_blockers(_graph(request), goal_id))
 
     return router
