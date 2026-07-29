@@ -256,6 +256,25 @@ class DecisionOutcomeIn(BaseModel):
     reflection: str = ""
 
 
+class CriticalCardIn(BaseModel):
+    full_name: str = ""
+    blood_type: str = ""
+    allergies: str = ""
+    notes: str = ""
+    emergency_contacts: list[dict] = []
+
+
+class DeadmanConfigIn(BaseModel):
+    interval_hours: float = 24.0
+    grace_hours: float = 12.0
+    contacts: list[dict] = []
+
+
+class DatingInterestIn(BaseModel):
+    target_account_id: str
+    activity_id: str
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -734,5 +753,57 @@ def build_router(auth) -> APIRouter:
     def decision_outcome(request: Request, decision_id: str, body: DecisionOutcomeIn):
         from modules.calibre import review
         return guard(lambda: review.record_outcome(_graph(request), decision_id, body.happened, body.reflection))
+
+    # ---- Critical Card & Dead-Man's Switch -------------------------------
+
+    @router.post("/triage/card")
+    def triage_card_save(request: Request, body: CriticalCardIn):
+        from modules.triage import critical_card
+        return guard(lambda: critical_card.save_critical_card(_graph(request), body.model_dump()))
+
+    @router.get("/triage/card")
+    def triage_card_get(request: Request):
+        from modules.triage import critical_card
+        return critical_card.get_critical_card(_graph(request))
+
+    @router.post("/triage/deadman/config")
+    def deadman_config(request: Request, body: DeadmanConfigIn):
+        from modules.triage import deadman
+        return guard(lambda: deadman.set_config(_graph(request), body.interval_hours, body.grace_hours, body.contacts))
+
+    @router.post("/triage/deadman/ping")
+    def deadman_ping(request: Request):
+        from modules.triage import deadman
+        return deadman.ping(_graph(request))
+
+    @router.get("/triage/deadman/status")
+    def deadman_status(request: Request):
+        from modules.triage import deadman
+        return deadman.check_status(_graph(request))
+
+    # ---- Agent Budgeting & Outbox ----------------------------------------
+
+    @router.get("/agent/budget")
+    def agent_budget(request: Request, module: str = "steward"):
+        from modules.steward import budget
+        return budget.check_budget(_graph(request), module)
+
+    @router.post("/agent/outbox/process")
+    def agent_outbox_process(request: Request):
+        from modules.steward import outbox
+        return outbox.process_outbox(_graph(request))
+
+    # ---- Mutual-Consent Activity Dating ----------------------------------
+
+    @router.post("/dating/interest")
+    def dating_interest(request: Request, body: DatingInterestIn):
+        from modules.dating import mutual_match
+        return guard(lambda: mutual_match.express_interest(_graph(request), body.target_account_id, body.activity_id))
+
+    @router.get("/dating/matches")
+    def dating_matches(request: Request):
+        from modules.dating import mutual_match
+        caller = getattr(request.state, "caller", None)
+        return {"matches": mutual_match.check_matches(_graph(request), account_id=caller)}
 
     return router
