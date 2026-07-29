@@ -232,6 +232,15 @@ class CoachRewordIn(BaseModel):
     proposals: list[dict]
 
 
+class GoalMilestoneIn(BaseModel):
+    title: str
+    target_week: str = ""
+
+
+class ParkedPromoteIn(BaseModel):
+    target_level: str = "goal"
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -642,5 +651,37 @@ def build_router(auth) -> APIRouter:
     def triage_brief(request: Request):
         from modules.triage import brief
         return brief.generate_triage_brief(_graph(request))
+
+    # ---- Vision & Goals Expansion ----------------------------------------
+
+    @router.post("/goals/{goal_id}/milestones")
+    def goal_add_milestone(request: Request, goal_id: str, body: GoalMilestoneIn):
+        from modules.horizon import milestones
+        return guard(lambda: milestones.add_milestone(_graph(request), goal_id, body.title, body.target_week))
+
+    @router.post("/milestones/{milestone_id}/complete")
+    def milestone_complete(request: Request, milestone_id: str):
+        from modules.horizon import milestones
+        return guard(lambda: milestones.complete_milestone(_graph(request), milestone_id))
+
+    @router.get("/goals/{goal_id}/progress")
+    def goal_progress_get(request: Request, goal_id: str):
+        from modules.horizon import milestones
+        return guard(lambda: milestones.goal_progress(_graph(request), goal_id))
+
+    @router.get("/goals/velocity")
+    def goal_velocity_get(request: Request):
+        from modules.horizon import analytics
+        return analytics.goal_velocity(_graph(request))
+
+    @router.get("/parked")
+    def parked_list(request: Request):
+        from modules.horizon import parked_sorter
+        return {"parked": parked_sorter.list_parked(_graph(request))}
+
+    @router.post("/parked/{idea_id}/promote")
+    def parked_promote(request: Request, idea_id: str, body: ParkedPromoteIn):
+        from modules.horizon import parked_sorter
+        return guard(lambda: parked_sorter.promote_parked(_graph(request), idea_id, body.target_level))
 
     return router
