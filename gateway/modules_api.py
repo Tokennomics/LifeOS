@@ -392,6 +392,22 @@ class TokenVerifyIn(BaseModel):
     signature: str
 
 
+class SleepDataIn(BaseModel):
+    date: str
+    hours_slept: float
+    sleep_quality: int
+    wake_time: str
+
+
+class EmergencyAlertIn(BaseModel):
+    message: str
+
+
+class CrewItineraryIn(BaseModel):
+    venue_ids: list[str]
+    start_time: str = ""
+
+
 def _subject(request: Request, explicit: str | None) -> str:
     """Who the action is for: an explicit local person, or — when omitted — the caller's
     own ACCOUNT, which is the identity shared crews are built from."""
@@ -1173,5 +1189,47 @@ def build_router(auth) -> APIRouter:
         from modules.security import crypto_tokens
         valid = crypto_tokens.verify_payload(body.data, body.signature)
         return {"valid": valid}
+
+    # ---- 8-Core Ecosystem Expansion -------------------------------------
+
+    @router.get("/graph/topology")
+    def get_graph_topology_endpoint(request: Request):
+        from substrate import topology
+        return topology.export_graph_topology(_graph(request))
+
+    @router.post("/goals/nudges/scan")
+    def scan_milestone_nudges_endpoint(request: Request):
+        from modules.horizon import milestone_nudges
+        return milestone_nudges.scan_milestone_nudges(_graph(request))
+
+    @router.post("/vault/auto-link")
+    def auto_link_notes_endpoint(request: Request):
+        from modules.vault import auto_linker
+        return auto_linker.auto_link_notes(_graph(request))
+
+    @router.post("/routines/sleep")
+    def log_sleep_data_endpoint(request: Request, body: SleepDataIn):
+        from modules.routines import sleep_tracker
+        return guard(lambda: sleep_tracker.log_sleep_data(_graph(request), body.date, body.hours_slept, body.sleep_quality, body.wake_time))
+
+    @router.get("/routines/sleep/summary")
+    def get_circadian_summary_endpoint(request: Request):
+        from modules.routines import sleep_tracker
+        return sleep_tracker.get_circadian_summary(_graph(request))
+
+    @router.post("/safety/broadcast")
+    def broadcast_emergency_alert_endpoint(request: Request, body: EmergencyAlertIn):
+        from modules.safety import contact_broadcast
+        return guard(lambda: contact_broadcast.broadcast_emergency_alert(_graph(request), body.message))
+
+    @router.post("/venues/itinerary/generate")
+    def generate_crew_itinerary_endpoint(request: Request, body: CrewItineraryIn):
+        from modules.venues import itinerary_builder
+        return guard(lambda: itinerary_builder.generate_crew_itinerary(_graph(request), body.venue_ids, body.start_time))
+
+    @router.post("/security/anomaly/scan")
+    def scan_security_anomalies_endpoint(request: Request):
+        from modules.security import anomaly_detector
+        return anomaly_detector.scan_security_anomalies(_graph(request))
 
     return router
