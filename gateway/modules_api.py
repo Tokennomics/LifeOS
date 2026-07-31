@@ -411,6 +411,25 @@ class VenueVoteIn(BaseModel):
     member_id: str
 
 
+class ChatMessageIn(BaseModel):
+    sender_id: str
+    recipient_id: str
+    body: str
+    linked_entity_id: str | None = None
+
+
+class MiniAppRegisterIn(BaseModel):
+    name: str
+    url: str
+    icon: str = ""
+
+
+class SplitSettleIn(BaseModel):
+    split_id: str
+    settled_amount: float
+
+
+
 
 
 class SleepDataIn(BaseModel):
@@ -1317,5 +1336,30 @@ def build_router(auth) -> APIRouter:
     def calculate_centrality_endpoint(request: Request):
         from substrate import centrality
         return centrality.calculate_centrality(_graph(request))
+
+    @router.post("/comms/messages")
+    def send_message_endpoint(request: Request, body: ChatMessageIn):
+        from modules.comms import chat
+        return guard(lambda: chat.send_message(_graph(request), body.sender_id, body.recipient_id, body.body, body.linked_entity_id))
+
+    @router.get("/comms/messages")
+    def get_messages_endpoint(request: Request, recipient_id: str):
+        from modules.comms import chat
+        return chat.get_messages(_graph(request), recipient_id)
+
+    @router.post("/miniapp/register")
+    def register_miniapp_endpoint(request: Request, body: MiniAppRegisterIn):
+        from modules.miniapp import registry
+        return guard(lambda: registry.register_miniapp(_graph(request), body.name, body.url, body.icon))
+
+    @router.get("/miniapp/list")
+    def list_miniapps_endpoint(request: Request):
+        from modules.miniapp import registry
+        return registry.list_miniapps(_graph(request))
+
+    @router.post("/ledger/settle")
+    def settle_split_endpoint(request: Request, body: SplitSettleIn):
+        from modules.ledger import billing
+        return guard(lambda: billing.settle_split(_graph(request), body.split_id, body.settled_amount))
 
     return router
