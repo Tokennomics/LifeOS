@@ -392,6 +392,20 @@ class TokenVerifyIn(BaseModel):
     signature: str
 
 
+class FocusSessionIn(BaseModel):
+    duration_minutes: int
+    distraction_count: int
+    note: str = ""
+
+
+class ExpenseSplitIn(BaseModel):
+    total_amount: float
+    currency: str = "USD"
+    payer_id: str
+    member_ids: list[str]
+
+
+
 class SleepDataIn(BaseModel):
     date: str
     hours_slept: float
@@ -1246,5 +1260,25 @@ def build_router(auth) -> APIRouter:
     def project_goal_completion_endpoint(request: Request, goal_id: str):
         from modules.horizon import progress_model
         return guard(lambda: progress_model.project_goal_completion(_graph(request), goal_id))
+
+    @router.post("/routines/mindfulness/session")
+    def log_focus_session_endpoint(request: Request, body: FocusSessionIn):
+        from modules.routines import mindfulness
+        return guard(lambda: mindfulness.log_focus_session(_graph(request), body.duration_minutes, body.distraction_count, body.note))
+
+    @router.get("/routines/mindfulness/summary")
+    def get_mindfulness_summary_endpoint(request: Request):
+        from modules.routines import mindfulness
+        return mindfulness.get_mindfulness_summary(_graph(request))
+
+    @router.get("/graph/export/graphml")
+    def export_graphml_endpoint(request: Request):
+        from substrate import graphml_exporter
+        return Response(content=graphml_exporter.export_graphml(_graph(request)), media_type="application/xml")
+
+    @router.post("/ledger/split")
+    def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
+        from modules.ledger import splitter
+        return guard(lambda: splitter.split_expenses(_graph(request), body.total_amount, body.currency, body.payer_id, body.member_ids))
 
     return router
