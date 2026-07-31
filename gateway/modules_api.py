@@ -991,6 +991,11 @@ def build_router(auth) -> APIRouter:
         from modules.venues import places
         return guard(lambda: places.search_venues(query, city=city, category=category))
 
+    @router.get("/venues/recommendations")
+    def recommend_places_endpoint(request: Request, crew_id: str | None = None):
+        from modules.venues import recommender
+        return recommender.recommend_places(_graph(request), crew_id)
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -1231,5 +1236,15 @@ def build_router(auth) -> APIRouter:
     def scan_security_anomalies_endpoint(request: Request):
         from modules.security import anomaly_detector
         return anomaly_detector.scan_security_anomalies(_graph(request))
+
+    @router.get("/routines/analytics")
+    def get_routine_analytics_endpoint(request: Request):
+        from modules.routines import analytics
+        return analytics.get_routine_analytics(_graph(request))
+
+    @router.get("/goals/{goal_id}/projection")
+    def project_goal_completion_endpoint(request: Request, goal_id: str):
+        from modules.horizon import progress_model
+        return guard(lambda: progress_model.project_goal_completion(_graph(request), goal_id))
 
     return router
