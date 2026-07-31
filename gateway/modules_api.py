@@ -788,6 +788,11 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: discover.set_intent(
             _graph(request), body.city, body.interests, body.starts, body.ends))
 
+    @router.get("/discover/personalized-event-feed")
+    def personalized_event_feed_endpoint(request: Request):
+        from modules.venues import event_feed
+        return event_feed.get_personalized_event_feed(_graph(request))
+
     @router.get("/discover/intents/{intent_id}")
     def discover_for_intent(request: Request, intent_id: str):
         return guard(lambda: discover.find_for_intent(_graph(request), intent_id))
