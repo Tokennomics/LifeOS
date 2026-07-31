@@ -1010,6 +1010,11 @@ def build_router(auth) -> APIRouter:
         from modules.venues import recommender
         return recommender.recommend_places(_graph(request), crew_id)
 
+    @router.get("/venues/activity-heatmap")
+    def get_activity_heatmap_endpoint(request: Request):
+        from modules.venues import heatmap
+        return heatmap.get_activity_heatmap(_graph(request))
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
