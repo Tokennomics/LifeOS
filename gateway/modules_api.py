@@ -405,6 +405,13 @@ class ExpenseSplitIn(BaseModel):
     member_ids: list[str]
 
 
+class VenueVoteIn(BaseModel):
+    poll_id: str
+    place_id: str
+    member_id: str
+
+
+
 
 class SleepDataIn(BaseModel):
     date: str
@@ -1020,6 +1027,16 @@ def build_router(auth) -> APIRouter:
         from modules.venues import heatmap
         return heatmap.get_activity_heatmap(_graph(request))
 
+    @router.get("/venues/vote/results")
+    def get_poll_results_endpoint(request: Request, poll_id: str):
+        from modules.venues import voting
+        return voting.get_poll_results(_graph(request), poll_id)
+
+    @router.post("/venues/vote")
+    def submit_vote_endpoint(request: Request, body: VenueVoteIn):
+        from modules.venues import voting
+        return guard(lambda: voting.submit_vote(_graph(request), body.poll_id, body.place_id, body.member_id))
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -1290,5 +1307,15 @@ def build_router(auth) -> APIRouter:
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
         return guard(lambda: splitter.split_expenses(_graph(request), body.total_amount, body.currency, body.payer_id, body.member_ids))
+
+    @router.post("/reconnect/auto-remind")
+    def enqueue_decay_reminders_endpoint(request: Request):
+        from modules.reconnect import auto_reminder
+        return auto_reminder.enqueue_decay_reminders(_graph(request))
+
+    @router.get("/graph/centrality")
+    def calculate_centrality_endpoint(request: Request):
+        from substrate import centrality
+        return centrality.calculate_centrality(_graph(request))
 
     return router
