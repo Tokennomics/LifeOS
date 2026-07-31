@@ -429,6 +429,17 @@ class SplitSettleIn(BaseModel):
     settled_amount: float
 
 
+class OptimizeItineraryIn(BaseModel):
+    place_ids: list[str]
+
+
+class CrewGoalIn(BaseModel):
+    crew_id: str
+    title: str
+    target_date: str
+
+
+
 
 
 
@@ -1361,5 +1372,20 @@ def build_router(auth) -> APIRouter:
     def settle_split_endpoint(request: Request, body: SplitSettleIn):
         from modules.ledger import billing
         return guard(lambda: billing.settle_split(_graph(request), body.split_id, body.settled_amount))
+
+    @router.post("/venues/optimize-itinerary")
+    def optimize_outing_route_endpoint(request: Request, body: OptimizeItineraryIn):
+        from modules.venues import optimizer
+        return optimizer.optimize_outing_route(_graph(request), body.place_ids)
+
+    @router.get("/routines/synergy")
+    def calculate_habit_synergies_endpoint(request: Request):
+        from modules.routines import synergy
+        return synergy.calculate_habit_synergies(_graph(request))
+
+    @router.post("/horizon/crew-goals")
+    def create_crew_goal_endpoint(request: Request, body: CrewGoalIn):
+        from modules.horizon import crew_goals
+        return guard(lambda: crew_goals.create_crew_goal(_graph(request), body.crew_id, body.title, body.target_date))
 
     return router
