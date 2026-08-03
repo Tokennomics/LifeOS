@@ -439,6 +439,14 @@ class CrewGoalIn(BaseModel):
     target_date: str
 
 
+class LedgerSyncIn(BaseModel):
+    total_amount: float
+    currency: str = "USD"
+    payer_id: str
+    member_ids: list[str]
+
+
+
 
 
 
@@ -1387,5 +1395,25 @@ def build_router(auth) -> APIRouter:
     def create_crew_goal_endpoint(request: Request, body: CrewGoalIn):
         from modules.horizon import crew_goals
         return guard(lambda: crew_goals.create_crew_goal(_graph(request), body.crew_id, body.title, body.target_date))
+
+    @router.post("/ledger/sync-queue")
+    def enqueue_sync_item_endpoint(request: Request, body: LedgerSyncIn):
+        from modules.ledger import sync_queue
+        return guard(lambda: sync_queue.enqueue_sync_item(_graph(request), body.model_dump()))
+
+    @router.post("/ledger/sync-queue/process")
+    def process_sync_queue_endpoint(request: Request):
+        from modules.ledger import sync_queue
+        return sync_queue.process_sync_queue(_graph(request))
+
+    @router.post("/routines/sleep-nudge")
+    def generate_circadian_nudge_endpoint(request: Request):
+        from modules.routines import sleep_nudges
+        return sleep_nudges.generate_circadian_nudge(_graph(request))
+
+    @router.get("/graph/predictions")
+    def predict_relationships_endpoint(request: Request):
+        from substrate import predictor
+        return predictor.predict_relationships(_graph(request))
 
     return router
