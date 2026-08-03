@@ -446,6 +446,21 @@ class LedgerSyncIn(BaseModel):
     member_ids: list[str]
 
 
+class ResourceRegisterIn(BaseModel):
+    owner_id: str
+    name: str
+
+
+class ResourceLoanIn(BaseModel):
+    resource_id: str
+    borrower_id: str
+
+
+class GraphQaIn(BaseModel):
+    query_text: str
+
+
+
 
 
 
@@ -1415,5 +1430,25 @@ def build_router(auth) -> APIRouter:
     def predict_relationships_endpoint(request: Request):
         from substrate import predictor
         return predictor.predict_relationships(_graph(request))
+
+    @router.post("/miniapp/resources")
+    def register_resource_endpoint(request: Request, body: ResourceRegisterIn):
+        from modules.miniapp import resources
+        return guard(lambda: resources.register_resource(_graph(request), body.owner_id, body.name))
+
+    @router.post("/miniapp/resources/loan")
+    def request_loan_endpoint(request: Request, body: ResourceLoanIn):
+        from modules.miniapp import resources
+        return guard(lambda: resources.request_loan(_graph(request), body.resource_id, body.borrower_id))
+
+    @router.post("/routines/streak-nudge")
+    def trigger_streak_nudges_endpoint(request: Request):
+        from modules.routines import streak_nudges
+        return streak_nudges.trigger_streak_nudges(_graph(request))
+
+    @router.post("/graph/qa")
+    def query_graph_memories_endpoint(request: Request, body: GraphQaIn):
+        from substrate import qa_bot
+        return guard(lambda: qa_bot.query_graph_memories(_graph(request), body.query_text))
 
     return router
