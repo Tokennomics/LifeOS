@@ -492,6 +492,13 @@ class BulletinPublishIn(BaseModel):
     body: str
 
 
+class PhotoUploadIn(BaseModel):
+    event_id: str
+    owner_id: str
+    photo_url: str
+
+
+
 
 
 
@@ -1566,6 +1573,26 @@ def build_router(auth) -> APIRouter:
     def suggest_habit_chain_endpoint(request: Request):
         from modules.routines import chaining
         return chaining.suggest_habit_chain(_graph(request))
+
+    @router.post("/comms/gallery")
+    def upload_photo_endpoint(request: Request, body: PhotoUploadIn):
+        from modules.comms import gallery
+        return guard(lambda: gallery.upload_photo(_graph(request), body.event_id, body.owner_id, body.photo_url))
+
+    @router.get("/comms/gallery/list")
+    def list_photos_endpoint(request: Request, event_id: str):
+        from modules.comms import gallery
+        return gallery.list_photos(_graph(request), event_id)
+
+    @router.get("/routines/consistency-forecast")
+    def forecast_consistency_endpoint(request: Request):
+        from modules.routines import consistency
+        return consistency.forecast_consistency(_graph(request))
+
+    @router.get("/graph/centrality-ranks")
+    def rank_nodes_centrality_endpoint(request: Request):
+        from substrate import centrality_rank
+        return centrality_rank.rank_nodes_centrality(_graph(request))
 
     @router.get("/graph/timeline")
     def generate_audit_timeline_endpoint(request: Request):
