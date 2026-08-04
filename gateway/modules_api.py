@@ -1191,6 +1191,28 @@ def build_router(auth) -> APIRouter:
         from modules.platform import manifest
         return guard(lambda: manifest.validate_manifest(body.manifest))
 
+    # ---- Weekend digest --------------------------------------------------
+
+    @router.get("/weekend")
+    def weekend_digest(request: Request, city: str = "", offset: int = 0,
+                       tz_offset_minutes: int = 0):
+        """What's on this weekend: your own plans plus what's open, bucketed by day."""
+        from modules.weekend import digest
+        return guard(lambda: digest.weekend(
+            _graph(request), city=city, offset=offset,
+            tz_offset_minutes=tz_offset_minutes))
+
+    @router.get("/weekend/share")
+    def weekend_share(request: Request, city: str = "", offset: int = 0,
+                      tz_offset_minutes: int = 0, include_yours: bool = False):
+        """The same weekend as plain text to send someone. Your own plans are left OUT
+        unless `include_yours=true` — a summary of what's on has no business carrying
+        your dentist appointment to a friend."""
+        from modules.weekend import digest
+        return guard(lambda: digest.shareable(
+            _graph(request), city=city, offset=offset, include_yours=include_yours,
+            tz_offset_minutes=tz_offset_minutes))
+
     # ---- Growth & Crew Activation ----------------------------------------
 
     @router.post("/crews/{crew_id}/feedback")

@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#14 are merged; #15 (signing key) is open.** `python -m pytest` → **521 passing**.
+explicit permission). **PRs #1–#14 are merged; #15 (signing key) is open.** `python -m pytest` → **570 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -53,6 +53,7 @@ in anyone else's graph.
 | Crews · admission policy · safety rails | shipped |
 | Discover · feed | shipped |
 | Coordination (1:1 + crew, quorum-based) | shipped |
+| **Weekend digest** (`GET /v1/weekend`, `/weekend/share`) | shipped |
 | Cross-account discovery / membership / **scheduling** | shipped (#8, #9, **#10**) |
 
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
@@ -133,6 +134,31 @@ and every entry point calls `gate.require_surface()` first.
   Filing a report blocks the pair immediately — the property has to hold on a day nobody
   services the queue — and resolving the report does not lift the block.
 - **Left to do: G0 (this host) and G4 (≥2 people who asked).** Then set the flag. Nothing else.
+
+## The weekend digest — and the thing it can't do
+
+`GET /v1/weekend` answers "what's on this weekend?" from three sources that already exist:
+public social events across accounts (`find_public`), your own confirmed meets and ICS
+blocks (owner-scoped), and public crews in the city. `GET /v1/weekend/share` renders the
+same weekend as plain text to send someone — **with your own plans left out unless
+`include_yours=true`**, because there is no version of "here's what's on" that should carry
+your dentist appointment to a friend.
+
+**It is not a scraper and must not become one.** LifeOS does not know what is on at the
+city's clubs; Ticketmaster-style integrations are on the Don't-build list. An empty digest
+is an honest report that nobody published anything, and it says so and names the crews who
+could. Inventing events would hide the one signal that matters — GROWTH.md's atomic network
+is *one crew that actually meets twice*, and a digest full of scraped listings would look
+identical whether that had happened or not.
+
+Two behaviours worth knowing before editing:
+
+- **Mid-weekend it trims.** Opened at 15:00 on Saturday it shows what's left, not what you
+  missed, and the header changes to "rest of the weekend". The cut is two hours *after* an
+  event starts, not at the start — a club night at 23:00 is still the answer at 23:45.
+- **It lists everything on, not just what scores.** `discover.rank_feed` drops items that
+  are neither interest-matched nor popular, which is right for an infinite feed and wrong
+  for a finite weekend. Ranking sets the order here; it never sets the membership.
 
 ## Gotchas — read these before touching anything
 
