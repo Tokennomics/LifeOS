@@ -498,6 +498,19 @@ class PhotoUploadIn(BaseModel):
     photo_url: str
 
 
+class ChatroomMessageIn(BaseModel):
+    event_id: str
+    user_id: str
+    message: str
+
+
+class MilestoneAwardIn(BaseModel):
+    user_id: str
+    title: str
+    description: str = ""
+
+
+
 
 
 
@@ -1593,6 +1606,31 @@ def build_router(auth) -> APIRouter:
     def rank_nodes_centrality_endpoint(request: Request):
         from substrate import centrality_rank
         return centrality_rank.rank_nodes_centrality(_graph(request))
+
+    @router.post("/comms/chatroom/send")
+    def send_message_endpoint(request: Request, body: ChatroomMessageIn):
+        from modules.comms import chatroom
+        return guard(lambda: chatroom.send_message(_graph(request), body.event_id, body.user_id, body.message))
+
+    @router.get("/comms/chatroom/list")
+    def list_messages_endpoint(request: Request, event_id: str):
+        from modules.comms import chatroom
+        return chatroom.list_messages(_graph(request), event_id)
+
+    @router.post("/routines/milestone-achieved")
+    def award_milestone_endpoint(request: Request, body: MilestoneAwardIn):
+        from modules.routines import milestones
+        return guard(lambda: milestones.award_milestone(_graph(request), body.user_id, body.title, body.description))
+
+    @router.get("/routines/milestones/list")
+    def list_milestones_endpoint(request: Request, user_id: str):
+        from modules.routines import milestones
+        return milestones.list_milestones(_graph(request), user_id)
+
+    @router.get("/graph/paths")
+    def find_social_paths_endpoint(request: Request, src_id: str, dst_id: str):
+        from substrate import path_finder
+        return path_finder.find_social_paths(_graph(request), src_id, dst_id)
 
     @router.get("/graph/timeline")
     def generate_audit_timeline_endpoint(request: Request):
