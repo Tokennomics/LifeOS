@@ -486,6 +486,13 @@ class ConvoyUpdateIn(BaseModel):
     event_id: str
 
 
+class BulletinPublishIn(BaseModel):
+    crew_id: str
+    title: str
+    body: str
+
+
+
 
 
 
@@ -1119,6 +1126,16 @@ def build_router(auth) -> APIRouter:
         from modules.venues import voting
         return guard(lambda: voting.submit_vote(_graph(request), body.poll_id, body.place_id, body.member_id))
 
+    @router.post("/venues/convoy/update")
+    def update_location_endpoint(request: Request, body: ConvoyUpdateIn):
+        from modules.venues import convoy
+        return guard(lambda: convoy.update_location(_graph(request), body.user_id, body.latitude, body.longitude, body.eta, body.event_id))
+
+    @router.get("/venues/convoy/etas")
+    def get_convoy_etas_endpoint(request: Request, event_id: str):
+        from modules.venues import convoy
+        return convoy.get_convoy_etas(_graph(request), event_id)
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -1535,14 +1552,24 @@ def build_router(auth) -> APIRouter:
         from substrate import backup
         return backup.import_restore(_graph(request), body)
 
-    @router.post("/venues/convoy/update")
-    def update_location_endpoint(request: Request, body: ConvoyUpdateIn):
-        from modules.venues import convoy
-        return guard(lambda: convoy.update_location(_graph(request), body.user_id, body.latitude, body.longitude, body.eta, body.event_id))
+    @router.post("/comms/bulletin")
+    def publish_bulletin_endpoint(request: Request, body: BulletinPublishIn):
+        from modules.comms import bulletin
+        return guard(lambda: bulletin.publish_bulletin(_graph(request), body.crew_id, body.title, body.body))
 
-    @router.get("/venues/convoy/etas")
-    def get_convoy_etas_endpoint(request: Request, event_id: str):
-        from modules.venues import convoy
-        return convoy.get_convoy_etas(_graph(request), event_id)
+    @router.get("/comms/bulletin/list")
+    def list_bulletins_endpoint(request: Request, crew_id: str):
+        from modules.comms import bulletin
+        return bulletin.list_bulletins(_graph(request), crew_id)
+
+    @router.post("/routines/chaining-recommendation")
+    def suggest_habit_chain_endpoint(request: Request):
+        from modules.routines import chaining
+        return chaining.suggest_habit_chain(_graph(request))
+
+    @router.get("/graph/timeline")
+    def generate_audit_timeline_endpoint(request: Request):
+        from substrate import audit
+        return audit.generate_audit_timeline(_graph(request))
 
     return router
