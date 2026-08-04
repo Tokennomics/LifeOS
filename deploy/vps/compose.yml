@@ -8,7 +8,8 @@
 # a backup job. Secrets come from the host environment or a .env file beside this one,
 # which is gitignored and must never be committed.
 #
-# Required in the environment: LIFEOS_DOMAIN, LIFEOS_ACME_EMAIL, LIFEOS_GATEWAY_TOKEN.
+# Required in the environment: LIFEOS_DOMAIN, LIFEOS_ACME_EMAIL, LIFEOS_GATEWAY_TOKEN,
+# LIFEOS_SIGNING_KEY.
 
 services:
   caddy:
@@ -42,6 +43,7 @@ services:
     environment:
       - ANTHROPIC_API_KEY
       - LIFEOS_GATEWAY_TOKEN
+      - LIFEOS_SIGNING_KEY
     volumes:
       - lifeos_data:/app/data
     healthcheck:

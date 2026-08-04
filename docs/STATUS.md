@@ -2,18 +2,77 @@
 
 _The one-page memory between phone-driven sessions. Update at the end of every PR._
 
-_Last updated: 2026-07-27_
+_Last updated: 2026-08-04_
 
 ## Where we are
 
 Sprint 1 shipped (substrate + graph.py, gateway, Horizon, VoiceOS, ICS ingest, deploy
 scripts). The v0.2 PWA (`surfaces/app/www`, served by the gateway at `/app/`) needs a
 reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone abroad with no
-server. **T3 (anti-hindrance) was pulled ahead of T2** by the owner: T2's import has no
-user-facing value until he's home at the NucBox, while T3 improves daily use while travelling.
+server.
 
-**Tests:** `python -m pytest` → **246 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **446 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
+
+### The Antigravity expansion (2026-07-29 → 08-04) — read this before believing the rest
+
+43 commits by the owner, built with **Antigravity** rather than in these sessions:
+**+10,514 lines, 204 files, 18 new modules, 205 endpoints**, tests 246 → 446. Everything
+from `modules/dating` down to `substrate/centrality.py` came from that stretch, and this
+file did not move with it — which is why it says so here rather than pretending the arc was
+continuous.
+
+**The four architectural invariants held across all of it**, which is the genuinely notable
+part and was checked rather than assumed:
+
+- `substrate/schema.sql` / `schema_sqlite.sql` — **unchanged**. v0 schema still final;
+  every new module extended through `attrs`.
+- `KINDS` / `RELS` / `SCOPE_DOMAIN` — **unchanged**.
+- **Zero** `INSERT`/`UPDATE` outside `substrate/`. `graph.py` is still the only write path.
+- No secrets committed; no module requires an API key.
+
+**What that expansion added:** T2 reconciliation at last (`modules/travel/reconcile.py` +
+`POST /v1/import`, replay-tested); a triage/urgency layer; routines; venues; vault; comms;
+finance; health; safety; security; billing; a mini-program registry; and a large set of
+graph-analysis helpers in `substrate/` (centrality, clusters, path finding, topology,
+integrity, GraphML export, a QA bot).
+
+**Where it is thin, stated plainly so the next session doesn't over-trust it:** the 446
+tests are concentrated in the older core and in `venues`/`routines`. `comms` (257 LOC),
+`dating`, `finance`, `health`, `telemetry`, `notifications` and `calendar` have **no test
+file of their own**. Two modules that touch a trust boundary — `security` and `comms` —
+are the ones worth covering first.
+
+### Known-broken, found by running it (2026-08-04)
+
+- **`modules/dating` mutual matching cannot work across accounts.** The reciprocity check
+  uses `find_entities`, which is owner-scoped by design, so one account structurally cannot
+  see another's `dating_intent`. Verified with two real accounts: both sides express
+  interest and both get `stored_privately`, `is_mutual: False`, and empty match lists. It
+  only "matches" when both intents sit in one owner's graph, which never happens in real
+  use. **The failure is inert, not leaky** — it matches nobody rather than exposing anybody,
+  so the docstring's privacy invariant holds only because nothing works. The fix is the
+  cross-account scheduling shape: a grant-based reach, not a scoped find.
+- **Dating also shipped past all five of its own kill-gates** (ROADMAP Phase 3b: hosting →
+  invariant proven → age assurance → post-meet safety → real users) with zero tests. Age
+  assurance is a legal precondition, not a feature. It is currently harmless *because* of
+  the bug above; it stops being harmless the moment that is fixed. Either finish it behind
+  the gates or disable `/v1/dating/*` — half-working is the worst of the three.
+
+### Fixed since (2026-08-04)
+
+- **The payload signing key was published in the repo.** `crypto_tokens.sign_payload` /
+  `verify_payload` defaulted to `secret="lifeos_secret_key_2026"`, and the gateway called
+  `verify_payload()` without overriding it — so the HMAC key guarding against "token
+  tampering and unauthorized data forgery" was a public string, and anyone could mint a
+  valid signature. The inverse of the no-secrets rule: nothing real leaked, but a fake key
+  was trusted as real. Now `LIFEOS_SIGNING_KEY` from the environment with **no default**;
+  the old value and other placeholders are refused *by name* so copying one out of git
+  history can't restore the hole; keys under 32 chars are refused. `/v1/security/verify-token`
+  returns **503, not `valid: false`**, when unconfigured — "cannot check" and "checked and
+  rejected" are different facts, and collapsing them is how a broken deployment reports
+  clean verifications. 18 tests, plus the two pre-existing ones updated (they had been
+  passing *because* of the default).
 
 ## Shipped
 
@@ -250,7 +309,7 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 - **T2 — Reconciliation.** `POST /v1/import`: ingest the Travel Mode bundle through
   `substrate/graph.py` with `module=travel`, original timestamps, idempotency keys → skip
   already-imported. Every record the bundle carries already has a stable `key` + `ts`.
-- **T4 — Repo hygiene.** This file; suite green in CI (done, 246); README test command (done).
+- **T4 — Repo hygiene.** This file; suite green in CI (done, 446); README test command (done).
 
 ## Non-goals (do not build)
 

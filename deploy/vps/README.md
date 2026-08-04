@@ -43,11 +43,17 @@ mkdir -p backups && sudo chown 10001:10001 backups   # the container's non-root 
 `.env` is gitignored and must stay that way. **No secrets in the repo, ever** — the compose
 file only ever names variables, never values.
 
-Generate the gateway token with something you didn't invent yourself:
+Generate the gateway token **and the signing key** — two different values, neither invented
+by hand:
 
 ```sh
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"   # LIFEOS_GATEWAY_TOKEN
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"   # LIFEOS_SIGNING_KEY
 ```
+
+`LIFEOS_SIGNING_KEY` has **no default on purpose**. `/v1/security/verify-token` returns 503
+rather than `valid: false` when it is missing, because "cannot check" and "checked and
+rejected" are different facts and collapsing them is how a broken deployment looks healthy.
 
 ## 3. Start
 

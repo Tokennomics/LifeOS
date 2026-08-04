@@ -1,7 +1,8 @@
 # Handover — next session start here
 
-_Rewritten 2026-07-26. This is the 60-second version; `docs/STATUS.md` is the fuller picture and
-`docs/ROADMAP.md` is the parked map. Where any document and the code disagree, **the code wins**._
+_Rewritten 2026-07-26, updated 2026-08-04. This is the 60-second version; `docs/STATUS.md` is the
+fuller picture and `docs/ROADMAP.md` is the parked map. Where any document and the code disagree,
+**the code wins** — and after the Antigravity expansion below, assume the code is ahead._
 
 ## Context
 
@@ -12,7 +13,32 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#10 are merged.** `python -m pytest` → **219 passing**.
+explicit permission). **PRs #1–#14 are merged.** `python -m pytest` → **446 passing**.
+
+## READ FIRST: the repo doubled while these sessions were idle
+
+Between **2026-07-29 and 08-04** the owner built 43 commits with **Antigravity**, not here:
+**+10,514 lines, 18 new modules, 205 endpoints**, tests 246 → 446. `docs/` did not move with it,
+so anything below that predates 08-04 describes a smaller system than the one on disk.
+
+**Good news, and it was verified rather than assumed:** all four architectural invariants held.
+Schema unchanged, `KINDS`/`RELS` unchanged, zero writes outside `substrate/`, no secrets, no
+module needing an API key. **T2 reconciliation finally exists** (`modules/travel/reconcile.py`,
+`POST /v1/import`, replay-tested) — it had been deferred since the first brief.
+
+**Three things to know before trusting it:**
+
+1. **Test coverage is uneven.** 446 sounds like a lot; it is concentrated in the older core plus
+   `venues`/`routines`. `comms`, `dating`, `finance`, `health`, `telemetry`, `notifications` and
+   `calendar` have no test file. Cover `security` and `comms` first — they touch trust boundaries.
+2. **`modules/dating` does not work across accounts and must not be "fixed" casually.** Its
+   reciprocity check uses owner-scoped `find_entities`, so one account cannot see another's
+   `dating_intent` — verified with two real accounts, both get `is_mutual: False`. The failure is
+   **inert, not leaky**. It also shipped past all five of its ROADMAP Phase 3b kill-gates with zero
+   tests, and **age assurance is a legal precondition, not a feature**. Fixing the matching without
+   the gates converts a harmless bug into a live liability. Finish it properly or disable
+   `/v1/dating/*`.
+3. **A signing key was published in the repo and is now fixed** — see below.
 
 ## Where we are
 
@@ -87,6 +113,15 @@ original timestamps + idempotency keys; format `lifeos-travel-export/v1`, see `b
 stops being NucBox-shaped once there's a server.
 
 ## Gotchas — read these before touching anything
+
+- **`LIFEOS_SIGNING_KEY` has no default, deliberately.** `modules/security/crypto_tokens.py` used
+  to default to `"lifeos_secret_key_2026"`, and the gateway verified with it — a published HMAC
+  key signs nothing, and anyone with the repo could forge a payload. The key now comes from the
+  environment only; the old value and other placeholders are refused **by name** so it can't be
+  restored from git history; short keys are refused. **Never add a fallback to make a test pass —
+  the fallback is the vulnerability.** `/v1/security/verify-token` returns **503, not
+  `valid: false`**, when unconfigured, because "cannot check" and "checked and rejected" are
+  different facts. Set it in `deploy/vps/.env` alongside `LIFEOS_GATEWAY_TOKEN`.
 
 - **`travel-stats.js` is Travel-only and has NO Python twin** — unlike `horizon-core.js`. Editing it
   alone is correct; editing `horizon-core.js` alone is not (see below). Its checks live in

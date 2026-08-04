@@ -1384,9 +1384,14 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/security/verify-token")
     def verify_token_endpoint(body: TokenVerifyIn):
+        """Verify a signed payload. 503 when no signing key is configured — an unverifiable
+        request must never come back as `valid: false`, which reads as "checked and rejected"
+        when the truth is "cannot check at all"."""
         from modules.security import crypto_tokens
-        valid = crypto_tokens.verify_payload(body.data, body.signature)
-        return {"valid": valid}
+        try:
+            return {"valid": crypto_tokens.verify_payload(body.data, body.signature)}
+        except crypto_tokens.SigningKeyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
 
     # ---- 8-Core Ecosystem Expansion -------------------------------------
 
