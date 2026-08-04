@@ -515,6 +515,13 @@ class HabitActivityRecIn(BaseModel):
     longitude: float
 
 
+class ItineraryProposeIn(BaseModel):
+    event_id: str
+    venue_id: str
+    sequence_order: int
+
+
+
 
 
 
@@ -1172,6 +1179,16 @@ def build_router(auth) -> APIRouter:
         from modules.venues import group_slots
         return group_slots.optimize_group_slots(_graph(request), event_id)
 
+    @router.post("/venues/itinerary/propose")
+    def propose_itinerary_node_endpoint(request: Request, body: ItineraryProposeIn):
+        from modules.venues import group_itinerary
+        return guard(lambda: group_itinerary.propose_itinerary_node(_graph(request), body.event_id, body.venue_id, body.sequence_order))
+
+    @router.get("/venues/itinerary/list")
+    def get_itinerary_endpoint(request: Request, event_id: str):
+        from modules.venues import group_itinerary
+        return group_itinerary.get_itinerary(_graph(request), event_id)
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -1657,5 +1674,15 @@ def build_router(auth) -> APIRouter:
     def recommend_vital_habit_endpoint(request: Request, body: HabitActivityRecIn):
         from modules.routines import habits_rec
         return habits_rec.recommend_vital_habit(_graph(request), body.latitude, body.longitude)
+
+    @router.get("/routines/rings")
+    def calculate_habit_rings_endpoint(request: Request):
+        from modules.routines import rings
+        return rings.calculate_habit_rings(_graph(request))
+
+    @router.post("/graph/prune")
+    def prune_graph_stale_records_endpoint(request: Request):
+        from substrate import cleaner
+        return cleaner.prune_graph_stale_records(_graph(request))
 
     return router
