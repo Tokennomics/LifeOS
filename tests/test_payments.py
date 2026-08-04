@@ -2,41 +2,32 @@ import pytest
 from fastapi.testclient import TestClient
 
 from gateway.main import create_app
-from modules.billing import payments
+from modules.ledger import payments
 from substrate.graph import Graph
 
 
-def test_billing_customer_and_subscription(graph: Graph):
-    session = graph.session("test", {"*"})
-    aid = session.create_entity("person", {"name": "Subscriber"}, source="test")
+def test_payment_settlements_and_balance_compiles(graph: Graph):
+    pay_id = payments.record_payment(graph, "alice", "bob", 35.0, "USD")
+    assert pay_id is not None
 
-    cust_res = payments.create_customer(graph, aid, "sub@example.com")
-    assert cust_res["plan"] == "free"
-    assert cust_res["stripe_customer_id"] != ""
-
-    sub_res = payments.subscribe_plan(graph, aid, "pro")
-    assert sub_res["plan"] == "pro"
-    assert sub_res["subscription_status"] == "active"
-
-    status = payments.get_billing_status(graph, aid)
-    assert status["plan"] == "pro"
+    bals = payments.calculate_balances(graph)
+    assert bals["net_balances"]["alice"] == 35.0
+    assert bals["net_balances"]["bob"] == -35.0
 
 
-def test_gateway_billing_endpoints(cfg):
+def test_gateway_payments_endpoints(cfg):
     app = create_app(cfg)
     client = TestClient(app)
 
-    graph = app.state.graph
-    session = graph.session("test", {"*"})
-    aid = session.create_entity("person", {"name": "API Billing User"}, source="test")
+    payload = {
+        "payer_id": "alice",
+        "payee_id": "bob",
+        "amount": 20.0,
+        "currency": "USD"
+    }
+    resp_rec = client.post("/v1/ledger/payments", json=payload)
+    assert resp_rec.status_code == 200
 
-    resp_c = client.post("/v1/billing/customer", json={"account_id": aid, "email": "api@example.com"})
-    assert resp_c.status_code == 200
-
-    resp_s = client.post("/v1/billing/subscribe", json={"account_id": aid, "plan_id": "team"})
-    assert resp_s.status_code == 200
-    assert resp_s.json()["plan"] == "team"
-
-    resp_st = client.get(f"/v1/billing/status?account_id={aid}")
-    assert resp_st.status_code == 200
-    assert resp_st.json()["plan"] == "team"
+    resp_bal = client.get("/v1/ledger/payments/balances")
+    assert resp_bal.status_code == 200
+    assert resp_bal.json()["net_balances"]["alice"] == 20.0

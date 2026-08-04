@@ -471,6 +471,22 @@ class OutingRsvpIn(BaseModel):
     status: str
 
 
+class PaymentRecordIn(BaseModel):
+    payer_id: str
+    payee_id: str
+    amount: float
+    currency: str = "USD"
+
+
+class ConvoyUpdateIn(BaseModel):
+    user_id: str
+    latitude: float
+    longitude: float
+    eta: str
+    event_id: str
+
+
+
 
 
 
@@ -1498,5 +1514,35 @@ def build_router(auth) -> APIRouter:
     def find_topology_hubs_endpoint(request: Request):
         from substrate import topology
         return topology.find_topology_hubs(_graph(request))
+
+    @router.post("/ledger/payments")
+    def record_payment_endpoint(request: Request, body: PaymentRecordIn):
+        from modules.ledger import payments
+        return guard(lambda: payments.record_payment(_graph(request), body.payer_id, body.payee_id, body.amount, body.currency))
+
+    @router.get("/ledger/payments/balances")
+    def calculate_balances_endpoint(request: Request):
+        from modules.ledger import payments
+        return payments.calculate_balances(_graph(request))
+
+    @router.post("/graph/backup")
+    def export_backup_endpoint(request: Request):
+        from substrate import backup
+        return backup.export_backup(_graph(request))
+
+    @router.post("/graph/restore")
+    def import_restore_endpoint(request: Request, body: dict):
+        from substrate import backup
+        return backup.import_restore(_graph(request), body)
+
+    @router.post("/venues/convoy/update")
+    def update_location_endpoint(request: Request, body: ConvoyUpdateIn):
+        from modules.venues import convoy
+        return guard(lambda: convoy.update_location(_graph(request), body.user_id, body.latitude, body.longitude, body.eta, body.event_id))
+
+    @router.get("/venues/convoy/etas")
+    def get_convoy_etas_endpoint(request: Request, event_id: str):
+        from modules.venues import convoy
+        return convoy.get_convoy_etas(_graph(request), event_id)
 
     return router
