@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#14 are merged.** `python -m pytest` → **446 passing**.
+explicit permission). **PRs #1–#14 are merged; #15 (signing key) is open.** `python -m pytest` → **521 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -28,16 +28,12 @@ module needing an API key. **T2 reconciliation finally exists** (`modules/travel
 
 **Three things to know before trusting it:**
 
-1. **Test coverage is uneven.** 446 sounds like a lot; it is concentrated in the older core plus
-   `venues`/`routines`. `comms`, `dating`, `finance`, `health`, `telemetry`, `notifications` and
-   `calendar` have no test file. Cover `security` and `comms` first — they touch trust boundaries.
-2. **`modules/dating` does not work across accounts and must not be "fixed" casually.** Its
-   reciprocity check uses owner-scoped `find_entities`, so one account cannot see another's
-   `dating_intent` — verified with two real accounts, both get `is_mutual: False`. The failure is
-   **inert, not leaky**. It also shipped past all five of its ROADMAP Phase 3b kill-gates with zero
-   tests, and **age assurance is a legal precondition, not a feature**. Fixing the matching without
-   the gates converts a harmless bug into a live liability. Finish it properly or disable
-   `/v1/dating/*`.
+1. **Test coverage is uneven.** The count is concentrated in the older core plus
+   `venues`/`routines`. `finance`, `health`, `telemetry`, `notifications` and `calendar` still
+   have no test file. `security` and `dating` were the two worst and are now covered, which
+   leaves **`comms` as the one untested module touching a trust boundary — cover it next.**
+2. **`modules/dating` is now finished and gated** — it used to be broken across accounts and
+   ungated. See "Dating" below for the shape and the one thing left to do.
 3. **A signing key was published in the repo and is now fixed** — see below.
 
 ## Where we are
@@ -111,6 +107,32 @@ Don't-build list until there is a reason.
 original timestamps + idempotency keys; format `lifeos-travel-export/v1`, see `buildBundle()` in
 `travel.js`; test the double-import replay case). The owner deferred it until he's home, but it
 stops being NucBox-shaped once there's a server.
+
+## Dating — built, gated, off
+
+Three of the five Phase 3b kill-gates are now written; the two that code cannot satisfy are
+enforced by a kill switch rather than by discipline. `LIFEOS_DATING_ENABLED` defaults to off
+and every entry point calls `gate.require_surface()` first.
+
+- **Matching never reads anyone's data.** The old version asked `find_entities` for the other
+  party's `dating_intent`; that is owner-scoped, so it always returned nothing and every match
+  was `is_mutual: False`. Both obvious fixes are wrong — `find_public` publishes to the world by
+  design, and `get_if_granted` needs a grant that neither side can have *before* matching.
+  Instead each side publishes a **blinded rendezvous digest**, an HMAC of `(from, to, activity)`
+  under `LIFEOS_SIGNING_KEY`, and mutuality is "does the digest the other side would have
+  published exist?". You can only compute it for a pair you already name.
+- **The published rows are system-owned on purpose.** If they were owned by their authors, a
+  full scan of `find_public` would be a directory of everyone looking for a date. Owned by the
+  system account, a full scan is a count.
+- **Age is a self-declared 18+ that fails closed, and the ROADMAP's old claim that this needs a
+  third party was wrong** — see the correction in ROADMAP Phase 3b. `method` is recorded on every
+  declaration so a stricter provider drops in without a migration. The DOB is checked and
+  discarded; only `adult: true` is kept.
+- **Safety is account-to-account, not crew-scoped.** `crews.report` files against a `crew_id`;
+  a date has no crew, and the thing worth reporting usually happens after everyone has left it.
+  Filing a report blocks the pair immediately — the property has to hold on a day nobody
+  services the queue — and resolving the report does not lift the block.
+- **Left to do: G0 (this host) and G4 (≥2 people who asked).** Then set the flag. Nothing else.
 
 ## Gotchas — read these before touching anything
 

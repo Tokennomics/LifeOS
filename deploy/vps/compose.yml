@@ -44,6 +44,7 @@ services:
       - ANTHROPIC_API_KEY
       - LIFEOS_GATEWAY_TOKEN
       - LIFEOS_SIGNING_KEY
+      - LIFEOS_DATING_ENABLED
     volumes:
       - lifeos_data:/app/data
     healthcheck:

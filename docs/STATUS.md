@@ -11,7 +11,7 @@ scripts). The v0.2 PWA (`surfaces/app/www`, served by the gateway at `/app/`) ne
 reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone abroad with no
 server.
 
-**Tests:** `python -m pytest` → **446 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **521 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ### The Antigravity expansion (2026-07-29 → 08-04) — read this before believing the rest
@@ -39,27 +39,41 @@ integrity, GraphML export, a QA bot).
 
 **Where it is thin, stated plainly so the next session doesn't over-trust it:** the 446
 tests are concentrated in the older core and in `venues`/`routines`. `comms` (257 LOC),
-`dating`, `finance`, `health`, `telemetry`, `notifications` and `calendar` have **no test
-file of their own**. Two modules that touch a trust boundary — `security` and `comms` —
-are the ones worth covering first.
+`finance`, `health`, `telemetry`, `notifications` and `calendar` have **no test file of
+their own**. `security` and `dating` have since been covered (they were the two worst);
+**`comms` is now the one untested module that touches a trust boundary**, and is what to
+cover next.
 
 ### Known-broken, found by running it (2026-08-04)
 
-- **`modules/dating` mutual matching cannot work across accounts.** The reciprocity check
-  uses `find_entities`, which is owner-scoped by design, so one account structurally cannot
-  see another's `dating_intent`. Verified with two real accounts: both sides express
-  interest and both get `stored_privately`, `is_mutual: False`, and empty match lists. It
-  only "matches" when both intents sit in one owner's graph, which never happens in real
-  use. **The failure is inert, not leaky** — it matches nobody rather than exposing anybody,
-  so the docstring's privacy invariant holds only because nothing works. The fix is the
-  cross-account scheduling shape: a grant-based reach, not a scoped find.
-- **Dating also shipped past all five of its own kill-gates** (ROADMAP Phase 3b: hosting →
-  invariant proven → age assurance → post-meet safety → real users) with zero tests. Age
-  assurance is a legal precondition, not a feature. It is currently harmless *because* of
-  the bug above; it stops being harmless the moment that is fixed. Either finish it behind
-  the gates or disable `/v1/dating/*` — half-working is the worst of the three.
+Both entries that stood here — dating not working across accounts, and dating shipping past
+all five of its kill-gates — are **fixed below**. Nothing is currently known-broken. That is
+a statement about what has been *run*, not a claim of correctness: `comms` still has no test
+file and still touches a trust boundary.
 
 ### Fixed since (2026-08-04)
+
+- **Dating: matching rebuilt, and the kill-gates actually enforced.** The reciprocity check
+  used owner-scoped `find_entities`, so one account structurally could not see another's
+  `dating_intent` — two real accounts both got `is_mutual: False` forever. Neither obvious
+  fix works: `find_public` publishes to the world, which is the exact opposite of the
+  invariant, and `get_if_granted` needs a grant that neither side can hold *before* the
+  match. Now each side publishes a **blinded rendezvous digest** — an HMAC of
+  `(from, to, activity)` under `LIFEOS_SIGNING_KEY` — and mutuality is "does the digest the
+  other side would have published exist?", computable only for a pair you already name. The
+  rows are owned by the system account, so a full scan of them is a population count rather
+  than a directory of who is looking. **G1** (the invariant, one test per named attack
+  route), **G2** (18+, failing closed, DOB checked and discarded) and **G3** (block/report
+  that need no crew and outlive one) are written; **G0** (this host) and **G4** (≥2 people
+  who asked) are open and enforced by `LIFEOS_DATING_ENABLED`, which defaults to off.
+  The ROADMAP's claim that age assurance "needs a third party" was overstated and has been
+  corrected in place — the major services collect a DOB and enforce 18+; ID verification
+  appears where a jurisdiction compels it, not as the floor. 77 tests.
+  *Two defects came from the narrated HTTP simulation, not the green suite: each side was
+  shown the other's declaration date as `matched_at` (two different answers to one shared
+  question), and the public row carried a microsecond timestamp — a global "somebody
+  declared interest at 21:03:44.118" log that correlates against other public signals to
+  undo the blinding. Now the later of the two declarations, and a date.*
 
 - **The payload signing key was published in the repo.** `crypto_tokens.sign_payload` /
   `verify_payload` defaulted to `secret="lifeos_secret_key_2026"`, and the gateway called
