@@ -94,7 +94,16 @@ async function refresh() {
       state.crews = crews.crews;
     } else if (state.tab === "map") {
       const c = coords();
-      state.map = await api("/v1/capsules" + (c ? `?lat=${c.lat}&lon=${c.lon}` : ""));
+      let eventId = "outing_active";
+      if (state.today && state.today.events && state.today.events.length) {
+        eventId = state.today.events[0].id || eventId;
+      }
+      const [mapRes, convoyRes] = await Promise.all([
+        api("/v1/capsules" + (c ? `?lat=${c.lat}&lon=${c.lon}` : "")),
+        api(`/v1/venues/convoy/etas?event_id=${eventId}`).catch(() => [])
+      ]);
+      state.map = mapRes;
+      state.convoy = convoyRes;
     } else if (state.tab === "more") {
       const [convoy, decisions, spend, vitals, spaces, people] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
@@ -121,6 +130,13 @@ function render() {
   view.classList.toggle("enter", state.enter);
   state.enter = false;
   wire(view);
+
+  if (state.tab === "map") {
+    setTimeout(async () => {
+      await loadLeaflet();
+      initLeafletMap();
+    }, 50);
+  }
 }
 
 function todayView() {
@@ -274,7 +290,11 @@ function crewsView() {
 function mapView() {
   const c = coords();
   const m = state.map || { capsules: [], quests: [] };
-  let html = `<div class="card"><h2>Where you are</h2>
+  let html = `<div class="card">
+    <h2>Live World Map</h2>
+    <div id="map-canvas" style="height: 320px; border-radius: 12px; background: #1a1f2c; border: 1px solid #2a3547; z-index: 1;"></div>
+  </div>`;
+  html += `<div class="card"><h2>Where you are</h2>
     <div class="row2">
       <input class="field" id="lat" inputmode="decimal" placeholder="lat" value="${c ? c.lat : ""}">
       <input class="field" id="lon" inputmode="decimal" placeholder="lon" value="${c ? c.lon : ""}">
@@ -662,6 +682,69 @@ $("#set-save").addEventListener("click", () => {
 });
 $("#set-close").addEventListener("click", () => $("#settings").close());
 $("#set-export").addEventListener("click", () => window.open(apiBase() + "/v1/export", "_blank"));
+
+let leafletLoaded = false;
+async function loadLeaflet() {
+  if (leafletLoaded || window.L) return;
+  leafletLoaded = true;
+  return new Promise((resolve) => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => resolve();
+    document.head.appendChild(script);
+  });
+}
+
+function initLeafletMap() {
+  const container = document.getElementById("map-canvas");
+  if (!container) return;
+  
+  const c = coords() || { lat: 37.7749, lon: -122.4194 };
+  const map = L.map(container).setView([c.lat, c.lon], 13);
+  
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+    attribution: "&copy; OpenStreetMap &copy; CARTO"
+  }).addTo(map);
+
+  // You
+  L.circleMarker([c.lat, c.lon], {
+    color: "#2563eb",
+    fillColor: "#3b82f6",
+    fillOpacity: 0.9,
+    radius: 9
+  }).addTo(map).bindPopup("<b>You</b>").openPopup();
+
+  // Convoy Members
+  const convoy = state.convoy || [];
+  convoy.forEach((m) => {
+    if (m.latitude && m.longitude) {
+      L.circleMarker([m.latitude, m.longitude], {
+        color: "#dc2626",
+        fillColor: "#ef4444",
+        fillOpacity: 0.8,
+        radius: 7
+      }).addTo(map).bindPopup(`<b>Member: ${esc(m.user_id)}</b><br>ETA: ${esc(m.eta)}`);
+    }
+  });
+
+  // Capsules
+  const m = state.map || { capsules: [] };
+  (m.capsules || []).forEach((cap) => {
+    if (cap.lat && cap.lon) {
+      L.circleMarker([cap.lat, cap.lon], {
+        color: cap.locked ? "#7c3aed" : "#059669",
+        fillColor: cap.locked ? "#8b5cf6" : "#10b981",
+        fillOpacity: cap.locked ? 0.5 : 0.8,
+        radius: 6
+      }).addTo(map).bindPopup(`<b>${esc(cap.place || "Capsule")}</b><br>${cap.locked ? "🔒 Locked" : esc(cap.text)}`);
+    }
+  });
+}
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("sw.js").catch(() => {});

@@ -41,6 +41,7 @@ def nearby(graph: Graph, lat: float | None = None, lon: float | None = None,
     for capsule in session.find_entities("memory", {"type": "capsule"}, limit=200):
         a = capsule["attrs"]
         item = {"id": capsule["id"], "locked": a.get("locked", True),
+                "lat": a.get("lat", 0.0), "lon": a.get("lon", 0.0),
                 "dropped_at": a.get("dropped_at", ""), "radius_m": a.get("radius_m", DEFAULT_RADIUS_M)}
         place = session.neighbors(capsule["id"], rel="located_at", direction="out")
         item["place"] = place[0]["attrs"].get("name", "?") if place else "?"
