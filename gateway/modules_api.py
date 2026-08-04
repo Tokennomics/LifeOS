@@ -510,6 +510,12 @@ class MilestoneAwardIn(BaseModel):
     description: str = ""
 
 
+class HabitActivityRecIn(BaseModel):
+    latitude: float
+    longitude: float
+
+
+
 
 
 
@@ -1156,6 +1162,16 @@ def build_router(auth) -> APIRouter:
         from modules.venues import convoy
         return convoy.get_convoy_etas(_graph(request), event_id)
 
+    @router.get("/venues/interests-local")
+    def recommend_local_interests_endpoint(request: Request, lat: float, lon: float):
+        from modules.venues import interests
+        return interests.recommend_local_interests(_graph(request), lat, lon)
+
+    @router.get("/venues/rsvp-slots")
+    def optimize_group_slots_endpoint(request: Request, event_id: str):
+        from modules.venues import group_slots
+        return group_slots.optimize_group_slots(_graph(request), event_id)
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -1636,5 +1652,10 @@ def build_router(auth) -> APIRouter:
     def generate_audit_timeline_endpoint(request: Request):
         from substrate import audit
         return audit.generate_audit_timeline(_graph(request))
+
+    @router.post("/routines/activity-recommendation")
+    def recommend_vital_habit_endpoint(request: Request, body: HabitActivityRecIn):
+        from modules.routines import habits_rec
+        return habits_rec.recommend_vital_habit(_graph(request), body.latitude, body.longitude)
 
     return router
