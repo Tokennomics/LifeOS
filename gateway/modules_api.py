@@ -465,6 +465,13 @@ class OutingMatchIn(BaseModel):
     day: str
 
 
+class OutingRsvpIn(BaseModel):
+    event_id: str
+    user_id: str
+    status: str
+
+
+
 
 
 
@@ -1471,5 +1478,25 @@ def build_router(auth) -> APIRouter:
     def audit_graph_integrity_endpoint(request: Request):
         from substrate import integrity
         return integrity.audit_graph_integrity(_graph(request))
+
+    @router.post("/venues/rsvp")
+    def submit_rsvp_endpoint(request: Request, body: OutingRsvpIn):
+        from modules.venues import rsvp
+        return guard(lambda: rsvp.submit_rsvp(_graph(request), body.event_id, body.user_id, body.status))
+
+    @router.get("/venues/rsvp/list")
+    def list_rsvps_endpoint(request: Request, event_id: str):
+        from modules.venues import rsvp
+        return rsvp.list_rsvps(_graph(request), event_id)
+
+    @router.post("/routines/mindfulness-recommendation")
+    def generate_mindfulness_target_endpoint(request: Request):
+        from modules.routines import mindfulness
+        return mindfulness.generate_mindfulness_target(_graph(request))
+
+    @router.get("/graph/topology-hubs")
+    def find_topology_hubs_endpoint(request: Request):
+        from substrate import topology
+        return topology.find_topology_hubs(_graph(request))
 
     return router

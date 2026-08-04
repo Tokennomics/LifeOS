@@ -1,70 +1,52 @@
-"""Graph Network Topology Exporter.
+"""Substrate Graph Topology Hub Finder.
 
-Computes node degree distributions, centrality metrics, and exports standard JSON graph
-topology for visualization.
+Identifies the highest-connectivity node hubs in the network.
 """
 
+from collections import Counter
 from substrate.graph import Graph
 
 SCOPES = {"*"}
-MODULE = "topology"
+MODULE = "substrate"
 
 
-def export_graph_topology(graph: Graph) -> dict:
-    """Computes node degree centrality and returns JSON network topology."""
+def find_topology_hubs(graph: Graph) -> list[dict]:
+    """Ranks all graph entities by degree centrality (connection density)."""
     session = graph.session(MODULE, SCOPES)
     
-    kinds = ["admin_item", "content", "decision", "event", "goal", "interest", "memory", "metric", "person", "place", "task"]
-    entities = []
-    for k in kinds:
-        try:
-            entities.extend(session.find_entities(k, limit=1000))
-        except Exception:
-            pass
-    
-    nodes = []
-    node_degrees = {}
-    
-    # Pre-populate degree map
-    for entity in entities:
-        node_degrees[entity["id"]] = 0
-
-    # Build standard entities list
-    for entity in entities:
-        attrs = entity.get("attrs", {})
-        label = attrs.get("name") or attrs.get("title") or entity["kind"]
-        nodes.append({
-            "id": entity["id"],
-            "kind": entity["kind"],
-            "label": label,
-            "degree": 0
-        })
-
-    # Gather edges
-    links = []
-    # Query edges via raw connection since substrate doesn't have a simple list_edges
+    # Query database directly for edge source and destination distribution
     conn = session.graph.conn
     cur = conn.cursor()
-    cur.execute("SELECT id, src, dst, rel FROM edges")
+    cur.execute("SELECT src, dst FROM edges")
     edges = cur.fetchall()
 
-    for edge_id, src, dst, rel in edges:
-        if src in node_degrees and dst in node_degrees:
-            node_degrees[src] += 1
-            node_degrees[dst] += 1
-            links.append({
-                "id": edge_id,
-                "source": src,
-                "target": dst,
-                "type": rel,
-                "provenance": "substrate"
+    if not edges:
+        return []
+
+    node_counts = Counter()
+    for src, dst in edges:
+        node_counts[src] += 1
+        node_counts[dst] += 1
+
+    # Fetch entity information for name resolution
+    hubs = []
+    for node_id, count in node_counts.most_common(100):
+        # Resolve entity kind
+        cur.execute("SELECT kind, attrs FROM entities WHERE id = ?", (node_id,))
+        row = cur.fetchone()
+        if row:
+            kind, attrs_json = row
+            try:
+                import json
+                attrs = json.loads(attrs_json)
+            except Exception:
+                attrs = {}
+            name = attrs.get("name") or attrs.get("title") or attrs.get("body") or "Unnamed Node"
+            hubs.append({
+                "entity_id": node_id,
+                "kind": kind,
+                "name": name,
+                "connections_count": count
             })
 
-    # Map computed degrees back to nodes list
-    for node in nodes:
-        node["degree"] = node_degrees.get(node["id"], 0)
-
-    return {
-        "nodes": nodes,
-        "links": links
-    }
+    return hubs
