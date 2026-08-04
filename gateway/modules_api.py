@@ -1685,4 +1685,19 @@ def build_router(auth) -> APIRouter:
         from substrate import cleaner
         return cleaner.prune_graph_stale_records(_graph(request))
 
+    @router.get("/comms/gallery/collage")
+    def create_photo_collage_endpoint(request: Request, event_id: str):
+        from modules.comms import collage
+        return collage.create_photo_collage(_graph(request), event_id)
+
+    @router.get("/routines/cohort/leaderboard")
+    def get_cohort_leaderboard_endpoint(request: Request, routine_id: str):
+        from modules.routines import cohort
+        return cohort.get_cohort_leaderboard(_graph(request), routine_id)
+
+    @router.get("/graph/social-clusters")
+    def detect_social_cliques_endpoint(request: Request):
+        from substrate import clusters
+        return clusters.detect_social_cliques(_graph(request))
+
     return router
