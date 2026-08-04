@@ -460,6 +460,12 @@ class GraphQaIn(BaseModel):
     query_text: str
 
 
+class OutingMatchIn(BaseModel):
+    member_ids: list[str]
+    day: str
+
+
+
 
 
 
@@ -1450,5 +1456,20 @@ def build_router(auth) -> APIRouter:
     def query_graph_memories_endpoint(request: Request, body: GraphQaIn):
         from substrate import qa_bot
         return guard(lambda: qa_bot.query_graph_memories(_graph(request), body.query_text))
+
+    @router.post("/venues/match-outing")
+    def match_outing_slots_endpoint(request: Request, body: OutingMatchIn):
+        from modules.venues import matcher
+        return guard(lambda: matcher.match_outing_slots(_graph(request), body.member_ids, body.day))
+
+    @router.get("/vitals/energy-forecast")
+    def forecast_energy_battery_endpoint(request: Request):
+        from modules.vitals import energy_forecaster
+        return energy_forecaster.forecast_energy_battery(_graph(request))
+
+    @router.get("/graph/integrity")
+    def audit_graph_integrity_endpoint(request: Request):
+        from substrate import integrity
+        return integrity.audit_graph_integrity(_graph(request))
 
     return router
