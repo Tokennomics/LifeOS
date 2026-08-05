@@ -228,6 +228,19 @@ function todayView() {
     }
   }
 
+  /* ---- Guided Mindfulness & 2-Min Breathing Timer ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(16,185,129,0.12)); border:1px solid rgba(139,92,246,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🧘 2-Min Guided Mindfulness Reset</h2>
+      <span class="badge" style="color:var(--calm); border-color:var(--calm)40; font-weight:bold;">Wellness</span>
+    </div>
+    <p class="hint" style="margin-bottom:10px;">Breathe in sync with the pulse to reset cognitive load and boost focus.</p>
+    <div style="text-align:center; margin:12px 0;">
+      <div id="breath-circle" style="width:70px; height:70px; border-radius:50%; background:var(--calm); margin:0 auto; transition:transform 4s ease-in-out; opacity:0.8;"></div>
+    </div>
+    <button class="primary" data-act="mindfulness-start">Start 2-Min Breathing Session 🧘</button>
+  </div>`;
+
   /* ---- Diurnal Ritual Engine (Morning Intent / Evening Sunset) ---- */
   const hour = new Date().getHours();
   const isMorning = hour < 17;
@@ -1761,6 +1774,16 @@ function wire(root) {
     await navigator.clipboard.writeText(shareText).catch(() => {});
     toast("Plus-One Guest Pass link copied to clipboard! 🎟️ Send to a friend.");
   }));
+
+  on("[data-act=mindfulness-start]", () => act(async () => {
+    const circle = $("#breath-circle");
+    if (circle) {
+      circle.style.transform = "scale(1.8)";
+      setTimeout(() => { circle.style.transform = "scale(1.0)"; }, 4000);
+    }
+    await api("/v1/routines/mindfulness/session", { duration_minutes: 2, distraction_count: 0, note: "2-min breathing reset" });
+    await refresh();
+  }, "Mindfulness Session Logged 🧘 Reset Completed!"));
 
   /* ---- Weekend Share & Vault ---- */
 
