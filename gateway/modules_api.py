@@ -539,6 +539,10 @@ class ItineraryProposeIn(BaseModel):
     sequence_order: int
 
 
+class ExploreSaveIn(BaseModel):
+    place_info: dict
+
+
 
 
 
@@ -1307,6 +1311,17 @@ def build_router(auth) -> APIRouter:
     def get_itinerary_endpoint(request: Request, event_id: str):
         from modules.venues import group_itinerary
         return group_itinerary.get_itinerary(_graph(request), event_id)
+
+    @router.get("/venues/explore")
+    def venues_explore(request: Request, city: str, interests: str = ""):
+        from modules.venues import explore
+        wants = [i.strip() for i in interests.split(",") if i.strip()] or None
+        return guard(lambda: explore.explore_city_venues(_graph(request), city, wants, claude=_claude(request)))
+
+    @router.post("/venues/explore/save")
+    def venues_explore_save(request: Request, body: ExploreSaveIn):
+        from modules.venues import explore
+        return guard(lambda: explore.save_explored_place(_graph(request), body.place_info))
 
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
