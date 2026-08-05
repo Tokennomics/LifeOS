@@ -205,6 +205,32 @@ function todayView() {
       <button class="primary" data-act="vision">Create my plan</button></div>`;
   }
 
+  /* ---- Diurnal Ritual Engine (Morning Intent / Evening Sunset) ---- */
+  const hour = new Date().getHours();
+  const isMorning = hour < 17;
+  if (isMorning) {
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(249,115,22,0.12), rgba(234,179,8,0.12)); border:1px solid rgba(249,115,22,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>🌅 Morning Intent Ritual</h2>
+        <span class="badge good" style="font-weight:bold;">AM Flow</span>
+      </div>
+      <p class="hint" style="margin-bottom:8px;">Set your single primary focus for today to align your energy before checking tasks.</p>
+      <input class="field" id="morning-intent-text" placeholder="Today's single primary focus (e.g. Ship LifeOS V2)..." value="${esc(state.morningIntent || "")}">
+      <button class="primary" style="margin-top:6px;" data-act="save-morning-intent">Lock Morning Intent 🎯</button>
+    </div>`;
+  } else {
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(37,99,235,0.15)); border:1px solid rgba(139,92,246,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>🌆 Evening Reflection & Sunset Ritual</h2>
+        <span class="badge" style="color:var(--calm); border-color:var(--calm)40; font-weight:bold;">PM Sunset</span>
+      </div>
+      <p class="hint" style="margin-bottom:8px;">Wrap up today with clarity: log your wins, gratitude, and mood rating.</p>
+      <div class="row2"><input class="field" id="pm-win" placeholder="Today's main win...">
+      <input class="field" id="pm-gratitude" placeholder="1 thing you are grateful for..."></div>
+      <button class="primary" style="margin-top:6px;" data-act="save-evening-sunset">Log Evening Sunset & Complete Day 🌙</button>
+    </div>`;
+  }
+
   /* ---- Cognitive Load & Burnout Risk Meter ---- */
   if (state.energyBalance) {
     const eb = state.energyBalance;
@@ -1625,6 +1651,28 @@ function wire(root) {
       toast("Party Flyer generated! 🎨");
     }
   });
+
+  /* ---- Diurnal Ritual Engine Handlers ---- */
+
+  on("[data-act=save-morning-intent]", () => {
+    const val = $("#morning-intent-text") ? $("#morning-intent-text").value.trim() : "";
+    if (!val) return toast("Type your primary focus for today.");
+    state.morningIntent = val;
+    toast("Morning Intent Locked 🎯 Stay in flow.");
+    render();
+  });
+
+  on("[data-act=save-evening-sunset]", () => act(async () => {
+    const win = $("#pm-win") ? $("#pm-win").value.trim() : "";
+    const gratitude = $("#pm-gratitude") ? $("#pm-gratitude").value.trim() : "";
+    await api("/v1/journal/entries", {
+      wins: win ? [win] : ["Completed daily focus goals"],
+      gratitude: gratitude ? [gratitude] : ["Grateful for a productive day"],
+      reflection: "Evening Sunset Check-in completed.",
+      mood: 8
+    });
+    await refresh();
+  }, "Evening Sunset Logged 🌙 Day Completed!"));
 
   /* ---- Weekend Share & Vault ---- */
 
