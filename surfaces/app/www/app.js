@@ -138,7 +138,7 @@ async function refresh() {
       state.map = mapRes;
       state.convoy = convoyRes;
     } else if (state.tab === "more") {
-      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped] = await Promise.all([
+      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
         api("/v1/vitals"), api("/v1/spaces"), api("/v1/people"),
         api("/v1/triage/critical").catch(() => null),
@@ -147,9 +147,10 @@ async function refresh() {
         api("/v1/dating/matches").catch(() => ({ matches: [] })),
         api("/v1/miniapp/list").catch(() => []),
         api("/v1/trust/badge").catch(() => null),
-        api("/v1/wrapped/monthly").catch(() => null)
+        api("/v1/wrapped/monthly").catch(() => null),
+        api("/v1/telemetry/consent").catch(() => ({ enabled: false, share_interests: true, share_city_events: true }))
       ]);
-      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped };
+      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent };
       state.people = people.people;
     } else {
       const [graphRes, centralityRanks] = await Promise.all([
@@ -981,6 +982,26 @@ function moreView() {
     <p class="hint">100% Local-First. Your data belongs to you — export your entire life graph anytime in 1 click.</p>
   </div>`;
 
+  /* ---- Opt-in Shared Recommendation Intelligence ---- */
+  const cs = m.consent || { enabled: false, share_interests: true, share_city_events: true };
+  html += `<div class="card"><h2>Opt-In Recommendation Intelligence</h2>
+    <p class="hint" style="margin-bottom:10px;">Help LifeOS suggest better local events, crews, friend matches, and dates by sharing anonymized preferences.</p>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+      <input type="checkbox" id="cs-enabled" ${cs.enabled ? "checked" : ""}>
+      <label for="cs-enabled" style="font-size:14px; font-weight:600; color:var(--text);">Opt-in to Shared Recommendation Intelligence</label>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+      <input type="checkbox" id="cs-interests" ${cs.share_interests ? "checked" : ""}>
+      <label for="cs-interests" style="font-size:13px; color:var(--text);">Share anonymized interest tags (e.g. bouldering, sushi)</label>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+      <input type="checkbox" id="cs-events" ${cs.share_city_events ? "checked" : ""}>
+      <label for="cs-events" style="font-size:13px; color:var(--text);">Share activity preferences for better mutual date matching</label>
+    </div>
+    <button class="primary" data-act="consent-save">Save Privacy & Intelligence Settings</button>
+    <p class="hint" style="margin-top:8px;">Privacy Guarantee: Hashed via SHA-256 before leaving your device. Off by default.</p>
+  </div>`;
+
   return html;
 }
 
@@ -1603,6 +1624,14 @@ function wire(root) {
     window.open(apiBase() + "/v1/graph/export/graphml", "_blank");
     toast("Downloading GraphML XML…");
   });
+
+  on("[data-act=consent-save]", () => act(async () => {
+    const enabled = $("#cs-enabled").checked;
+    const share_interests = $("#cs-interests").checked;
+    const share_city_events = $("#cs-events").checked;
+    await api("/v1/telemetry/consent", { enabled, share_interests, share_city_events });
+    await refresh();
+  }, "Privacy & Intelligence Settings Saved ✔"));
 }
 
 function saveCoordsFromInputs() {

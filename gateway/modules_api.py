@@ -442,6 +442,12 @@ class MiniAppRegisterIn(BaseModel):
     icon: str = ""
 
 
+class TelemetryConsentIn(BaseModel):
+    enabled: bool = False
+    share_interests: bool = True
+    share_city_events: bool = True
+
+
 class SplitSettleIn(BaseModel):
     split_id: str
     settled_amount: float
@@ -1534,6 +1540,16 @@ def build_router(auth) -> APIRouter:
     def get_system_logs_endpoint(request: Request, level: str | None = None, limit: int = 100):
         from modules.telemetry import system_logger
         return system_logger.get_system_logs(_graph(request), level=level, limit=limit)
+
+    @router.get("/telemetry/consent")
+    def get_telemetry_consent_endpoint(request: Request):
+        from modules.telemetry import consent
+        return consent.get_consent(_graph(request))
+
+    @router.post("/telemetry/consent")
+    def set_telemetry_consent_endpoint(request: Request, body: TelemetryConsentIn):
+        from modules.telemetry import consent
+        return guard(lambda: consent.set_consent(_graph(request), body.enabled, body.share_interests, body.share_city_events))
 
     # ---- Security Hardening & Threat Defense -----------------------------
 
