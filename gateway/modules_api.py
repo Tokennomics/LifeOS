@@ -1732,6 +1732,17 @@ def build_router(auth) -> APIRouter:
         from modules.horizon import crew_goals
         return guard(lambda: crew_goals.create_crew_goal(_graph(request), body.crew_id, body.title, body.target_date))
 
+    @router.get("/crews/{crew_id}/guest-pass")
+    def create_guest_pass_endpoint(request: Request, crew_id: str):
+        from substrate import now_iso
+        link = f"https://lifeos.app/#join-crew?crew_id={crew_id}&token=plus_one_{crew_id}"
+        return {
+            "crew_id": crew_id,
+            "guest_pass_url": link,
+            "share_text": f"🎟️ You are invited as a Plus-One to our Crew Outing! 1-Tap RSVP: {link}",
+            "generated_at": now_iso()
+        }
+
     @router.post("/ledger/sync-queue")
     def enqueue_sync_item_endpoint(request: Request, body: LedgerSyncIn):
         from modules.ledger import sync_queue

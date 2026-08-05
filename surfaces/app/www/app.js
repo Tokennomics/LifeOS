@@ -698,6 +698,7 @@ function crewsView() {
         <button class="pill warm" data-crew-plan="${c.id}">Plan</button>
         <button class="pill calm" data-act="chat-crew" data-id="${c.id}" data-name="${esc(c.name)}">Chat</button>
         <button class="pill" data-act="crew-link" data-id="${c.id}">🔗 Invite</button>
+        <button class="pill good" data-act="crew-pass" data-id="${c.id}">🎟️ Plus-One Pass</button>
         <button class="pill" data-act="crew-ics" data-id="${c.id}">📅 .ics</button>
       </div></div>`).join("");
   }
@@ -1753,6 +1754,13 @@ function wire(root) {
     $("#imp-url").value = "";
     await refresh();
   }, "Event URL imported to discovery feed! 🎟️"));
+
+  on("[data-act=crew-pass]", (el) => act(async () => {
+    const res = await api(`/v1/crews/${el.dataset.id}/guest-pass`);
+    const shareText = res.share_text || "🎟️ Plus-One Pass to our Crew Outing!";
+    await navigator.clipboard.writeText(shareText).catch(() => {});
+    toast("Plus-One Guest Pass link copied to clipboard! 🎟️ Send to a friend.");
+  }));
 
   /* ---- Weekend Share & Vault ---- */
 
