@@ -1183,6 +1183,12 @@ function moreView() {
         <span class="badge good" style="font-size:11px;">Active</span>
       </div></div>
     `).join("")}
+
+    <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
+      <a href="/docs" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📚 Interactive OpenAPI Docs (/docs)</a>
+      <a href="/redoc" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📘 ReDoc API Spec (/redoc)</a>
+      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (`sdk/lifeos.py`)</span>
+    </div>
   </div>`;
 
   return html;
