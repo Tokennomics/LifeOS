@@ -250,9 +250,17 @@ filter applied *before* scoring), held one notch stricter.
 
 **Three obligations that are not choices:**
 
-1. **Age assurance.** Legally required for a dating service and not satisfiable by a checkbox.
-   A real dependency, not a nice-to-have — and it needs a third party, which means it is the
-   first LifeOS feature that cannot be "works with no API key."
+1. **Age assurance — corrected 2026-08-04, the original claim here was wrong.** This said age
+   assurance "needs a third party, which means it is the first LifeOS feature that cannot be
+   'works with no API key'". That overstated the baseline and, on its own, blocked the whole
+   module. The major services do not run government-ID checks on ordinary signup: they collect
+   a date of birth, enforce a hard 18+ minimum, and lean on the app-store age rating.
+   Third-party ID verification shows up where a *specific jurisdiction* compels it — the UK
+   Online Safety Act being the live example — not as the industry floor.
+   So the floor here is a hard 18+ declaration that **fails closed**, with `method` recorded on
+   every declaration so a stricter provider slots in later without a migration. `method` is the
+   seam. What is stored is the derived fact, not the date of birth: checking an age needs a DOB,
+   keeping one does not.
 2. **Special-category personal data (GDPR Art. 9).** Orientation and relationship intent are not
    ordinary attributes. Different legal basis, different retention, different breach consequences,
    and the owner is EU-based. The standing rule "no secrets in the repo, ever" acquires a sibling:
@@ -267,17 +275,27 @@ reachable box with TLS and backups; a directory of real people looking for dates
 thing to run on a URL that can't be reached from a phone. It is also the first feature where
 shipping it badly harms *users* rather than the owner.
 
-**Kill-gates, in order — each must pass before the next is written:**
-- **G0 — hosting.** TLS, backups, a reachable host. Nothing starts before this.
-- **G1 — the invariant, proven.** A mutual-match gate with a test suite that proves a non-match
-  cannot see dating availability: not by listing, not by id, not by feed, not by asking for
-  `visibility=public`, not via a forged grant. Same standard the isolation work was held to —
-  simulated with real accounts, not just unit-tested.
-- **G2 — age assurance integrated** and failing closed (no assurance ⇒ no dating surface at all).
-- **G3 — post-meet safety.** Report/block that works outside a crew, with a moderation queue that
-  a solo operator can actually service. If it cannot be serviced, do not ship the feature.
-- **G4 — real users.** ≥2 people who actually asked for it, per the Phase 3 gate. Building a
-  dating product for a user base of one is the single most expensive way to learn nothing.
+**Kill-gates, in order — each must pass before the next is written.** Status as of 2026-08-04:
+the module was built out of order (it shipped with zero tests, past all five), so G1–G3 have now
+been written and G0/G4 are enforced by a kill switch instead of by discipline.
+
+- **G0 — hosting. ✗ OPEN.** TLS, backups, a reachable host. Not code — the box has to exist.
+- **G1 — the invariant, proven. ✓** `tests/test_dating_privacy.py`, one test per named route:
+  not by listing, not by id, not by feed, not by asking for `visibility=public`, not via a
+  forged grant. Three real accounts, plus a narrated end-to-end simulation over HTTP — which is
+  what caught the two defects the green unit suite did not.
+- **G2 — age assurance, failing closed. ✓** 18+ declaration, `method` recorded for a stricter
+  provider later, DOB checked and discarded. See the correction above.
+- **G3 — post-meet safety. ✓** `modules/dating/safety.py`: account-to-account block and report
+  that need no crew and outlive one. Filing a report blocks immediately, so the reporter is
+  protected on a day nobody services the queue; resolving a report does not lift the block.
+- **G4 — real users. ✗ OPEN.** ≥2 people who actually asked for it, per the Phase 3 gate.
+  Building a dating product for a user base of one is the most expensive way to learn nothing.
+
+**The two open gates are enforced, not just documented.** `LIFEOS_DATING_ENABLED` defaults to
+off and every entry point calls `gate.require_surface()` first; an unset `LIFEOS_SIGNING_KEY`
+also takes the surface down, because matching is blinded with it and "no key" is not a weaker
+mode. Turning the flag on is a deliberate operator act, taken once G0 and G4 are both true.
 
 **Explicitly out of scope even after all gates pass:** location sharing finer than city level;
 "who's nearby right now"; any auto-introduction the humans didn't both ratify; storing dating

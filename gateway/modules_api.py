@@ -275,6 +275,24 @@ class DatingInterestIn(BaseModel):
     activity_id: str
 
 
+class DatingAgeIn(BaseModel):
+    date_of_birth: str
+
+
+class DatingBlockIn(BaseModel):
+    subject_account_id: str
+
+
+class DatingReportIn(BaseModel):
+    subject_account_id: str
+    reason: str
+    context: str = ""
+
+
+class DatingResolveIn(BaseModel):
+    action: str = "actioned"
+
+
 class ManifestValidateIn(BaseModel):
     manifest: dict
 
@@ -1075,17 +1093,96 @@ def build_router(auth) -> APIRouter:
         return outbox.process_outbox(_graph(request))
 
     # ---- Mutual-Consent Activity Dating ----------------------------------
+    #
+    # Every route below goes through `dating_guard`, which turns the two gate failures
+    # into the honest status codes: the surface being off is 503 (the server cannot
+    # serve this), not being 18+ is 403 (you may not). Both fail closed.
+    #
+    # `_dating_id` matters more than it looks. `request.state.caller` is a dict, so the
+    # previous `account_id=caller` passed a dict where an id was expected, while
+    # `express_interest` defaulted to `graph.default_owner` — the two sides of a match
+    # were keyed on different things and could never meet. Dating identity is the
+    # ACCOUNT id, the same one crews use, because that is what one user knows about
+    # another.
+
+    def dating_guard(fn):
+        from modules.dating import gate as dating_gate
+        try:
+            return fn()
+        except dating_gate.DatingUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        except dating_gate.AgeGateError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    def _dating_id(request: Request) -> str | None:
+        caller = getattr(request.state, "caller", None)
+        if caller and caller.get("account_id"):
+            return caller["account_id"]
+        return None
+
+    @router.get("/dating/availability")
+    def dating_availability():
+        """Why the surface is or isn't up. Configuration only — never mentions a person."""
+        from modules.dating import gate as dating_gate
+        return dating_gate.availability()
+
+    @router.post("/dating/age")
+    def dating_declare_age(request: Request, body: DatingAgeIn):
+        from modules.dating import gate as dating_gate
+        return dating_guard(lambda: dating_gate.declare_age(
+            _graph(request), _dating_id(request) or "", body.date_of_birth))
 
     @router.post("/dating/interest")
     def dating_interest(request: Request, body: DatingInterestIn):
         from modules.dating import mutual_match
-        return guard(lambda: mutual_match.express_interest(_graph(request), body.target_account_id, body.activity_id))
+        return dating_guard(lambda: mutual_match.express_interest(
+            _graph(request), body.target_account_id, body.activity_id,
+            account_id=_dating_id(request)))
+
+    @router.post("/dating/withdraw")
+    def dating_withdraw(request: Request, body: DatingInterestIn):
+        from modules.dating import mutual_match
+        return dating_guard(lambda: mutual_match.withdraw_interest(
+            _graph(request), body.target_account_id, body.activity_id,
+            account_id=_dating_id(request)))
 
     @router.get("/dating/matches")
     def dating_matches(request: Request):
         from modules.dating import mutual_match
-        caller = getattr(request.state, "caller", None)
-        return {"matches": mutual_match.check_matches(_graph(request), account_id=caller)}
+        return dating_guard(lambda: {"matches": mutual_match.check_matches(
+            _graph(request), account_id=_dating_id(request))})
+
+    @router.post("/dating/block")
+    def dating_block(request: Request, body: DatingBlockIn):
+        from modules.dating import safety as dating_safety
+        return dating_guard(lambda: dating_safety.block(
+            _graph(request), body.subject_account_id, account_id=_dating_id(request)))
+
+    @router.post("/dating/unblock")
+    def dating_unblock(request: Request, body: DatingBlockIn):
+        from modules.dating import safety as dating_safety
+        return dating_guard(lambda: dating_safety.unblock(
+            _graph(request), body.subject_account_id, account_id=_dating_id(request)))
+
+    @router.post("/dating/report")
+    def dating_report(request: Request, body: DatingReportIn):
+        from modules.dating import safety as dating_safety
+        return dating_guard(lambda: dating_safety.report(
+            _graph(request), body.subject_account_id, body.reason,
+            account_id=_dating_id(request), context=body.context))
+
+    @router.get("/dating/reports")
+    def dating_reports(request: Request):
+        from modules.dating import safety as dating_safety
+        return {"reports": dating_safety.open_reports(_graph(request))}
+
+    @router.post("/dating/reports/{report_id}/resolve")
+    def dating_resolve_report(request: Request, report_id: str, body: DatingResolveIn):
+        from modules.dating import safety as dating_safety
+        return dating_guard(lambda: dating_safety.resolve_report(
+            _graph(request), report_id, body.action))
 
     # ---- Platform Manifest Validation ------------------------------------
 
@@ -1093,6 +1190,28 @@ def build_router(auth) -> APIRouter:
     def platform_validate(request: Request, body: ManifestValidateIn):
         from modules.platform import manifest
         return guard(lambda: manifest.validate_manifest(body.manifest))
+
+    # ---- Weekend digest --------------------------------------------------
+
+    @router.get("/weekend")
+    def weekend_digest(request: Request, city: str = "", offset: int = 0,
+                       tz_offset_minutes: int = 0):
+        """What's on this weekend: your own plans plus what's open, bucketed by day."""
+        from modules.weekend import digest
+        return guard(lambda: digest.weekend(
+            _graph(request), city=city, offset=offset,
+            tz_offset_minutes=tz_offset_minutes))
+
+    @router.get("/weekend/share")
+    def weekend_share(request: Request, city: str = "", offset: int = 0,
+                      tz_offset_minutes: int = 0, include_yours: bool = False):
+        """The same weekend as plain text to send someone. Your own plans are left OUT
+        unless `include_yours=true` — a summary of what's on has no business carrying
+        your dentist appointment to a friend."""
+        from modules.weekend import digest
+        return guard(lambda: digest.shareable(
+            _graph(request), city=city, offset=offset, include_yours=include_yours,
+            tz_offset_minutes=tz_offset_minutes))
 
     # ---- Growth & Crew Activation ----------------------------------------
 
@@ -1384,9 +1503,14 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/security/verify-token")
     def verify_token_endpoint(body: TokenVerifyIn):
+        """Verify a signed payload. 503 when no signing key is configured — an unverifiable
+        request must never come back as `valid: false`, which reads as "checked and rejected"
+        when the truth is "cannot check at all"."""
         from modules.security import crypto_tokens
-        valid = crypto_tokens.verify_payload(body.data, body.signature)
-        return {"valid": valid}
+        try:
+            return {"valid": crypto_tokens.verify_payload(body.data, body.signature)}
+        except crypto_tokens.SigningKeyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
 
     # ---- 8-Core Ecosystem Expansion -------------------------------------
 

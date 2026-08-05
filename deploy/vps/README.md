@@ -9,6 +9,42 @@ DNS at it. Everything after that is `docker compose up`.
 
 ## 0. What you need first
 
+### Which box — the recommendation, and why
+
+**A single small VM at Hetzner, in an EU region (CX22, or the ARM CAX11 if you want it
+cheaper). Roughly €4/month.** Add a domain at about €10/year and that is the entire hosting
+bill. Prices drift — treat the figures as the shape of the answer, not a quote.
+
+Three reasons that specific answer:
+
+- **It is the cheapest thing that is still a real computer.** This stack is one Python
+  process and a SQLite file. It does not need a cluster, a managed database, or a
+  container platform. DigitalOcean and Vultr want roughly $6/month for *less* machine.
+- **EU region removes a question rather than answering it.** Dating intent is GDPR Art. 9
+  special-category data and the owner is EU-based. Keeping the box in the EEA means there
+  is no international-transfer analysis to do at all. That is worth more than a euro.
+- **The scaling path is vertical, and it is long.** Resize the same VM in place — Hetzner
+  does this without a rebuild. One box with SQLite in WAL mode will carry far more than the
+  first hundred users for this workload, because the traffic is a handful of writes per
+  person per day, not a firehose.
+
+**What not to pick, with the reason:**
+
+- **Fly.io / Render / Railway.** Genuinely nice, but their filesystems are ephemeral or
+  network-attached by default and SQLite hates both. You would be fighting the platform to
+  keep the one file that holds everything.
+- **Managed Postgres, Kubernetes, autoscaling anything.** Costs more than the app earns and
+  solves a problem that has not happened. `substrate/graph.py` already parameterises the
+  dialect (`g.ph`, `g.dialect`, `json_extract` vs `->>`), so the Postgres port stays cheap
+  to do *later* — **measure first**. It is on the Don't-build list until there is a reason.
+- **A free tier.** Free tiers sleep, and a sleeping box fails ACME renewal.
+
+**When to grow, in order:** resize the VM → move backups off-box (a Hetzner Storage Box or
+B2 bucket, a few euros) → *then* Postgres, once you have measured that SQLite write
+contention is actually the constraint. Do not skip ahead.
+
+### The rest
+
 - A VPS (1 vCPU / 1 GB is enough to start — this is SQLite and a Python process).
 - A domain, with an **A record** (and AAAA if the box has IPv6) pointing at its IP.
   Do this *before* the first start: Caddy asks Let's Encrypt for a certificate on boot and
@@ -43,11 +79,23 @@ mkdir -p backups && sudo chown 10001:10001 backups   # the container's non-root 
 `.env` is gitignored and must stay that way. **No secrets in the repo, ever** — the compose
 file only ever names variables, never values.
 
-Generate the gateway token with something you didn't invent yourself:
+Generate the gateway token **and the signing key** — two different values, neither invented
+by hand:
 
 ```sh
-python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"   # LIFEOS_GATEWAY_TOKEN
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"   # LIFEOS_SIGNING_KEY
 ```
+
+`LIFEOS_SIGNING_KEY` has **no default on purpose**. `/v1/security/verify-token` returns 503
+rather than `valid: false` when it is missing, because "cannot check" and "checked and
+rejected" are different facts and collapsing them is how a broken deployment looks healthy.
+
+**Leave `LIFEOS_DATING_ENABLED` empty for now.** It gates ROADMAP Phase 3b, and the two
+kill-gates it stands in for are things only you can confirm: **G0**, this box actually
+running with TLS and verified backups, and **G4**, at least two people who have asked for
+the feature. Setting it to `1` asserts both. Everything else about that surface fails closed
+on its own — no signing key above means no dating either, since matching is blinded with it.
 
 ## 3. Start
 
