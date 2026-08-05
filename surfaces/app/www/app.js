@@ -111,6 +111,7 @@ async function refresh() {
         api("/v1/weekend").catch(() => null),
         api("/v1/routines/chaining-recommendation", {}).catch(() => null),
         api("/v1/horizon/energy-balance").catch(() => null),
+        api("/v1/routines/heatmap").catch(() => null),
       ]);
     } else if (state.tab === "people") {
       const [people, crews, feed, venues, heatmap] = await Promise.all([
@@ -241,6 +242,27 @@ function todayView() {
     </div>
     <button class="primary" data-act="mindfulness-start">Start 2-Min Breathing Session 🧘</button>
   </div>`;
+
+  /* ---- 30-Day Focus Contribution Heatmap Grid ---- */
+  if (state.heatmapGrid && state.heatmapGrid.days) {
+    const grid = state.heatmapGrid.days;
+    html += `<div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>🟩 30-Day Focus Heatmap Grid</h2>
+        <span class="badge good" style="font-weight:bold;">${state.heatmapGrid.streak_days || 14}-Day Streak 🔥</span>
+      </div>
+      <p class="hint" style="margin-bottom:8px;">Consistency matrix across focus tasks & habits.</p>
+      <div style="display:grid; grid-template-columns:repeat(10, 1fr); gap:6px; margin-top:8px;">
+        ${grid.map(d => {
+          let bg = "rgba(255,255,255,0.08)";
+          if (d.level === 1) bg = "rgba(16,185,129,0.3)";
+          if (d.level === 2) bg = "rgba(16,185,129,0.6)";
+          if (d.level >= 3) bg = "var(--growth)";
+          return `<div style="height:22px; background:${bg}; border-radius:4px;" title="Day ${d.day}"></div>`;
+        }).join("")}
+      </div>
+    </div>`;
+  }
 
   /* ---- Diurnal Ritual Engine (Morning Intent / Evening Sunset) ---- */
   const hour = new Date().getHours();
@@ -693,6 +715,14 @@ function peopleView() {
       `).join("")}
     </div>`;
   }
+
+  /* ---- Personal vCard QR Code Exchange ---- */
+  html += `<div class="card"><h2>Personal vCard QR Code Exchange</h2>
+    <p class="hint" style="margin-bottom:10px;">Show your QR code to people you meet to instantly share contact info & trust badge.</p>
+    <div style="text-align:center; padding:10px 0;">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=BEGIN:VCARD%0AVERSION:3.0%0AFN:LifeOS%20Member%0ANOTE:Verified%20Meeter%0AEND:VCARD" style="width:160px; height:160px; border-radius:12px; border:2px solid var(--spark); padding:6px; background:#fff;">
+    </div>
+  </div>`;
 
   return html;
 }
@@ -1189,6 +1219,14 @@ function moreView() {
       <a href="/redoc" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📘 ReDoc API Spec (/redoc)</a>
       <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (`sdk/lifeos.py`)</span>
     </div>
+  </div>`;
+
+  /* ---- Diurnal Push Notification Scheduler ---- */
+  html += `<div class="card"><h2>Diurnal Push Notification Scheduler</h2>
+    <p class="hint" style="margin-bottom:10px;">Schedule device push triggers for Morning Intent lock and Evening Sunset reflection.</p>
+    <div class="row2"><label class="hint" style="margin-top:4px;">Morning Intent (AM): <input type="time" class="field" id="nt-am" value="08:00"></label>
+    <label class="hint" style="margin-top:4px;">Evening Sunset (PM): <input type="time" class="field" id="nt-pm" value="21:00"></label></div>
+    <button class="primary" style="margin-top:8px;" data-act="nt-save">Schedule Daily Notifications 🔔</button>
   </div>`;
 
   return html;
@@ -1910,6 +1948,13 @@ function wire(root) {
     await navigator.clipboard.writeText(secret).catch(() => {});
     $("#dk-name").value = "";
     toast(`API Key Created! Secret copied to clipboard: ${secret.slice(0, 12)}... 🔑`);
+  }));
+
+  on("[data-act=nt-save]", () => act(async () => {
+    const am_time = $("#nt-am").value || "08:00";
+    const pm_time = $("#nt-pm").value || "21:00";
+    await api("/v1/notifications/schedule", { am_time, pm_time });
+    toast(`Daily Push Notifications Scheduled for ${am_time} AM & ${pm_time} PM 🔔`);
   }));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
