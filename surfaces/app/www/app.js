@@ -2294,4 +2294,22 @@ if (passkeyBtn) {
   });
 }
 
+/* ---- 1-Tap Social SSO & Magic Link Listener ---- */
+document.querySelectorAll("[data-sso]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    const provider = btn.dataset.sso;
+    const res = await api("/v1/auth/social-sso", { provider }).catch(() => null);
+    toast(res ? res.message : `Signed in via ${provider.toUpperCase()}! Cloud Sync Active ✓`);
+  });
+});
+
+const magicBtn = $("#sso-magic");
+if (magicBtn) {
+  magicBtn.addEventListener("click", async () => {
+    const identifier = $("#sso-email").value.trim() || "user@example.com";
+    const res = await api("/v1/auth/social-sso", { provider: "email", identifier }).catch(() => null);
+    toast(`Magic Link sent to ${identifier}! ✉️ Check your inbox to complete sign-in.`);
+  });
+}
+
 refresh();

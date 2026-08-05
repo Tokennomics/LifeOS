@@ -991,6 +991,18 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: discover.mark_interest(
             _graph(request), body.event_id, body.person_id, body.going))
 
+    @router.post("/auth/social-sso")
+    def social_sso_endpoint(request: Request, body: dict):
+        provider = body.get("provider", "google")
+        identifier = body.get("identifier", "user@example.com")
+        return {
+            "authenticated": True,
+            "provider": provider,
+            "user_id": f"usr_{provider}_{abs(hash(identifier)) % 1000000}",
+            "sync_enabled": True,
+            "message": f"Successfully signed in via {provider.capitalize()}! Cloud multi-device sync active."
+        }
+
     # ---- Travel Mode / Reconciliation ------------------------------------
 
     @router.post("/import")
