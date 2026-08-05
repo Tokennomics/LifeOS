@@ -85,8 +85,11 @@ async function refresh() {
   $("#mode-badge").className = "badge" + (state.health.claude ? " ai" : "");
   try {
     if (state.tab === "today") {
-      [state.today, state.visions, state.admin] = await Promise.all([
-        api("/v1/today"), api("/v1/vision").then((r) => r.visions), api("/v1/admin").then((r) => r.items),
+      [state.today, state.visions, state.admin, state.journal] = await Promise.all([
+        api("/v1/today"),
+        api("/v1/vision").then((r) => r.visions),
+        api("/v1/admin").then((r) => r.items),
+        api("/v1/journal/entries?limit=5").catch(() => []),
       ]);
     } else if (state.tab === "people") {
       const [people, crews] = await Promise.all([api("/v1/people"), api("/v1/crews")]);
@@ -185,6 +188,56 @@ function todayView() {
               <span class="v">${d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></div>`;
     }).join("") + `</div>`;
   }
+  
+  // Journal Card
+  html += `<div class="card"><h2>Reflection Journal</h2>
+    <div class="journal-form" style="margin-bottom: 12px;">
+      <label class="hint" style="display:block; margin-top:8px;">Daily Wins (one per line)</label>
+      <textarea id="jr-wins" placeholder="- Shipped ACL security fixes&#10;- Ran 5km" style="min-height: 60px; margin-top:4px;"></textarea>
+      
+      <label class="hint" style="display:block; margin-top:8px;">Gratitude (one per line)</label>
+      <textarea id="jr-gratitude" placeholder="- Great coffee this morning&#10;- Sunshine" style="min-height: 60px; margin-top:4px;"></textarea>
+      
+      <label class="hint" style="display:block; margin-top:8px;">Reflection & Notes</label>
+      <textarea id="jr-reflection" placeholder="How did today feel? Lessons learned..." style="min-height: 80px; margin-top:4px;"></textarea>
+      
+      <label class="hint" style="display:block; margin-top:8px; margin-bottom: 4px;">Mood Rating: <span id="jr-mood-val" style="font-weight:bold; color:var(--spark);">7</span> <span id="jr-mood-emoji">😊</span></label>
+      <input type="range" id="jr-mood" min="1" max="10" value="7" style="width:100%; accent-color:var(--spark);" oninput="document.getElementById('jr-mood-val').innerText=this.value; const emojis=['😢','😭','🙁','😐','🙂','😊','😀','😁','😆','😎']; document.getElementById('jr-mood-emoji').innerText=emojis[this.value-1] || '😊';">
+      
+      <button class="primary" data-act="jr-submit" style="margin-top:12px;">Log Daily Reflection</button>
+    </div>`;
+
+  if (state.journal && state.journal.length) {
+    html += `<h3 style="font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:1px; color:var(--muted); margin: 16px 0 8px;">Recent Reflections</h3>`;
+    html += state.journal.map((entry) => {
+      const dt = new Date(entry.timestamp);
+      const formattedDate = dt.toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      const moodVal = entry.mood_rating;
+      let moodColor = "var(--warn)";
+      if (moodVal >= 8) moodColor = "var(--growth)";
+      else if (moodVal >= 5) moodColor = "var(--spark)";
+      
+      let entryHtml = `
+        <div style="border-top: 1px solid var(--line-soft); padding: 12px 0;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <span style="font-size:13px; color:var(--muted);">${esc(formattedDate)}</span>
+            <span class="badge" style="color:${moodColor}; border-color:${moodColor}40;">Mood: ${moodVal}/10</span>
+          </div>
+      `;
+      if (entry.wins && entry.wins.length) {
+        entryHtml += `<div style="font-size:14px; margin-bottom:4px;"><strong style="color:var(--growth);">Wins:</strong> ${entry.wins.map(w => esc(w)).join(", ")}</div>`;
+      }
+      if (entry.gratitude && entry.gratitude.length) {
+        entryHtml += `<div style="font-size:14px; margin-bottom:4px;"><strong style="color:var(--calm);">Gratitude:</strong> ${entry.gratitude.map(g => esc(g)).join(", ")}</div>`;
+      }
+      if (entry.reflection) {
+        entryHtml += `<div style="font-size:14px; color:var(--text); font-style:italic; margin-top:4px; line-height:1.4;">"${esc(entry.reflection)}"</div>`;
+      }
+      entryHtml += `</div>`;
+      return entryHtml;
+    }).join("");
+  }
+  html += `</div>`;
   return html;
 }
 
@@ -463,6 +516,27 @@ function wire(root) {
     render();
     toast(result.tasks + result.interests + result.people > 0 ? "Captured + extracted ✔" : "Captured ✔");
   }));
+
+  on("[data-act=jr-submit]", () => act(async () => {
+    const wins = $("#jr-wins").value.split("\n").map(w => w.trim()).filter(Boolean);
+    const gratitude = $("#jr-gratitude").value.split("\n").map(g => g.trim()).filter(Boolean);
+    const reflection = $("#jr-reflection").value.trim();
+    const mood_rating = Number($("#jr-mood").value);
+    
+    await api("/v1/journal/entries", {
+      wins,
+      gratitude,
+      reflection,
+      mood_rating
+    });
+    
+    $("#jr-wins").value = "";
+    $("#jr-gratitude").value = "";
+    $("#jr-reflection").value = "";
+    $("#jr-mood").value = "7";
+    
+    await refresh();
+  }, "Reflection logged ✔"));
 
   on("[data-act=add-person]", () => act(async () => {
     const name = $("#person-name").value.trim();
