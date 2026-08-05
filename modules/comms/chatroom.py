@@ -25,6 +25,14 @@ def _is_event_visible(graph: Graph, event_id: str, caller_id: str | None) -> boo
         return True
     if attrs.get("visibility") == "public":
         return True
+    if attrs.get("type") == "crew":
+        from modules.crews import crews
+        try:
+            m_list = crews.members(graph, event_id, caller_id)
+            if caller_id in m_list:
+                return True
+        except Exception:
+            pass
     crew_id = attrs.get("crew_id")
     if crew_id:
         from modules.crews import crews

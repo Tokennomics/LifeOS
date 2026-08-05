@@ -67,6 +67,19 @@ function coords() {
 
 /* ---------- data ---------- */
 
+async function refreshChatMessages() {
+  if (!state.activeChat) return;
+  try {
+    if (state.activeChat.type === "crew") {
+      state.chatMessages = await api("/v1/comms/chatroom/list?event_id=" + state.activeChat.id);
+    } else {
+      state.chatMessages = await api("/v1/comms/messages?recipient_id=" + state.activeChat.id);
+    }
+  } catch (e) {
+    toast("⚠ " + e.message);
+  }
+}
+
 async function refresh() {
   try {
     state.health = await api("/health");
@@ -84,6 +97,9 @@ async function refresh() {
   $("#mode-badge").textContent = state.health.claude ? "AI" : "Local";
   $("#mode-badge").className = "badge" + (state.health.claude ? " ai" : "");
   try {
+    if (!state.me && localStorage.getItem("lifeos.token")) {
+      state.me = await api("/v1/auth/me").catch(() => null);
+    }
     if (state.tab === "today") {
       [state.today, state.visions, state.admin, state.journal] = await Promise.all([
         api("/v1/today"),
@@ -95,6 +111,9 @@ async function refresh() {
       const [people, crews] = await Promise.all([api("/v1/people"), api("/v1/crews")]);
       state.people = people.people;
       state.crews = crews.crews;
+      if (state.activeChat) {
+        await refreshChatMessages();
+      }
     } else if (state.tab === "map") {
       const c = coords();
       let eventId = "outing_active";
@@ -133,6 +152,13 @@ function render() {
   view.classList.toggle("enter", state.enter);
   state.enter = false;
   wire(view);
+
+  if (state.tab === "people" && state.activeChat) {
+    const el = $("#chat-messages");
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }
 
   if (state.tab === "map") {
     setTimeout(async () => {
@@ -252,7 +278,92 @@ function captureView() {
     </div>`;
 }
 
+function chatView() {
+  const c = state.activeChat;
+  let html = `
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid var(--line-soft); padding-bottom:10px;">
+        <button class="pill" style="width:auto; padding:6px 12px; margin:0;" data-act="chat-back">← Back</button>
+        <span style="font-size:16px; font-weight:700; color:var(--text);">${esc(c.name)}</span>
+        <span class="badge" style="color:var(--spark); border-color:var(--spark)40;">${esc(c.type === "crew" ? "Crew" : "Direct")}</span>
+      </div>
+  `;
+  
+  if (c.type === "crew") {
+    const crew = state.crews.find(cr => cr.id === c.id);
+    if (crew && crew.members && crew.members.length) {
+      html += `
+        <div style="margin-bottom:12px; display:flex; align-items:center; gap:8px;">
+          <span class="hint">Direct message member:</span>
+          <select class="field" id="chat-member-select" style="margin-top:0; min-height:36px; padding:6px; flex:1;">
+            <option value="">-- Choose member --</option>
+            ${crew.members.map(m => `<option value="${esc(m.id)}">${esc(m.name)}</option>`).join("")}
+          </select>
+          <button class="pill calm" style="margin:0; padding:6px 12px;" data-act="chat-member-go">Go</button>
+        </div>
+      `;
+    }
+  }
+
+  html += `
+    <div id="chat-messages" style="height:300px; overflow-y:auto; padding:8px 0; display:flex; flex-direction:column; gap:8px; border-bottom:1px solid var(--line-soft); margin-bottom:12px;">
+  `;
+  
+  if (!state.chatMessages || !state.chatMessages.length) {
+    html += `<p class="empty" style="text-align:center; margin:auto 0;">No messages yet. Send a message to start the conversation.</p>`;
+  } else {
+    const myAccountId = state.me ? state.me.account_id : null;
+    html += state.chatMessages.map(msg => {
+      let isMe = false;
+      let senderName = "System";
+      
+      if (c.type === "direct") {
+        isMe = (msg.sender_id === myAccountId);
+        senderName = isMe ? "Me" : c.name;
+      } else {
+        isMe = (msg.user_id === myAccountId);
+        const crew = state.crews.find(cr => cr.id === c.id);
+        const member = crew ? crew.members.find(m => m.id === msg.user_id) : null;
+        senderName = isMe ? "Me" : (member ? member.name : (msg.user_id ? msg.user_id.slice(0, 8) : "Anonymous"));
+      }
+
+      const bubbleBg = isMe ? "var(--spark)" : "var(--surface-2s)";
+      const bubbleColor = isMe ? "var(--spark-ink)" : "var(--text)";
+      const alignSelf = isMe ? "flex-end" : "flex-start";
+      const textAlign = isMe ? "right" : "left";
+      const borderRadius = isMe ? "14px 14px 2px 14px" : "14px 14px 14px 2px";
+      const bodyText = msg.body || msg.message || "";
+      const timeStr = msg.timestamp || msg.created_at || "";
+      const formattedTime = timeStr ? new Date(timeStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "";
+
+      return `
+        <div style="align-self:${alignSelf}; max-width:80%; display:flex; flex-direction:column; align-items:${isMe ? 'flex-end' : 'flex-start'};">
+          <div style="font-size:11px; color:var(--muted); margin-bottom:2px; padding:0 4px;">${esc(senderName)}</div>
+          <div style="background:${bubbleBg}; color:${bubbleColor}; padding:10px 14px; border-radius:${borderRadius}; font-size:14.5px; word-break:break-word; line-height:1.4; text-align:${textAlign}; box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+            ${esc(bodyText)}
+          </div>
+          ${formattedTime ? `<div style="font-size:10px; color:var(--faint); margin-top:2px; padding:0 4px;">${esc(formattedTime)}</div>` : ""}
+        </div>
+      `;
+    }).join("");
+  }
+  
+  html += `</div>`;
+  
+  html += `
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input class="field" id="chat-input" placeholder="Type a message..." style="margin-top:0; flex:1; min-height:42px; padding:10px 14px;">
+      <button class="primary" data-act="chat-send" style="margin-top:0; width:auto; min-height:42px; padding:0 20px;">Send</button>
+    </div>
+  </div>`;
+  
+  return html;
+}
+
 function peopleView() {
+  if (state.activeChat) {
+    return chatView();
+  }
   let html = `<div class="card"><h2>Add someone</h2>
     <div class="row2"><input class="field" id="person-name" placeholder="Name">
     <button class="primary" style="width:auto;flex:none;padding:10px 18px" data-act="add-person">Add</button></div>
@@ -294,6 +405,7 @@ function crewsView() {
         <div class="meta">${esc([c.topic, c.city].filter(Boolean).join(" · ") || "no topic")} — ${c.member_count} member${c.member_count === 1 ? "" : "s"}</div>
       </div><div class="pills">
         <button class="pill warm" data-crew-plan="${c.id}">Plan</button>
+        <button class="pill calm" data-act="chat-crew" data-id="${c.id}" data-name="${esc(c.name)}">Chat</button>
       </div></div>`).join("");
   }
   html += `<div class="subhead">Start a crew</div>
@@ -319,7 +431,7 @@ function crewsView() {
     const slotOpts = (p.slots || []).map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
     html += `<div class="card"><h2>Who can make it — ${esc(p.crew_name || "")}</h2>`;
     html += crew.members.map((m) => `
-      <div class="subhead">${esc(m.name)}${(p.responded || []).includes(m.id) ? " ✓" : ""}</div>
+      <div class="subhead">${esc(m.name)}${(p.responded || []).includes(m.id) ? " ✓" : ""} <button class="pill calm" style="padding:2px 8px; font-size:11px; margin-left:8px; width:auto; min-height:22px;" data-act="chat-direct" data-id="${m.id}" data-name="${esc(m.name)}">Chat</button></div>
       <select class="field" multiple id="avail-${m.id}">${slotOpts}</select>
       <button class="ghost" data-avail="${m.id}">Save ${esc(m.name)}'s times</button>`).join("");
     html += `</div>`;
@@ -560,6 +672,74 @@ function wire(root) {
     await navigator.clipboard.writeText(state.draft.text);
   }, "Copied — go send it."));
 
+  /* ---- chat ---- */
+
+  on("[data-act=chat-crew]", (el) => act(async () => {
+    state.activeChat = { type: "crew", id: el.dataset.id, name: el.dataset.name };
+    await refreshChatMessages();
+    render();
+  }));
+
+  on("[data-act=chat-direct]", (el) => act(async () => {
+    state.activeChat = { type: "direct", id: el.dataset.id, name: el.dataset.name };
+    await refreshChatMessages();
+    render();
+  }));
+
+  on("[data-act=chat-back]", () => {
+    state.activeChat = null;
+    state.chatMessages = [];
+    render();
+  });
+
+  on("[data-act=chat-send]", () => act(async () => {
+    const text = $("#chat-input").value.trim();
+    if (!text) return;
+    if (!state.me) {
+      state.me = await api("/v1/auth/me").catch(() => null);
+    }
+    if (!state.me || !state.me.account_id) {
+      return toast("You must be logged in with an account to chat.");
+    }
+    
+    if (state.activeChat.type === "crew") {
+      await api("/v1/comms/chatroom/send", {
+        event_id: state.activeChat.id,
+        user_id: state.me.account_id,
+        message: text
+      });
+    } else {
+      await api("/v1/comms/messages", {
+        sender_id: state.me.account_id,
+        recipient_id: state.activeChat.id,
+        body: text
+      });
+    }
+    
+    $("#chat-input").value = "";
+    await refreshChatMessages();
+    render();
+  }));
+
+  on("[data-act=chat-member-go]", () => act(async () => {
+    const sel = $("#chat-member-select");
+    if (!sel || !sel.value) return;
+    const name = sel.options[sel.selectedIndex].text;
+    state.activeChat = { type: "direct", id: sel.value, name: name };
+    await refreshChatMessages();
+    render();
+  }));
+
+  const chatInput = root.querySelector("#chat-input");
+  if (chatInput) {
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        const sendBtn = root.querySelector("[data-act=chat-send]");
+        if (sendBtn) sendBtn.click();
+      }
+    });
+  }
+
   /* ---- crews ---- */
 
   on("[data-act=crew-add]", () => act(async () => {
@@ -738,6 +918,7 @@ document.querySelectorAll("nav .tab").forEach((b) => b.addEventListener("click",
   state.tab = b.dataset.tab;
   state.draft = null;
   state.invite = null;
+  state.activeChat = null;
   state.enter = true;
   document.querySelectorAll("nav .tab").forEach((x) => x.classList.toggle("active", x === b));
   refresh();
