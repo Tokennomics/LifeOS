@@ -109,9 +109,16 @@ async function refresh() {
         api("/v1/parked").then((r) => r.parked).catch(() => []),
       ]);
     } else if (state.tab === "people") {
-      const [people, crews] = await Promise.all([api("/v1/people"), api("/v1/crews")]);
+      const [people, crews, feed, venues] = await Promise.all([
+        api("/v1/people"),
+        api("/v1/crews"),
+        api("/v1/feed").catch(() => ({ items: [] })),
+        api("/v1/venues/explore").catch(() => ({ venues: [] }))
+      ]);
       state.people = people.people;
       state.crews = crews.crews;
+      state.feed = feed;
+      state.venues = venues;
       if (state.activeChat) {
         await refreshChatMessages();
       }
@@ -474,6 +481,49 @@ function peopleView() {
       <p class="hint">Sending stays in your hands; when you've seen them, hit Done to log it.</p></div>`;
   }
   html += crewsView();
+
+  /* ---- Multi-Source Local Activity & Discovery Feed ---- */
+  const feedItems = (state.feed && state.feed.items) || [];
+  const exploreVenues = (state.venues && state.venues.venues) || [];
+  const capsules = (state.map && state.map.capsules) || [];
+
+  html += `<div class="card"><h2>Local Activity & Discovery Feed</h2>
+    <p class="hint" style="margin-bottom:10px;">Multi-source stream: public events, travel asks, local crags/venues, and quests.</p>`;
+
+  if (!feedItems.length && !exploreVenues.length && !capsules.length) {
+    html += `<p class="empty">No local activities in this city yet. Publish one below!</p>`;
+  } else {
+    if (feedItems.length) {
+      html += feedItems.map(item => `
+        <div class="person"><div class="who">
+          <div class="name">${esc(item.title || "Public Outing")} ${item.where ? `· ${esc(item.where)}` : ""}</div>
+          <div class="meta">${esc(item.topic || "general")}${item.place ? ` @ ${esc(item.place)}` : ""} — ${item.going_count || 0} interested</div>
+          ${item.reasons ? `<div class="hint" style="font-size:11px; margin-top:2px;">${esc(item.reasons.join(" · "))}</div>` : ""}
+        </div><div class="pills">
+          <button class="pill good" data-act="feed-interest" data-id="${item.id}">Interested ✓</button>
+        </div></div>
+      `).join("");
+    }
+
+    if (exploreVenues.length) {
+      html += `<div class="subhead" style="margin-top:12px;">Local Venues & Crags</div>`;
+      html += exploreVenues.slice(0, 3).map(v => `
+        <div class="feed-item">
+          <div class="kind">${esc(v.category || "Venue")} · ${esc(v.city || "")}</div>
+          <div class="label"><strong>${esc(v.name)}</strong>${v.address ? ` — ${esc(v.address)}` : ""}</div>
+        </div>
+      `).join("");
+    }
+  }
+
+  html += `<div class="subhead" style="margin-top:12px;">Publish Public Activity</div>
+    <div class="row2"><input class="field" id="fa-title" placeholder="Title (e.g. Sushi & Drinks)">
+    <input class="field" id="fa-topic" placeholder="Topic (e.g. sushi)"></div>
+    <div class="row2"><input class="field" id="fa-city" placeholder="City (e.g. Lisbon)">
+    <input class="field" id="fa-place" placeholder="Place (e.g. Restaurant X)"></div>
+    <button class="primary" data-act="feed-publish">Publish Public Activity</button>
+  </div>`;
+
   return html;
 }
 
@@ -535,6 +585,38 @@ function crewsView() {
       html += `<div class="card"><p class="empty">No option clears the quorum yet — record more availability.</p></div>`;
     }
   }
+
+  /* ---- Crew Bulletins ---- */
+  html += `<div class="card"><h2>Crew Bulletins & Notices</h2>
+    <div class="row2"><input class="field" id="bl-crew" placeholder="Crew ID">
+    <input class="field" id="bl-title" placeholder="Title (e.g. Venue Change)"></div>
+    <textarea class="field" id="bl-body" placeholder="Announcement details..."></textarea>
+    <button class="primary" data-act="bulletin-add">Publish Bulletin</button>
+  </div>`;
+
+  /* ---- Outing Photo Gallery ---- */
+  html += `<div class="card"><h2>Outing Photos & Collages</h2>
+    <div class="row2"><input class="field" id="gl-event" placeholder="Event / Outing ID">
+    <input class="field" id="gl-url" placeholder="Photo Image URL"></div>
+    <div class="row2">
+      <button class="primary" data-act="gallery-upload">Upload Photo</button>
+      <button class="ghost" data-act="collage-create">Generate Collage</button>
+    </div>
+    <div id="collage-preview" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Group Expense Splitter ---- */
+  const peopleOpts = (state.people || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
+  html += `<div class="card"><h2>Group Expense Splitter</h2>
+    <div class="row2"><input class="field" id="sp-amount" type="number" step="0.01" placeholder="Total Amount (e.g. 120.00)">
+    <input class="field" id="sp-curr" placeholder="Currency (EUR/USD)" value="EUR"></div>
+    <div class="subhead">Payer (who paid)</div>
+    <select class="field" id="sp-payer"><option value="">-- Payer --</option>${peopleOpts}</select>
+    <div class="subhead">Members Splitting</div>
+    <select class="field" multiple id="sp-members">${peopleOpts}</select>
+    <button class="primary" data-act="split-expense">Split Expense Equally</button>
+  </div>`;
+
   return html;
 }
 
@@ -1199,6 +1281,71 @@ function wire(root) {
     $("#ics-content").value = "";
     await refresh();
   }, "iCalendar feed imported ✔"));
+
+  /* ---- Feed, Bulletins, Gallery & Expense Splitter ---- */
+
+  on("[data-act=feed-interest]", (el) => act(async () => {
+    const person_id = state.me ? state.me.account_id : "anon";
+    await api("/v1/feed/interested", { event_id: el.dataset.id, person_id, going: true });
+    await refresh();
+  }, "Interest recorded ✔"));
+
+  on("[data-act=feed-publish]", () => act(async () => {
+    const title = $("#fa-title").value.trim();
+    const topic = $("#fa-topic").value.trim();
+    const city = $("#fa-city").value.trim();
+    const place = $("#fa-place").value.trim();
+    if (!title || !city) return toast("Title and City are required.");
+    await api("/v1/discover/events", { title, topic, city, place, visibility: "public" });
+    $("#fa-title").value = "";
+    await refresh();
+  }, "Public activity published ✔"));
+
+  on("[data-act=bulletin-add]", () => act(async () => {
+    const crew_id = $("#bl-crew").value.trim();
+    const title = $("#bl-title").value.trim();
+    const body = $("#bl-body").value.trim();
+    if (!crew_id || !title || !body) return toast("Fill crew ID, title, and announcement.");
+    await api("/v1/comms/bulletin", { crew_id, title, body });
+    $("#bl-title").value = "";
+    $("#bl-body").value = "";
+    await refresh();
+  }, "Bulletin posted ✔"));
+
+  on("[data-act=gallery-upload]", () => act(async () => {
+    const event_id = $("#gl-event").value.trim();
+    const photo_url = $("#gl-url").value.trim();
+    if (!event_id || !photo_url) return toast("Provide event ID and photo URL.");
+    const owner_id = state.me ? state.me.account_id : "";
+    await api("/v1/comms/gallery", { event_id, photo_url, owner_id });
+    $("#gl-url").value = "";
+    await refresh();
+  }, "Photo uploaded ✔"));
+
+  on("[data-act=collage-create]", () => act(async () => {
+    const event_id = $("#gl-event").value.trim();
+    if (!event_id) return toast("Provide event ID for collage.");
+    const collage = await api(`/v1/comms/gallery/collage?event_id=${event_id}`);
+    const prevEl = $("#collage-preview");
+    if (prevEl && collage) {
+      prevEl.innerHTML = `<div style="font-size:13px; font-weight:600; color:var(--spark); margin-bottom:4px;">Generated Photo Collage:</div>` +
+        `<div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(80px, 1fr)); gap:6px;">` +
+        (collage || []).map(p => `<img src="${esc(p.url || p.photo_url)}" style="width:100%; height:70px; object-fit:cover; border-radius:8px;">`).join("") +
+        `</div>`;
+    }
+  }, "Collage generated ✔"));
+
+  on("[data-act=split-expense]", () => act(async () => {
+    const total_amount = Number($("#sp-amount").value);
+    const currency = $("#sp-curr").value.trim() || "EUR";
+    const payer_id = $("#sp-payer").value;
+    const member_select = $("#sp-members");
+    const member_ids = member_select ? [...member_select.selectedOptions].map(o => o.value) : [];
+    if (!total_amount || !payer_id || !member_ids.length) return toast("Fill total amount, payer, and members.");
+    await api("/v1/ledger/split", { total_amount, currency, payer_id, member_ids });
+    $("#sp-amount").value = "";
+    await refresh();
+  }, "Expense split logged ✔"));
 }
 
 function saveCoordsFromInputs() {
