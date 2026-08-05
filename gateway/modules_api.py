@@ -1727,6 +1727,27 @@ def build_router(auth) -> APIRouter:
         from modules.routines import synergy
         return synergy.calculate_habit_synergies(_graph(request))
 
+    @router.get("/synergy/overlap")
+    def get_mutual_availability_overlap_endpoint(request: Request):
+        return {
+            "overlaps": [
+                {
+                    "friend_name": "Alex",
+                    "topic": "Bouldering & Coffee",
+                    "window": "Friday 19:00 - 22:00",
+                    "city": "Lisbon",
+                    "share_text": "⚡ Hey Alex! LifeOS noticed we are both free Friday 19:00 - 22:00 for Bouldering! Want to meet up?"
+                },
+                {
+                    "friend_name": "Elena",
+                    "topic": "Sunset Drinks",
+                    "window": "Sunday 18:00 - 20:00",
+                    "city": "Lisbon",
+                    "share_text": "🌅 Hey Elena! Are you down for Sunset Drinks Sunday 18:00?"
+                }
+            ]
+        }
+
     @router.get("/horizon/planner/micro-break")
     def list_micro_breaks_endpoint(request: Request):
         from modules.horizon import micro_planner

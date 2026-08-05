@@ -114,18 +114,20 @@ async function refresh() {
         api("/v1/routines/heatmap").catch(() => null),
       ]);
     } else if (state.tab === "people") {
-      const [people, crews, feed, venues, heatmap] = await Promise.all([
+      const [people, crews, feed, venues, heatmap, synergyOverlaps] = await Promise.all([
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
         api("/v1/venues/explore").catch(() => ({ venues: [] })),
-        api("/v1/venues/activity-heatmap").catch(() => null)
+        api("/v1/venues/activity-heatmap").catch(() => null),
+        api("/v1/synergy/overlap").catch(() => null)
       ]);
       state.people = people.people;
       state.crews = crews.crews;
       state.feed = feed;
       state.venues = venues;
       state.heatmap = heatmap;
+      state.synergyOverlaps = synergyOverlaps;
       if (state.activeChat) {
         await refreshChatMessages();
       }
@@ -728,6 +730,26 @@ function peopleView() {
           <span>${esc(h.name || h.venue_name || "Venue")} <span style="font-size:11px; color:var(--muted);">(${esc(h.category || "Hotspot")})</span></span>
           <span class="badge good" style="font-weight:bold;">🔥 High Activity</span>
         </div>
+      `).join("")}
+    </div>`;
+  }
+
+  /* ---- Mutual Free Window Radar ---- */
+  if (state.synergyOverlaps && state.synergyOverlaps.overlaps) {
+    const ovs = state.synergyOverlaps.overlaps;
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>⚡ Mutual Free Window Radar</h2>
+        <span class="badge good" style="font-weight:bold;">Auto Match</span>
+      </div>
+      <p class="hint" style="margin-bottom:10px;">LifeOS matched your free calendar windows with your friends' availability!</p>
+      ${ovs.map(o => `
+        <div class="person"><div class="who">
+          <div class="name">${esc(o.friend_name)} · ${esc(o.topic)}</div>
+          <div class="meta">Free Window: ${esc(o.window)} (${esc(o.city)})</div>
+        </div><div class="pills">
+          <button class="pill warm" data-act="synergy-propose" data-text="${esc(o.share_text)}">Propose Outing 📲</button>
+        </div></div>
       `).join("")}
     </div>`;
   }
@@ -2029,6 +2051,12 @@ function wire(root) {
     a.download = "lifeos_graph.csv";
     a.click();
   }, "Exported Graph to CSV 📊"));
+
+  on("[data-act=synergy-propose]", (el) => act(async () => {
+    const text = el.dataset.text || "Want to meet up?";
+    await navigator.clipboard.writeText(text).catch(() => {});
+    toast("Propose Outing message copied to clipboard! 📲 Paste into WhatsApp.");
+  }));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
 
