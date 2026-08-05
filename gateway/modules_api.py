@@ -279,6 +279,17 @@ class DatingAgeIn(BaseModel):
     date_of_birth: str
 
 
+class FeedAddIn(BaseModel):
+    url: str
+    city: str = ""
+    venue: str = ""
+    topic: str = ""
+
+
+class FeedSyncIn(BaseModel):
+    text: str = ""
+
+
 class DatingBlockIn(BaseModel):
     subject_account_id: str
 
@@ -1190,6 +1201,38 @@ def build_router(auth) -> APIRouter:
     def platform_validate(request: Request, body: ManifestValidateIn):
         from modules.platform import manifest
         return guard(lambda: manifest.validate_manifest(body.manifest))
+
+    # ---- Venue feeds (ICS / RSS) -----------------------------------------
+
+    @router.get("/feeds")
+    def feeds_list(request: Request):
+        from modules.feeds import ingest
+        return {"feeds": ingest.feeds(_graph(request))}
+
+    @router.post("/feeds")
+    def feeds_add(request: Request, body: FeedAddIn):
+        from modules.feeds import ingest
+        return guard(lambda: ingest.add_feed(
+            _graph(request), body.url, city=body.city, venue=body.venue, topic=body.topic))
+
+    @router.delete("/feeds/{feed_id}")
+    def feeds_remove(request: Request, feed_id: str):
+        from modules.feeds import ingest
+        return guard(lambda: ingest.remove_feed(_graph(request), feed_id))
+
+    @router.post("/feeds/{feed_id}/sync")
+    def feeds_sync(request: Request, feed_id: str, body: FeedSyncIn | None = None):
+        """`text` lets a feed be imported without the gateway reaching the network —
+        the same door the tests use, and the one that keeps this working from a phone
+        on a hotel connection that blocks everything interesting."""
+        from modules.feeds import ingest
+        return guard(lambda: ingest.sync(_graph(request), feed_id,
+                                         text=(body.text if body else "")))
+
+    @router.post("/feeds/sync")
+    def feeds_sync_all(request: Request):
+        from modules.feeds import ingest
+        return guard(lambda: ingest.sync_all(_graph(request)))
 
     # ---- Weekend digest --------------------------------------------------
 

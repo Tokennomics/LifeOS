@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#14 are merged; #15 (signing key) is open.** `python -m pytest` → **570 passing**.
+explicit permission). **PRs #1–#15 are merged.** `python -m pytest` → **618 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -54,6 +54,7 @@ in anyone else's graph.
 | Discover · feed | shipped |
 | Coordination (1:1 + crew, quorum-based) | shipped |
 | **Weekend digest** (`GET /v1/weekend`, `/weekend/share`) | shipped |
+| **Venue feeds** — ICS/RSS ingest (`modules/feeds/`) | shipped |
 | Cross-account discovery / membership / **scheduling** | shipped (#8, #9, **#10**) |
 
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
@@ -144,12 +145,19 @@ same weekend as plain text to send someone — **with your own plans left out un
 `include_yours=true`**, because there is no version of "here's what's on" that should carry
 your dentist appointment to a friend.
 
-**It is not a scraper and must not become one.** LifeOS does not know what is on at the
-city's clubs; Ticketmaster-style integrations are on the Don't-build list. An empty digest
-is an honest report that nobody published anything, and it says so and names the crews who
-could. Inventing events would hide the one signal that matters — GROWTH.md's atomic network
-is *one crew that actually meets twice*, and a digest full of scraped listings would look
-identical whether that had happened or not.
+**Where its content comes from — and the rule that governs it.** Owner's call, 2026-08-05:
+an empty directory is the real failure mode, so aggregating events is now wanted rather than
+forbidden. Tier 1 (**ICS/RSS venue feeds**) is built — see below. Tiers 2 and 3 (official
+APIs, then scrapers) are in ROADMAP under "Event aggregation", which supersedes the old
+Ticketmaster Don't-build entry.
+
+The condition attached to all of it: **aggregated listings must stay distinguishable from
+crew nights.** Every ingested event carries `origin: "feed"` and its `venue`, and the digest
+renders `· listed`. GROWTH.md's atomic network is *one crew that actually meets twice*, and a
+wall of listings looks identical whether that has happened or not. Keep the label.
+
+An empty digest is still an honest report that nobody published anything — it says so, and
+names the crews who could.
 
 Two behaviours worth knowing before editing:
 
@@ -159,6 +167,35 @@ Two behaviours worth knowing before editing:
 - **It lists everything on, not just what scores.** `discover.rank_feed` drops items that
   are neither interest-matched nor popular, which is right for an infinite feed and wrong
   for a finite weekend. Ranking sets the order here; it never sets the membership.
+
+## Venue feeds — `modules/feeds/`
+
+Subscribe to a venue's ICS or RSS calendar; sync turns it into public events the weekend
+digest and the discover feed both pick up. No API key, no scraping — a published feed is
+published *to be* read, which is the whole difference from ROADMAP's Tier 3.
+
+- **The subscription is yours; the events are everyone's.** A `venue_feed` record is
+  owner-scoped (you added it); the events it produces are SYSTEM-owned and public, so one
+  city's listings exist once rather than per account.
+- **Dedupe is global on `(feed url, item uid)` and deliberately excludes who subscribed** —
+  otherwise two people following the same venue double every event in the city.
+- **`pubDate` is never an event date.** It is when a listing was *posted*. An RSS item with
+  no determinable start is dropped and counted in `skipped_no_date`. A wrong date is
+  invisible to the reader forever; a skipped item shows up in the sync report. Only
+  unambiguous ISO dates are read out of text — `08/07/2026` is two different days depending
+  on where you live, and guessing is how an aggregator loses trust.
+- **A date lifted out of a title is removed from it.** `Late tour 2026-08-09T21:00` reads
+  like a machine wrote it. Found by reading the digest, not by a test.
+- **A dead venue is recorded, never raised.** `sync_all` reports per-feed status; one bad
+  feed does not stop the others. `sync(feed_id, text=...)` bypasses the fetch, which is how
+  the tests run and how an import works on a connection that blocks everything interesting.
+- Bounded per sync: `MAX_ITEMS` per feed, and a horizon of `STALE_DAYS` back to
+  `HORIZON_DAYS` forward, so a venue publishing its whole archive does not import it.
+
+**Not verified from here: a fetch against a real venue feed.** The sandbox proxy 403s
+arbitrary hosts. `_fetch` itself was exercised against a reachable URL (correct bytes,
+redirects, `raise_for_status`, and non-feed content parsing to zero items rather than
+raising), but the first real venue calendar is worth watching when the box is up.
 
 ## Gotchas — read these before touching anything
 
@@ -212,7 +249,7 @@ until the v0.1 gate passes. **Current gate first.**
 
 ## Don't build
 
-Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre · Ticketmaster ·
+Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre ·
 Google OAuth · Postgres migration (until measured, see above) · native store builds · SDK opening ·
 billing · licence/entity/ToS content · a swipe-style dating surface · sub-city location anywhere in
 the social layer.

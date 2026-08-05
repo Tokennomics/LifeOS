@@ -11,7 +11,7 @@ scripts). The v0.2 PWA (`surfaces/app/www`, served by the gateway at `/app/`) ne
 reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone abroad with no
 server.
 
-**Tests:** `python -m pytest` → **570 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **618 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ### The Antigravity expansion (2026-07-29 → 08-04) — read this before believing the rest
@@ -327,6 +327,6 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 
 ## Non-goals (do not build)
 
-Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre · Ticketmaster ·
+Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre ·
 Google OAuth · Postgres migration · native store builds · SDK opening · billing activation ·
 Tailscale/remote access (deferred until home) · licence/entity/ToS content.

@@ -1,0 +1,202 @@
+"""Venue feeds — graph flow: subscribe to an ICS/RSS feed, sync it into public events.
+
+The cheapest real answer to an empty directory. Venues, clubs and collectives already
+publish calendars; this reads them. No API key, no scraping, no terms-of-service exposure —
+a feed is published *to be* read, which is the whole difference between this and the tiers
+parked in ROADMAP under "Event aggregation".
+
+Two ownership decisions, and they are not arbitrary:
+
+- **The subscription is yours; the events are everyone's.** The `venue_feed` record is
+  owner-scoped, because adding a feed is a thing *you* did. The events it produces are
+  written to the SYSTEM owner with `visibility: "public"`, because a listing for a public
+  club night is not anybody's private data and every account should see it once.
+- **Dedupe is global, keyed on `(feed url, item uid)`.** Two people subscribing to the same
+  venue must not double every event in the city. Because the key does not include who
+  subscribed, the second subscription is a no-op on content and the first one's rows simply
+  get refreshed.
+
+**Listings are labelled as listings.** Every ingested event carries `origin: "feed"` and its
+`venue`, and the weekend digest renders those with a `· listed` marker. A scraped club night
+and "six people from your climbing crew agreed on Thursday" are different products in the
+same list, and a directory that blurs them buys density by spending the only signal worth
+having — GROWTH.md's atomic network is one crew that actually *meets*, and that has to stay
+legible next to a wall of listings.
+
+Sync is idempotent, bounded (`MAX_ITEMS` per feed), and never raises on a bad feed: a venue
+that serves an error page gets recorded as a failure on its own record and the other feeds
+carry on.
+"""
+
+import datetime
+
+from modules.feeds import parse
+from substrate import SYSTEM_OWNER, now_iso
+from substrate.graph import Graph
+
+SCOPES = {"content:read", "content:write", "events:read", "events:write"}
+MODULE = "feeds"
+
+FEED = "venue_feed"
+ORIGIN = "feed"
+MAX_ITEMS = 200
+STALE_DAYS = 2          # listings that finished before this are not worth carrying
+HORIZON_DAYS = 120
+
+
+def _sys(graph: Graph):
+    """Ingested listings are system-owned so one city's events exist once, not per-account."""
+    return Graph(graph.conn, graph.bus, default_owner=SYSTEM_OWNER).session(MODULE, SCOPES)
+
+
+def _norm(value, cap: int = 120) -> str:
+    return str(value or "").strip()[:cap]
+
+
+def add_feed(graph: Graph, url: str, city: str = "", venue: str = "", topic: str = "",
+             source: str = MODULE) -> dict:
+    """Subscribe to a venue's calendar. Nothing is fetched here — `sync` does that, so
+    adding a feed can never block on a slow server."""
+    url = _norm(url, 500)
+    if not url.lower().startswith(("http://", "https://")):
+        raise ValueError("a feed needs an http(s) url")
+    session = graph.session(MODULE, SCOPES)
+    existing = session.find_entities("content", {"type": FEED, "url": url}, limit=1)
+    if existing:
+        return {"feed_id": existing[0]["id"], "url": url, "added": False}
+    feed_id = session.create_entity("content", {
+        "type": FEED, "url": url, "city": _norm(city, 60), "venue": _norm(venue, 80),
+        "topic": _norm(topic, 40), "added_at": now_iso(), "last_status": "never synced",
+    }, source=source)
+    return {"feed_id": feed_id, "url": url, "city": _norm(city, 60),
+            "venue": _norm(venue, 80), "added": True}
+
+
+def feeds(graph: Graph, limit: int = 100) -> list[dict]:
+    session = graph.session(MODULE, SCOPES)
+    out = []
+    for row in session.find_entities("content", {"type": FEED}, limit=limit):
+        a = row["attrs"]
+        out.append({"id": row["id"], "url": a.get("url", ""), "city": a.get("city", ""),
+                    "venue": a.get("venue", ""), "topic": a.get("topic", ""),
+                    "last_status": a.get("last_status", ""),
+                    "last_synced_at": a.get("last_synced_at", ""),
+                    "last_count": a.get("last_count", 0)})
+    return out
+
+
+def remove_feed(graph: Graph, feed_id: str, source: str = MODULE) -> dict:
+    """Stop following a venue. Events already ingested stay — they are public listings that
+    other accounts may be looking at, and unsubscribing is not a retraction."""
+    session = graph.session(MODULE, SCOPES)
+    row = session.get_entity(feed_id)
+    if row is None or row["attrs"].get("type") != FEED:
+        raise ValueError("unknown feed")
+    session.update_entity(feed_id, {"removed": True, "removed_at": now_iso()}, source=source)
+    return {"feed_id": feed_id, "removed": True}
+
+
+def _fetch(url: str) -> str:
+    import httpx
+    return httpx.get(url, timeout=30, follow_redirects=True).raise_for_status().text
+
+
+def _dedupe_key(url: str, uid: str) -> str:
+    return f"{url}#{uid}"
+
+
+def _in_horizon(start: str, now: datetime.datetime) -> bool:
+    """Ignore last year's archive and speculative dates a decade out. A venue feed that
+    contains its whole history would otherwise import the whole history."""
+    when = parse_start(start)
+    if when is None:
+        return False
+    return (now - datetime.timedelta(days=STALE_DAYS) <= when
+            <= now + datetime.timedelta(days=HORIZON_DAYS))
+
+
+def parse_start(value: str):
+    try:
+        when = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        try:
+            return datetime.datetime.combine(
+                datetime.date.fromisoformat(str(value)[:10]), datetime.time.min)
+        except (ValueError, TypeError):
+            return None
+    return when.astimezone(datetime.timezone.utc).replace(tzinfo=None) \
+        if when.tzinfo else when
+
+
+def sync(graph: Graph, feed_id: str, text: str = "", now: str = "",
+         source: str = MODULE) -> dict:
+    """Pull one feed in. `text` bypasses the fetch, which is what tests and offline
+    imports use — no feature here requires the network to be reachable to be testable."""
+    session = graph.session(MODULE, SCOPES)
+    feed = session.get_entity(feed_id)
+    if feed is None or feed["attrs"].get("type") != FEED:
+        raise ValueError("unknown feed")
+    a = feed["attrs"]
+    url = a.get("url", "")
+
+    if not text:
+        try:
+            text = _fetch(url)
+        except Exception as exc:                     # a dead venue must not kill the sync
+            session.update_entity(feed_id, {
+                "last_status": f"fetch failed: {type(exc).__name__}",
+                "last_synced_at": now_iso()}, source=source)
+            return {"feed_id": feed_id, "status": "fetch_failed", "added": 0, "updated": 0,
+                    "skipped_no_date": 0, "skipped_out_of_range": 0}
+
+    stamp = parse_start(now) if now else datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    items = parse.parse_feed(text)[:MAX_ITEMS]
+    system = _sys(graph)
+
+    added = updated = no_date = out_of_range = 0
+    for item in items:
+        if item.get("skipped") == "no_date" or not item.get("start"):
+            no_date += 1
+            continue
+        if not _in_horizon(item["start"], stamp):
+            out_of_range += 1
+            continue
+
+        key = _dedupe_key(url, item.get("uid") or item.get("title", ""))
+        attrs = {
+            "type": "social", "title": item.get("title") or a.get("venue") or "Event",
+            "start": item["start"], "end": item.get("end", ""),
+            "place": item.get("place") or a.get("venue", ""),
+            "city": a.get("city", ""), "topic": a.get("topic", ""),
+            "visibility": "public", "busy": False,
+            "origin": ORIGIN, "feed_key": key, "feed_url": url,
+            "venue": a.get("venue", ""), "url": item.get("url", ""),
+        }
+        existing = system.find_entities("event", {"feed_key": key}, limit=1)
+        if existing:
+            system.update_entity(existing[0]["id"], attrs, source=source)
+            updated += 1
+        else:
+            system.create_entity("event", {**attrs, "created_at": now_iso()},
+                                 source=source, owner_id=SYSTEM_OWNER)
+            added += 1
+
+    status = f"ok: {added} added, {updated} updated"
+    session.update_entity(feed_id, {
+        "last_status": status, "last_synced_at": now_iso(),
+        "last_count": added + updated}, source=source)
+    return {"feed_id": feed_id, "status": "ok", "added": added, "updated": updated,
+            "skipped_no_date": no_date, "skipped_out_of_range": out_of_range}
+
+
+def sync_all(graph: Graph, source: str = MODULE) -> dict:
+    """Sync every live subscription. One bad feed is reported, not fatal."""
+    results = []
+    for feed in feeds(graph):
+        row = graph.session(MODULE, SCOPES).get_entity(feed["id"])
+        if row and row["attrs"].get("removed"):
+            continue
+        results.append({**sync(graph, feed["id"], source=source), "url": feed["url"]})
+    return {"feeds": len(results), "results": results,
+            "added": sum(r["added"] for r in results),
+            "updated": sum(r["updated"] for r in results)}

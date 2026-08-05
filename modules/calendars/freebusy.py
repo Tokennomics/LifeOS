@@ -54,11 +54,25 @@ def parse_ics(text: str, default_tz: str = "UTC") -> list[dict]:
             current["uid"] = value.strip()
         elif name == "SUMMARY":
             current["title"] = value.strip()
+        # Additive: free/busy sync ignores these, venue-feed ingest needs them. Extra keys
+        # in the returned dict cost existing callers nothing.
+        elif name == "LOCATION":
+            current["place"] = _unescape(value.strip())
+        elif name == "URL":
+            current["url"] = value.strip()
+        elif name == "DESCRIPTION":
+            current["description"] = _unescape(value.strip())
         elif name in ("DTSTART", "DTEND"):
             dt = _parse_dt(value.strip(), params, default_tz)
             if dt is not None:
                 current["start" if name == "DTSTART" else "end"] = dt.isoformat()
     return events
+
+
+def _unescape(value: str) -> str:
+    """RFC 5545 escapes commas, semicolons and newlines inside TEXT values."""
+    return (value.replace("\\n", "\n").replace("\\N", "\n")
+            .replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\"))
 
 
 def _parse_dt(value: str, params: list[str], default_tz: str):

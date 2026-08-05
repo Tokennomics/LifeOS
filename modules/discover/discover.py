@@ -83,6 +83,10 @@ def _event_items(session, across_users: bool = True) -> list[dict]:
                     "topic": a.get("topic", ""), "city": a.get("city", ""),
                     "start": a.get("start", ""), "place": a.get("place", ""),
                     "visibility": a.get("visibility", "private"), "crew_id": a.get("crew_id", ""),
+                    # Additive: an ingested venue listing is a weaker promise than a crew
+                    # night, and surfaces need to be able to say so.
+                    "origin": a.get("origin", ""), "venue": a.get("venue", ""),
+                    "url": a.get("url", ""),
                     "going_count": len(a.get("interested", []) or [])})
     return out
 

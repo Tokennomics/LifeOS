@@ -305,6 +305,51 @@ intent on the same entity as anything published.
   named authors: declarative-only + WASM sandbox + signed manifests + instant capability revocation.
   **Kill-gate:** automated capability diff/scan + instant revoke before any open SDK.
 
+### Event aggregation — the density problem (decided 2026-08-05)
+
+**Supersedes the "Ticketmaster" Don't-build entry**, which was too blunt. The owner's
+argument is the stronger one: *"would be a good selling point if people could see all the
+good events in the area."* An empty directory is the actual failure mode, and no comparable
+product — Resident Advisor, Luma, Eventbrite — started empty and waited for users to fill it.
+
+The counter-argument is narrower than "don't", and it survives: **do not let aggregated
+listings be indistinguishable from crew nights.** A scraped club listing and "six people
+from your climbing crew agreed on Thursday" are different promises. GROWTH.md's atomic
+network is *one crew that actually meets twice*, and a wall of listings looks identical
+whether that has happened or not. Every ingested event therefore carries `origin: "feed"`
+and its `venue`, and surfaces render a `· listed` marker. **Any future tier must keep that
+labelling — it is the condition on which this whole line of work is allowed.**
+
+Three tiers, in the order they are worth doing:
+
+- **Tier 1 — ICS/RSS venue feeds. ✓ BUILT** (`modules/feeds/`). Venues, clubs and
+  collectives already publish calendars. Legal (a feed is published *to be* read), stable,
+  no API key, reuses the ICS parser that was already there. Cheapest real coverage
+  available. `POST /v1/feeds`, `POST /v1/feeds/sync`.
+- **Tier 2 — official APIs.** Ticketmaster Discovery, Eventbrite, Meetup, Songkick,
+  Bandsintown. Legal and stable with free tiers, but the coverage is ticketed and
+  mainstream — weak on precisely the local stuff that makes a city worth being in. **The
+  first thing to breach "every feature works with no API key"**, which is survivable only
+  if a missing key degrades to the feed-and-crew list rather than to an error. Do one
+  provider end to end before adding a second; the second is nearly free once the ingest
+  shape is right, and the shape is what Tier 1 established.
+- **Tier 3 — scrapers.** Best coverage of the interesting things, worst everything else:
+  terms-of-service exposure, and they break silently and constantly. A scraper fleet is a
+  permanent maintenance job — a bad trade for a solo operator who is travelling. Not never;
+  last. **Gate:** only after Tier 2 exists and its coverage has been measured against a real
+  city, so the gap being filled is a known quantity rather than an assumption.
+
+**What Tier 1 already settled, so the later tiers do not re-litigate it:** events land as
+ordinary `event` entities owned by the SYSTEM account with `visibility: "public"`, deduped
+globally on `(source url, item uid)` so two subscribers do not double a city; ingest is
+bounded per sync and per horizon; and a dead source is recorded on its own record rather
+than raising. A new provider is a new parser plus a `sync` — not a new architecture.
+
+**One rule found the hard way, worth carrying forward:** RSS `pubDate` is when a listing was
+*posted*, not when the event is. An item with no determinable start is dropped and counted,
+never filed under its announcement date. A wrong date is invisible to the reader forever; a
+skipped item shows up in the sync report.
+
 ### Growth — see `docs/GROWTH.md` (researched 2026-07-27)
 
 Written in answer to "what makes this a hyper-growth app?". Two findings govern everything else:
