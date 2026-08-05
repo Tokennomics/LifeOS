@@ -139,7 +139,12 @@ async function refresh() {
       state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps };
       state.people = people.people;
     } else {
-      state.graph = await api("/v1/graph");
+      const [graphRes, centralityRanks] = await Promise.all([
+        api("/v1/graph"),
+        api("/v1/graph/centrality-ranks").catch(() => [])
+      ]);
+      state.graph = graphRes;
+      state.centralityRanks = centralityRanks;
     }
     render();
   } catch (e) {
@@ -411,6 +416,7 @@ function crewsView() {
       </div><div class="pills">
         <button class="pill warm" data-crew-plan="${c.id}">Plan</button>
         <button class="pill calm" data-act="chat-crew" data-id="${c.id}" data-name="${esc(c.name)}">Chat</button>
+        <button class="pill" data-act="crew-ics" data-id="${c.id}">📅 .ics</button>
       </div></div>`).join("");
   }
   html += `<div class="subhead">Start a crew</div>
@@ -500,16 +506,47 @@ function mapView() {
 function graphView() {
   const g = state.graph;
   const counts = Object.entries(g.counts).sort((a, b) => b[1] - a[1]);
-  return `<div class="card"><h2>Your context graph</h2>
+  const ranks = state.centralityRanks || [];
+  const people = state.people || [];
+
+  let html = `<div class="card"><h2>Your context graph</h2>
       <div class="kv"><span>entities</span><span class="v">${g.entities}</span></div>
       <div class="kv"><span>edges</span><span class="v">${g.edges}</span></div>
       <div class="kv"><span>observations (provenance)</span><span class="v">${g.observations}</span></div></div>
     <div class="card"><h2>By kind</h2>
       ${counts.length ? counts.map(([k, n]) => `<div class="kv"><span>${esc(k)}</span><span class="v">${n}</span></div>`).join("")
-                      : `<p class="empty">Empty graph — start on the Today tab.</p>`}</div>
-    <div class="card"><h2>Recent</h2>
+                      : `<p class="empty">Empty graph — start on the Today tab.</p>`}</div>`;
+
+  /* ---- Network Hubs & Centrality ---- */
+  html += `<div class="card"><h2>Key Network Hubs (Centrality)</h2>
+    ${ranks.length ? ranks.slice(0, 5).map(r => `
+      <div class="kv">
+        <span>${esc(r.label || r.id)} <span style="font-size:11px; color:var(--muted);">(${esc(r.kind || "node")})</span></span>
+        <span class="v">${(r.score || 0).toFixed(3)}</span>
+      </div>
+    `).join("") : `<p class="empty">Graph metrics computing…</p>`}
+  </div>`;
+
+  /* ---- Social Path Finder ---- */
+  html += `<div class="card"><h2>Social Shortest Path Finder</h2>
+    <div class="row2">
+      <select class="field" id="sp-src">
+        <option value="">-- From Person --</option>
+        ${people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}
+      </select>
+      <select class="field" id="sp-dst">
+        <option value="">-- To Person --</option>
+        ${people.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("")}
+      </select>
+    </div>
+    <button class="primary" data-act="find-path">Find Social Path</button>
+    <div id="sp-results" style="margin-top:10px;"></div>
+  </div>`;
+
+  html += `<div class="card"><h2>Recent</h2>
       ${g.recent.map((r) => `<div class="feed-item"><div class="kind">${esc(r.kind)}</div><div class="label">${esc(r.label)}</div></div>`).join("") || `<p class="empty">—</p>`}
     </div>`;
+  return html;
 }
 
 function moreView() {
@@ -641,6 +678,14 @@ function moreView() {
     <input class="field" id="ma-url" placeholder="Manifest / App URL (https://...)">
     <button class="primary" data-act="miniapp-add">Register Mini-App</button>
     <p class="hint">Micro-frontends running in declarative sandboxed capabilities.</p></div>`;
+
+  /* ---- Calendar Sync (.ics) ---- */
+  html += `<div class="card"><h2>Calendar Sync (.ics)</h2>
+    <button class="primary" style="margin-bottom:12px;" data-act="ics-export">Download Personal .ics Calendar</button>
+    <div class="subhead">Import External iCalendar (.ics)</div>
+    <textarea class="field" id="ics-content" placeholder="Paste raw .ics iCalendar content here..."></textarea>
+    <button class="ghost" data-act="ics-import">Import .ics Feed</button>
+    <p class="hint">Imports external calendar events and tasks into your context graph.</p></div>`;
 
   return html;
 }
@@ -1033,6 +1078,41 @@ function wire(root) {
     window.open(url, "_blank");
     toast(`Launching ${name}…`);
   });
+
+  /* ---- Graph Paths & Calendar (.ics) ---- */
+
+  on("[data-act=find-path]", () => act(async () => {
+    const src = $("#sp-src").value;
+    const dst = $("#sp-dst").value;
+    if (!src || !dst) return toast("Select both From and To persons.");
+    const pathRes = await api(`/v1/graph/paths?src_id=${src}&dst_id=${dst}`).catch(() => null);
+    const resEl = $("#sp-results");
+    if (!resEl) return;
+    if (pathRes && pathRes.path && pathRes.path.length) {
+      resEl.innerHTML = `<div style="font-size:13px; font-weight:600; color:var(--spark);">Path Found (${pathRes.path.length} hops):</div>` +
+        `<div style="font-size:12.5px; color:var(--text); margin-top:4px;">${pathRes.path.map(n => esc(n.label || n.id)).join(" ➔ ")}</div>`;
+    } else {
+      resEl.innerHTML = `<div style="font-size:13px; color:var(--muted);">No direct social path found.</div>`;
+    }
+  }));
+
+  on("[data-act=crew-ics]", (el) => {
+    window.open(apiBase() + `/v1/crews/${el.dataset.id}/export.ics`, "_blank");
+    toast("Downloading Crew .ics Calendar…");
+  });
+
+  on("[data-act=ics-export]", () => {
+    window.open(apiBase() + "/v1/calendar/export.ics", "_blank");
+    toast("Downloading Personal .ics Calendar…");
+  });
+
+  on("[data-act=ics-import]", () => act(async () => {
+    const content = $("#ics-content").value.trim();
+    if (!content) return toast("Paste .ics content to import.");
+    await api("/v1/calendar/import-ics", { ics_content: content });
+    $("#ics-content").value = "";
+    await refresh();
+  }, "iCalendar feed imported ✔"));
 }
 
 function saveCoordsFromInputs() {
