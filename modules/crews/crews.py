@@ -126,11 +126,11 @@ def _state_of(session, crew_id: str, person_id: str) -> str | None:
 
 def _set_state(session, crew_id: str, person_id: str, state: str | None, source: str) -> None:
     """Move a person to exactly one state (or none), revoking any other."""
+    if state and person_id not in _holders(session, crew_id, state):
+        session.grant(person_id, state, crew_id, source=source)
     for scope in _STATES:
         if scope != state:
             session.revoke(person_id, scope, crew_id, source=source)
-    if state and person_id not in _holders(session, crew_id, state):
-        session.grant(person_id, state, crew_id, source=source)
 
 
 def _require_admin(session, crew_id: str, actor_id: str | None, source: str,

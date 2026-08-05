@@ -175,11 +175,82 @@ class GraphSession:
         g.bus.publish("observation.created", {"target": "edge", "id": eid, "rel": rel, "module": self.module})
         return eid
 
+    def _is_acl_write_authorized(self, space: str, subject: str, scope: str, action: str) -> bool:
+        """Enforces multi-tenant security boundary on grants ACL table."""
+        if "*" in self.scopes:
+            return True
+        g = self.graph
+        from substrate import SYSTEM_OWNER
+        if g.default_owner == SYSTEM_OWNER:
+            return True
+
+        row = g._execute("SELECT owner_id, attrs, kind FROM entities WHERE id = ?", (space,)).fetchone()
+        if row is None:
+            return False
+
+        if g.default_owner == row["owner_id"]:
+            return True
+
+        # Check admin grant
+        admin_grant = g._execute(
+            "SELECT 1 FROM grants WHERE subject = ? AND scope IN (?, ?) AND space = ?",
+            (g.default_owner, "crew:admin", "space:admin", space)
+        ).fetchone()
+        if admin_grant:
+            return True
+
+        # Check participant grant for coordination spaces
+        attrs = json.loads(row["attrs"]) if isinstance(row["attrs"], str) else row["attrs"]
+        is_coord = attrs.get("type") == "coordinate" or "coordinate" in row["kind"]
+        if is_coord:
+            part_grant = g._execute(
+                "SELECT 1 FROM grants WHERE subject = ? AND scope = ? AND space = ?",
+                (g.default_owner, "coord:participant", space)
+            ).fetchone()
+            if part_grant:
+                return True
+
+        # Self-modification check (subject is the session owner's public account ID)
+        is_self = (subject == g.default_owner)
+        if not is_self and g.default_owner:
+            acc = g._execute(
+                "SELECT attrs FROM entities WHERE id = ? AND kind = 'content' AND owner_id = ?",
+                (subject, SYSTEM_OWNER)
+            ).fetchone()
+            if acc:
+                acc_attrs = json.loads(acc["attrs"]) if isinstance(acc["attrs"], str) else acc["attrs"]
+                if acc_attrs.get("type") == "account" and acc_attrs.get("owner_id") == g.default_owner:
+                    is_self = True
+
+        if is_self:
+            if action == "revoke":
+                return True
+            if action == "grant":
+                if scope == "crew:requested":
+                    return True
+                # Joining public open crew
+                is_crew = attrs.get("type") == "crew"
+                if is_crew and attrs.get("visibility") == "public" and attrs.get("admission") == "open" and scope == "crew:member":
+                    return True
+                # Accepting invite: must hold crew:invited grant currently
+                if is_crew and scope == "crew:member":
+                    invited = g._execute(
+                        "SELECT 1 FROM grants WHERE subject = ? AND scope = ? AND space = ?",
+                        (subject, "crew:invited", space)
+                    ).fetchone()
+                    if invited:
+                        return True
+
+        return False
+
     def grant(self, subject: str, scope: str, space: str, *, source: str,
               confidence: float = 1.0) -> None:
         """ACL write for shared spaces (Hearth/crews). Spaces are content entities,
         so granting requires content:write. Provenance is recorded against the space."""
         self._need("content", "write")
+        if not self._is_acl_write_authorized(space, subject, scope, "grant"):
+            raise ScopeError(f"unauthorized to grant scope {scope} on space {space}")
+            
         g = self.graph
         g._execute(
             f"INSERT INTO grants (subject, scope, space, granted_at) "
@@ -198,6 +269,9 @@ class GraphSession:
         as grant(). Returns the number of rows removed (0 if there was nothing to undo).
         """
         self._need("content", "write")
+        if not self._is_acl_write_authorized(space, subject, scope, "revoke"):
+            raise ScopeError(f"unauthorized to revoke scope {scope} on space {space}")
+            
         g = self.graph
         cur = g._execute(
             f"DELETE FROM grants WHERE subject = {g.ph} AND scope = {g.ph} AND space = {g.ph}",
@@ -208,6 +282,7 @@ class GraphSession:
             self._record_provenance(space, source, confidence)
         g.conn.commit()
         return removed
+
 
     def grants_for(self, space: str) -> list[dict]:
         self._need("content", "read")
