@@ -14,4 +14,4 @@ USER lifeos
 
 # Schema is applied at container start (data lives on a volume) — see deploy/docker-compose.yml
 # (NucBox / LAN) or deploy/vps/compose.yml (public box, behind TLS).
-CMD ["python", "-m", "surfaces.bot.telegram"]
+CMD ["python", "scripts/launch.py"]
