@@ -141,7 +141,7 @@ async function refresh() {
       state.map = mapRes;
       state.convoy = convoyRes;
     } else if (state.tab === "more") {
-      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent] = await Promise.all([
+      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
         api("/v1/vitals"), api("/v1/spaces"), api("/v1/people"),
         api("/v1/triage/critical").catch(() => null),
@@ -151,9 +151,10 @@ async function refresh() {
         api("/v1/miniapp/list").catch(() => []),
         api("/v1/trust/badge").catch(() => null),
         api("/v1/wrapped/monthly").catch(() => null),
-        api("/v1/telemetry/consent").catch(() => ({ enabled: false, share_interests: true, share_city_events: true }))
+        api("/v1/telemetry/consent").catch(() => ({ enabled: false, share_interests: true, share_city_events: true })),
+        api("/v1/treasury/status").catch(() => null)
       ]);
-      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent };
+      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury };
       state.people = people.people;
     } else {
       const [graphRes, centralityRanks, timeline] = await Promise.all([
@@ -1128,6 +1129,42 @@ function moreView() {
     <p class="hint" style="margin-top:8px;">Privacy Guarantee: Hashed via SHA-256 before leaving your device. Off by default.</p>
   </div>`;
 
+  /* ---- 20% Democratic Community Impact Treasury ---- */
+  const trData = m.treasury || { profit_share_percent: 20, treasury_balance: 12450, total_disbursed: 0, proposals: [] };
+  const props = trData.proposals || [];
+
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(37,99,235,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <h2>🏛️ 20% Community Impact Treasury</h2>
+    <p class="hint" style="margin-bottom:10px;">20% of net platform profits are given back to the community and governed democratically by members (1-Member 1-Vote).</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; text-align:center;">
+      <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+        <div style="font-size:20px; font-weight:800; color:var(--growth);">$${(trData.treasury_balance || 0).toLocaleString()}</div>
+        <div style="font-size:11px; color:var(--muted);">Treasury Pool (20%)</div>
+      </div>
+      <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
+        <div style="font-size:20px; font-weight:800; color:var(--spark);">$${(trData.total_disbursed || 0).toLocaleString()}</div>
+        <div style="font-size:11px; color:var(--muted);">Disbursed Grants</div>
+      </div>
+    </div>
+    
+    <div class="subhead" style="margin-top:12px;">Submit Community Grant / Charity Proposal</div>
+    <div class="row2"><input class="field" id="tr-title" placeholder="Proposal (e.g. Lisbon Crag Clean-up)">
+    <input class="field" id="tr-amount" type="number" value="500" placeholder="Grant ($)"></div>
+    <button class="primary" data-act="tr-submit">Submit Democratic Proposal 🗳️</button>
+
+    ${props.length ? `
+      <div class="subhead" style="margin-top:12px;">Active Community Proposals</div>
+      ${props.map(pr => `
+        <div class="person"><div class="who">
+          <div class="name">${esc(pr.title)} · <strong style="color:var(--growth);">$${pr.grant_amount}</strong></div>
+          <div class="meta">Category: ${esc(pr.category)} · Proposed by ${esc(pr.proposed_by)} — ${pr.votes} votes (${esc(pr.status)})</div>
+        </div><div class="pills">
+          <button class="pill good" data-act="tr-vote" data-id="${pr.id}">Vote 🗳️ (${pr.votes})</button>
+        </div></div>
+      `).join("")}
+    ` : ""}
+  </div>`;
+
   return html;
 }
 
@@ -1823,6 +1860,22 @@ function wire(root) {
       resEl.innerHTML = `<div style="font-size:13px; color:var(--muted);">No matching notes found.</div>`;
     }
   }));
+
+  /* ---- 20% Community Impact Treasury Handlers ---- */
+
+  on("[data-act=tr-submit]", () => act(async () => {
+    const title = $("#tr-title").value.trim();
+    const grant_amount = parseFloat($("#tr-amount").value) || 500;
+    if (!title) return toast("Provide proposal title.");
+    await api("/v1/treasury/proposals", { title, category: "charity", grant_amount });
+    $("#tr-title").value = "";
+    await refresh();
+  }, "Democratic Proposal Submitted 🗳️"));
+
+  on("[data-act=tr-vote]", (el) => act(async () => {
+    await api("/v1/treasury/vote", { proposal_id: el.dataset.id });
+    await refresh();
+  }, "Vote Cast 🗳️"));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
 

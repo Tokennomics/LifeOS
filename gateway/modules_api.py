@@ -1986,4 +1986,25 @@ def build_router(auth) -> APIRouter:
             "share_text": f"📊 My LifeOS Monthly Wrapped (August 2026):\n⚡ {max(1, min(30, tasks_done + 3))} Days Shown Up\n🎯 {goals_done} Goals Completed\n🧗 {meets_attended} Crew Meets Attended"
         }
 
+    # ---- 20% Community Treasury & Democratic Governance ------------------
+
+    @router.get("/treasury/status")
+    def get_treasury_status_endpoint(request: Request):
+        from modules import community_treasury
+        return community_treasury.get_treasury_status(_graph(request))
+
+    @router.post("/treasury/proposals")
+    def create_proposal_endpoint(request: Request, body: dict):
+        from modules import community_treasury
+        title = body.get("title", "")
+        category = body.get("category", "charity")
+        grant_amount = float(body.get("grant_amount", 500.0))
+        return guard(lambda: community_treasury.create_proposal(_graph(request), title, category, grant_amount))
+
+    @router.post("/treasury/vote")
+    def vote_proposal_endpoint(request: Request, body: dict):
+        from modules import community_treasury
+        proposal_id = body.get("proposal_id", "")
+        return guard(lambda: community_treasury.vote_proposal(_graph(request), proposal_id))
+
     return router
