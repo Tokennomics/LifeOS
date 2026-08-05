@@ -1557,7 +1557,7 @@ def build_router(auth) -> APIRouter:
         text = body.get("text", "")
         if not text.strip():
             raise ValueError("text is required")
-        return guard(lambda: capture.capture(text, _graph(request), claude=claude))
+        return guard(lambda: capture.capture(text, _graph(request), claude=_claude(request)))
 
     # ---- Security Hardening & Threat Defense -----------------------------
 
@@ -1925,7 +1925,7 @@ def build_router(auth) -> APIRouter:
         g = _graph(request)
         caller = getattr(request.state, "caller", None) or {}
         handle = caller.get("handle") or "robert"
-        session = g.session("convoy", {"content:read"})
+        session = g.session("convoy", {"content:read", "events:read"})
         events = session.find_entities("event", limit=300)
         attended_count = sum(1 for e in events if e.get("attrs", {}).get("type") == "convoy" and e.get("attrs", {}).get("status") == "attended")
         reliability = min(99, 85 + (attended_count * 2))
@@ -1947,7 +1947,7 @@ def build_router(auth) -> APIRouter:
     @router.get("/wrapped/monthly")
     def monthly_wrapped_endpoint(request: Request):
         g = _graph(request)
-        session = g.session("wrapped", {"content:read", "tasks:read"})
+        session = g.session("wrapped", {"content:read", "tasks:read", "goals:read", "events:read"})
         tasks = session.find_entities("task", limit=500)
         goals = session.find_entities("goal", limit=200)
         events = session.find_entities("event", limit=300)
