@@ -198,11 +198,32 @@ function render() {
 function todayView() {
   const t = state.today;
   let html = "";
-  if (!state.visions.length) {
-    html += `<div class="card"><h2>Start here</h2>
-      <p class="big">Where do you want to be? Write the vision, add a few goal lines — LifeOS backcasts it into a plan.</p>
-      <textarea id="vision-text" placeholder="Freedom by 40&#10;- Ship Life OS and run my week with it&#10;- Train 3x per week"></textarea>
-      <button class="primary" data-act="vision">Create my plan</button></div>`;
+  if (!state.visions || !state.visions.length) {
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
+      <h2>Welcome to LifeOS — Voice & Text Intake</h2>
+      <p class="big">Tell LifeOS about yourself. Speak or type your vision, goals, and interests (e.g. bouldering, coffee, Lisbon, freedom by 40).</p>
+      <textarea id="vision-text" placeholder="I live in Lisbon. My goals are to ship LifeOS, train bouldering 3x/week, and meet awesome people." style="min-height:80px;"></textarea>
+      <div class="row2" style="margin-top:8px;">
+        <button class="primary" data-act="vision">Build My Personal Graph & Plan 🚀</button>
+        <button class="ghost" style="width:auto; padding:10px 16px;" data-act="voice-onboard">🎙️ Mic Speak Profile</button>
+      </div>
+    </div>`;
+
+    if (state.showTutorial !== false) {
+      html += `<div class="card" style="border:1px solid var(--spark);">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2>✨ Guided Feature Tour (5 Core Pillars)</h2>
+          <button class="pill" style="width:auto; padding:4px 10px;" data-act="close-tour">Close Tour ✕</button>
+        </div>
+        <div style="margin-top:10px; font-size:13.5px; line-height:1.5;">
+          <div style="margin-bottom:8px;"><strong>1. 🌅 Diurnal Ritual Engine:</strong> Lock Morning Intent at 8am; log Evening Sunset wins at 9pm.</div>
+          <div style="margin-bottom:8px;"><strong>2. 🎙️ VoiceOS Capture:</strong> Speak thoughts into the mic — tasks, people, and interests are extracted to graph.</div>
+          <div style="margin-bottom:8px;"><strong>3. 🧗 Instant Crews & WhatsApp Links:</strong> Start bouldering/dinner clubs with 1-tap WhatsApp invite links.</div>
+          <div style="margin-bottom:8px;"><strong>4. 🛡️ Deep Work Focus Shield:</strong> Silence social notifications for 45 minutes of uninterrupted flow.</div>
+          <div><strong>5. 🔒 Data Sovereignty:</strong> 100% Local-First graph. Export GraphML anytime in 1 click.</div>
+        </div>
+      </div>`;
+    }
   }
 
   /* ---- Diurnal Ritual Engine (Morning Intent / Evening Sunset) ---- */
@@ -1095,6 +1116,34 @@ function wire(root) {
     }
     await refresh();
   }, "Plan created ✔"));
+
+  on("[data-act=voice-onboard]", () => {
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Speech) {
+      return toast("Speech recognition not supported in browser. Type your profile.");
+    }
+    try {
+      const rec = new Speech();
+      rec.lang = "en-US";
+      rec.interimResults = false;
+      toast("Listening… Speak your vision & goals 🎙️");
+      rec.onresult = (evt) => {
+        const transcript = evt.results[0][0].transcript;
+        const existing = $("#vision-text").value;
+        $("#vision-text").value = existing ? existing + "\n" + transcript : transcript;
+        toast("Profile Transcribed! Tapping Build Plan…");
+      };
+      rec.onerror = () => toast("Voice recognition error.");
+      rec.start();
+    } catch (err) {
+      toast("Voice error.");
+    }
+  });
+
+  on("[data-act=close-tour]", () => {
+    state.showTutorial = false;
+    render();
+  });
 
   on("[data-act=plan]", () => act(async () => { await api("/v1/plan", {}); await refresh(); }, "Week planned ✔"));
 
