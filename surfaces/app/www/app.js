@@ -101,7 +101,7 @@ async function refresh() {
       state.me = await api("/v1/auth/me").catch(() => null);
     }
     if (state.tab === "today") {
-      [state.today, state.visions, state.admin, state.journal, state.parked, state.rings, state.weekend, state.habitChain] = await Promise.all([
+      [state.today, state.visions, state.admin, state.journal, state.parked, state.rings, state.weekend, state.habitChain, state.energyBalance] = await Promise.all([
         api("/v1/today"),
         api("/v1/vision").then((r) => r.visions),
         api("/v1/admin").then((r) => r.items),
@@ -110,6 +110,7 @@ async function refresh() {
         api("/v1/routines/rings").catch(() => null),
         api("/v1/weekend").catch(() => null),
         api("/v1/routines/chaining-recommendation", {}).catch(() => null),
+        api("/v1/horizon/energy-balance").catch(() => null),
       ]);
     } else if (state.tab === "people") {
       const [people, crews, feed, venues] = await Promise.all([
@@ -153,12 +154,14 @@ async function refresh() {
       state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent };
       state.people = people.people;
     } else {
-      const [graphRes, centralityRanks] = await Promise.all([
+      const [graphRes, centralityRanks, timeline] = await Promise.all([
         api("/v1/graph"),
-        api("/v1/graph/centrality-ranks").catch(() => [])
+        api("/v1/graph/centrality-ranks").catch(() => []),
+        api("/v1/graph/timeline").catch(() => [])
       ]);
       state.graph = graphRes;
       state.centralityRanks = centralityRanks;
+      state.timeline = timeline;
     }
     render();
   } catch (e) {
@@ -200,6 +203,27 @@ function todayView() {
       <p class="big">Where do you want to be? Write the vision, add a few goal lines — LifeOS backcasts it into a plan.</p>
       <textarea id="vision-text" placeholder="Freedom by 40&#10;- Ship Life OS and run my week with it&#10;- Train 3x per week"></textarea>
       <button class="primary" data-act="vision">Create my plan</button></div>`;
+  }
+
+  /* ---- Cognitive Load & Burnout Risk Meter ---- */
+  if (state.energyBalance) {
+    const eb = state.energyBalance;
+    const riskColors = { low: "var(--growth)", moderate: "var(--warm)", high: "var(--alert)" };
+    const riskEmoji = { low: "🟢 Low Risk", moderate: "🟡 Moderate Risk", high: "🔴 High Risk" };
+    html += `<div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>Cognitive Load & Energy Balance</h2>
+        <span class="badge" style="color:${riskColors[eb.burnout_risk] || 'var(--growth)'}; font-weight:800; border-color:${riskColors[eb.burnout_risk]}40;">${riskEmoji[eb.burnout_risk] || '🟢 Low Risk'}</span>
+      </div>
+      <div style="display:flex; gap:16px; margin:10px 0; align-items:center;">
+        <div style="font-size:24px; font-weight:900; color:var(--spark);">${eb.cognitive_load_index || 2.5}</div>
+        <div style="font-size:12.5px; color:var(--muted); line-height:1.3;">
+          <div><strong>Tasks in progress:</strong> ${eb.open_tasks_count || 0}</div>
+          <div><strong>Active focus goals:</strong> ${eb.active_goals_count || 0}</div>
+        </div>
+      </div>
+      <p class="hint" style="color:var(--text); line-height:1.4;">💡 ${esc(eb.recommendation || "High capacity available: Great time for deep work!")}</p>
+    </div>`;
   }
 
   /* ---- Deep Work Anti-Distraction Shield ---- */
@@ -775,6 +799,20 @@ function graphView() {
   html += `<div class="card"><h2>Recent</h2>
       ${g.recent.map((r) => `<div class="feed-item"><div class="kind">${esc(r.kind)}</div><div class="label">${esc(r.label)}</div></div>`).join("") || `<p class="empty">—</p>`}
     </div>`;
+
+  /* ---- Life Audit & Milestone Timeline ---- */
+  const timeline = state.timeline || [];
+  html += `<div class="card"><h2>Life Audit & Milestone Timeline</h2>
+    <p class="hint" style="margin-bottom:10px;">Chronological audit log of your life goals, decision reviews, and milestones reached.</p>
+    ${timeline.length ? timeline.slice(0, 10).map(t => `
+      <div class="feed-item">
+        <div class="kind">${esc(t.type || "Milestone")} · ${esc(t.date || t.timestamp || "")}</div>
+        <div class="label" style="font-size:13.5px; color:var(--text); margin-top:2px;"><strong>${esc(t.title || t.label || t.event || "")}</strong></div>
+        ${t.description ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${esc(t.description)}</div>` : ""}
+      </div>
+    `).join("") : `<div class="feed-item"><div class="label" style="color:var(--muted);">Milestones and decision logs will automatically populate here as you complete goals and log retros.</div></div>`}
+  </div>`;
+
   return html;
 }
 
