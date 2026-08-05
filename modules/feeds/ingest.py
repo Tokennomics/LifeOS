@@ -30,7 +30,7 @@ carry on.
 
 import datetime
 
-from modules.feeds import parse
+from modules.feeds import discover, parse
 from substrate import SYSTEM_OWNER, now_iso
 from substrate.graph import Graph
 
@@ -187,6 +187,46 @@ def sync(graph: Graph, feed_id: str, text: str = "", now: str = "",
         "last_count": added + updated}, source=source)
     return {"feed_id": feed_id, "status": "ok", "added": added, "updated": updated,
             "skipped_no_date": no_date, "skipped_out_of_range": out_of_range}
+
+
+def discover_feeds(graph: Graph, url: str, html: str = "", add: bool = False,
+                   city: str = "", venue: str = "", topic: str = "",
+                   source: str = MODULE) -> dict:
+    """Given a venue's website, propose its calendar feeds. Nothing is added by default.
+
+    `add=True` subscribes to the top candidate, which is a convenience for the obvious case
+    and never the default: a page can advertise a dozen feeds and only the human knows which
+    one is the gig calendar rather than the blog. `html` bypasses the fetch, same door the
+    rest of this module offers.
+    """
+    url = _norm(url, 500)
+    if not url.lower().startswith(("http://", "https://")):
+        raise ValueError("a venue needs an http(s) url")
+
+    # Already a feed? Then there is nothing to discover and pretending otherwise wastes a
+    # round trip and the user's patience.
+    if not html and discover.looks_like_feed_url(url):
+        candidates = [{"url": url, "kind": "ics" if url.lower().endswith((".ics", ".ical"))
+                       else "rss", "title": "", "advertised": False, "score": 5.0}]
+    else:
+        if not html:
+            try:
+                html = _fetch(url)
+            except Exception as exc:
+                return {"url": url, "status": f"fetch failed: {type(exc).__name__}",
+                        "candidates": [], "added": None}
+        candidates = discover.find_feeds(html, base_url=url)
+
+    added = None
+    if add and candidates:
+        added = add_feed(graph, candidates[0]["url"], city=city,
+                         venue=venue or _host(url), topic=topic, source=source)
+    return {"url": url, "status": "ok", "candidates": candidates, "added": added}
+
+
+def _host(url: str) -> str:
+    from urllib.parse import urlparse
+    return urlparse(url).netloc.removeprefix("www.")[:80]
 
 
 def sync_all(graph: Graph, source: str = MODULE) -> dict:

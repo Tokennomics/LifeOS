@@ -290,6 +290,15 @@ class FeedSyncIn(BaseModel):
     text: str = ""
 
 
+class FeedDiscoverIn(BaseModel):
+    url: str
+    html: str = ""
+    add: bool = False
+    city: str = ""
+    venue: str = ""
+    topic: str = ""
+
+
 class DatingBlockIn(BaseModel):
     subject_account_id: str
 
@@ -1233,6 +1242,16 @@ def build_router(auth) -> APIRouter:
     def feeds_sync_all(request: Request):
         from modules.feeds import ingest
         return guard(lambda: ingest.sync_all(_graph(request)))
+
+    @router.post("/feeds/discover")
+    def feeds_discover(request: Request, body: FeedDiscoverIn):
+        """Paste a venue's website, get its calendar feeds. Proposes; does not add,
+        unless you ask — a page can advertise a dozen feeds and only you know which one
+        is the gig calendar rather than the blog."""
+        from modules.feeds import ingest
+        return guard(lambda: ingest.discover_feeds(
+            _graph(request), body.url, html=body.html, add=body.add,
+            city=body.city, venue=body.venue, topic=body.topic))
 
     # ---- Weekend digest --------------------------------------------------
 

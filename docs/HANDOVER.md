@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#15 are merged.** `python -m pytest` → **618 passing**.
+explicit permission). **PRs #1–#15 are merged; #16 (venue feeds) is open.** `python -m pytest` → **666 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -191,6 +191,15 @@ published *to be* read, which is the whole difference from ROADMAP's Tier 3.
   the tests run and how an import works on a connection that blocks everything interesting.
 - Bounded per sync: `MAX_ITEMS` per feed, and a horizon of `STALE_DAYS` back to
   `HORIZON_DAYS` forward, so a venue publishing its whole archive does not import it.
+- **`POST /v1/feeds/discover` takes a venue's *website*, not its feed URL.** Nobody knows
+  their favourite bar's `.ics` link, which made populating a city a page-source safari —
+  i.e. a task that quietly never happens. It reads the standard
+  `<link rel="alternate">` advertisement, ranks ICS above RSS (ICS states when an event is;
+  RSS only sometimes does) and the events feed above the blog and comments feeds.
+  **It proposes and does not add** unless asked: a page can advertise a dozen feeds and only
+  a human knows which is the gig calendar. Query-string feeds count — Squarespace's
+  `?format=rss`, The Events Calendar's `?ical=1`, WordPress's `?feed=rss2` — because a
+  path-only check silently misses whole platforms.
 
 **Not verified from here: a fetch against a real venue feed.** The sandbox proxy 403s
 arbitrary hosts. `_fetch` itself was exercised against a reachable URL (correct bytes,
