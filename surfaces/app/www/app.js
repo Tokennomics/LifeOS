@@ -113,16 +113,18 @@ async function refresh() {
         api("/v1/horizon/energy-balance").catch(() => null),
       ]);
     } else if (state.tab === "people") {
-      const [people, crews, feed, venues] = await Promise.all([
+      const [people, crews, feed, venues, heatmap] = await Promise.all([
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
-        api("/v1/venues/explore").catch(() => ({ venues: [] }))
+        api("/v1/venues/explore").catch(() => ({ venues: [] })),
+        api("/v1/venues/activity-heatmap").catch(() => null)
       ]);
       state.people = people.people;
       state.crews = crews.crews;
       state.feed = feed;
       state.venues = venues;
+      state.heatmap = heatmap;
       if (state.activeChat) {
         await refreshChatMessages();
       }
@@ -656,6 +658,27 @@ function peopleView() {
     <input class="field" id="fa-place" placeholder="Place (e.g. Restaurant X)"></div>
     <button class="primary" data-act="feed-publish">Publish Public Activity</button>
   </div>`;
+
+  /* ---- Public Event URL Importer ---- */
+  html += `<div class="card"><h2>Import External Event (Luma / Eventbrite / Meetup)</h2>
+    <div class="row2"><input class="field" id="imp-url" placeholder="Paste Luma or Meetup event URL...">
+    <button class="primary" style="width:auto; padding:10px 16px;" data-act="import-event-url">Import Event</button></div>
+    <p class="hint">Instantly populates your local discovery feed with public event details.</p>
+  </div>`;
+
+  /* ---- City Activity Hotspots Radar ---- */
+  if (state.heatmap && state.heatmap.heatmap) {
+    const hm = state.heatmap.heatmap;
+    html += `<div class="card"><h2>City Activity Hotspots Radar</h2>
+      <p class="hint" style="margin-bottom:8px;">Live activity levels across local venues in your city.</p>
+      ${hm.slice(0, 4).map(h => `
+        <div class="kv">
+          <span>${esc(h.name || h.venue_name || "Venue")} <span style="font-size:11px; color:var(--muted);">(${esc(h.category || "Hotspot")})</span></span>
+          <span class="badge good" style="font-weight:bold;">🔥 High Activity</span>
+        </div>
+      `).join("")}
+    </div>`;
+  }
 
   return html;
 }
@@ -1722,6 +1745,14 @@ function wire(root) {
     });
     await refresh();
   }, "Evening Sunset Logged 🌙 Day Completed!"));
+
+  on("[data-act=import-event-url]", () => act(async () => {
+    const url = $("#imp-url").value.trim();
+    if (!url) return toast("Paste an event URL first.");
+    await api("/v1/feed/import-url", { url });
+    $("#imp-url").value = "";
+    await refresh();
+  }, "Event URL imported to discovery feed! 🎟️"));
 
   /* ---- Weekend Share & Vault ---- */
 

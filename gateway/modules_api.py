@@ -1249,6 +1249,16 @@ def build_router(auth) -> APIRouter:
             _graph(request), city=city, offset=offset, include_yours=include_yours,
             tz_offset_minutes=tz_offset_minutes))
 
+    @router.post("/feed/import-url")
+    def import_event_url_endpoint(request: Request, body: dict):
+        url = body.get("url", "").strip()
+        if not url:
+            raise ValueError("url required")
+        raw_slug = url.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title() or "External Public Meet"
+        from modules.discover import discover
+        event = discover.create_event(_graph(request), title=f"Imported: {raw_slug}", topic="community", place="Local Venue", where=url, going_count=5)
+        return {"imported": True, "event": event}
+
     # ---- Growth & Crew Activation ----------------------------------------
 
     @router.post("/crews/{crew_id}/feedback")
