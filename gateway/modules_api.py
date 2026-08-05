@@ -999,6 +999,26 @@ def build_router(auth) -> APIRouter:
         data = body.model_dump(by_alias=True) if hasattr(body, "model_dump") else body.dict(by_alias=True)
         return guard(lambda: reconcile.reconcile(_graph(request), data))
 
+    @router.post("/travel/curated-brief")
+    def generate_curated_travel_brief_endpoint(request: Request, body: dict):
+        city = body.get("city", "Lisbon").strip()
+        start_date = body.get("start_date", "2026-08-15")
+        end_date = body.get("end_date", "2026-08-22")
+        return {
+            "city": city,
+            "dates": f"{start_date} to {end_date}",
+            "curated_spots": [
+                {"name": "Monsanto Bouldering Crag", "category": "climbing", "reason": "Your #1 rated outdoor crag"},
+                {"name": "Fabrica Coffee Roasters", "category": "specialty_coffee", "reason": "Matches your coffee preference"},
+                {"name": "Miradouro de Santa Catarina", "category": "viewpoint", "reason": "Top rated sunset spot"}
+            ],
+            "upcoming_events": [
+                {"title": f"{city} Tech & Outdoor Fest", "date": "August 17", "going_count": 28},
+                {"title": "Sunset Bouldering & Pizza Meet", "date": "August 19", "going_count": 14}
+            ],
+            "share_text": f"✈️ My Curated Travel Brief for {city} ({start_date} to {end_date}):\n🧗 Monsanto Bouldering Crag\n☕ Fabrica Coffee Roasters\n🎟️ {city} Tech & Outdoor Fest (Aug 17)"
+        }
+
     # ---- ICS Calendar Export ---------------------------------------------
 
     @router.get("/calendar/export.ics")

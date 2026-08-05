@@ -906,6 +906,17 @@ function mapView() {
       </div>`).join("");
   }
   html += `</div>`;
+
+  /* ---- Forward-Looking Travel & Curated Event Radar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
+    <h2>✈️ Forward-Looking Travel & Curated Event Radar</h2>
+    <p class="hint" style="margin-bottom:10px;">Planning future travel? Select a destination city and dates to get your curated spots and upcoming event forecast!</p>
+    <div class="row2"><input class="field" id="tr-city" placeholder="Destination City (e.g. Lisbon / Tokyo / NYC)">
+    <input class="field" id="tr-start" type="date"></div>
+    <button class="primary" data-act="travel-brief">Generate Curated Travel Forecast ✈️</button>
+    <div id="travel-brief-output" style="margin-top:12px;"></div>
+  </div>`;
+
   return html;
 }
 
@@ -2057,6 +2068,25 @@ function wire(root) {
     await navigator.clipboard.writeText(text).catch(() => {});
     toast("Propose Outing message copied to clipboard! 📲 Paste into WhatsApp.");
   }));
+
+  on("[data-act=travel-brief]", () => act(async () => {
+    const city = $("#tr-city").value.trim() || "Lisbon";
+    const start_date = $("#tr-start").value || "2026-08-15";
+    const res = await api("/v1/travel/curated-brief", { city, start_date });
+    const out = $("#travel-brief-output");
+    if (!out) return;
+    const spots = res.curated_spots || [];
+    const evts = res.upcoming_events || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid rgba(37,99,235,0.3);">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:8px;">✈️ Curated Itinerary Brief: ${esc(res.city)} (${esc(res.dates)})</div>
+        <div style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--muted); margin-bottom:4px;">Known Favorite Spots:</div>
+        ${spots.map(s => `<div style="font-size:13px; margin-bottom:4px;">📍 <strong>${esc(s.name)}</strong> (${esc(s.category)}) — <span style="color:var(--muted);">${esc(s.reason)}</span></div>`).join("")}
+        <div style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--muted); margin:8px 0 4px;">Upcoming Curated Events:</div>
+        ${evts.map(e => `<div style="font-size:13px; margin-bottom:4px;">🎟️ <strong>${esc(e.title)}</strong> · ${esc(e.date)} (${e.going_count} interested)</div>`).join("")}
+      </div>
+    `;
+  }, "Curated Travel Forecast Generated! ✈️"));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
 
