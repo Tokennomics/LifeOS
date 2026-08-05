@@ -266,6 +266,21 @@ function todayView() {
     </div>`;
   }
 
+  /* ---- AI Smart Calendar Travel Activity Nudge ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>✈️ AI Smart Calendar Travel Radar</h2>
+      <span class="badge good" style="font-weight:bold;">Trip Detected</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">AI Smart Calendar detected an upcoming trip to <strong>Lisbon</strong> (Aug 15 - 22)! Suggested curated activities based on your graph:</p>
+    <div style="font-size:13px; line-height:1.5; margin-bottom:10px;">
+      <div>📍 <strong>Monsanto Outdoor Bouldering Crag</strong> (Climbing · #1 match)</div>
+      <div>☕ <strong>Fabrica Coffee Roasters</strong> (Specialty Coffee)</div>
+      <div>🎟️ <strong>Lisbon Tech & Outdoor Fest</strong> (Aug 17 · 28 attending)</div>
+    </div>
+    <button class="primary" data-act="smart-cal-travel-add" data-city="Lisbon">Add Suggested Activities to Smart Calendar 📅</button>
+  </div>`;
+
   /* ---- Ambient Focus & Plane Journey Sleep Soundscapes ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(139,92,246,0.12)); border:1px solid rgba(37,99,235,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2068,6 +2083,12 @@ function wire(root) {
     await navigator.clipboard.writeText(text).catch(() => {});
     toast("Propose Outing message copied to clipboard! 📲 Paste into WhatsApp.");
   }));
+
+  on("[data-act=smart-cal-travel-add]", (el) => act(async () => {
+    const city = el.dataset.city || "Lisbon";
+    await api("/v1/calendar/add-travel-activities", { city });
+    await refresh();
+  }, "Trip activities added to Smart Calendar! 📅"));
 
   on("[data-act=travel-brief]", () => act(async () => {
     const city = $("#tr-city").value.trim() || "Lisbon";

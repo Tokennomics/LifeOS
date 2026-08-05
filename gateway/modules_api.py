@@ -1019,6 +1019,13 @@ def build_router(auth) -> APIRouter:
             "share_text": f"✈️ My Curated Travel Brief for {city} ({start_date} to {end_date}):\n🧗 Monsanto Bouldering Crag\n☕ Fabrica Coffee Roasters\n🎟️ {city} Tech & Outdoor Fest (Aug 17)"
         }
 
+    @router.post("/calendar/add-travel-activities")
+    def add_travel_activities_to_calendar_endpoint(request: Request, body: dict):
+        city = body.get("city", "Lisbon")
+        from modules.discover import discover
+        event = discover.create_event(_graph(request), title=f"Trip Activity: {city} Crag & Coffee", topic="climbing", place=f"{city} Center", where="Local Venue", going_count=8)
+        return {"added": True, "event": event}
+
     # ---- ICS Calendar Export ---------------------------------------------
 
     @router.get("/calendar/export.ics")
