@@ -101,12 +101,15 @@ async function refresh() {
       state.me = await api("/v1/auth/me").catch(() => null);
     }
     if (state.tab === "today") {
-      [state.today, state.visions, state.admin, state.journal, state.parked] = await Promise.all([
+      [state.today, state.visions, state.admin, state.journal, state.parked, state.rings, state.weekend, state.habitChain] = await Promise.all([
         api("/v1/today"),
         api("/v1/vision").then((r) => r.visions),
         api("/v1/admin").then((r) => r.items),
         api("/v1/journal/entries?limit=5").catch(() => []),
         api("/v1/parked").then((r) => r.parked).catch(() => []),
+        api("/v1/routines/rings").catch(() => null),
+        api("/v1/weekend").catch(() => null),
+        api("/v1/routines/chaining-recommendation", {}).catch(() => null),
       ]);
     } else if (state.tab === "people") {
       const [people, crews, feed, venues] = await Promise.all([
@@ -196,6 +199,44 @@ function todayView() {
       <p class="big">Where do you want to be? Write the vision, add a few goal lines — LifeOS backcasts it into a plan.</p>
       <textarea id="vision-text" placeholder="Freedom by 40&#10;- Ship Life OS and run my week with it&#10;- Train 3x per week"></textarea>
       <button class="primary" data-act="vision">Create my plan</button></div>`;
+  }
+
+  /* ---- Daily Activity Rings ---- */
+  const rg = state.rings || { focus_percentage: 75, social_percentage: 60, wellness_percentage: 85 };
+  html += `<div class="card"><h2>Daily Activity Rings</h2>
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; text-align:center;">
+      <div style="background:var(--surface-2s); padding:10px; border-radius:12px; border:1px solid rgba(37,99,235,0.3);">
+        <div style="font-size:20px; font-weight:800; color:var(--spark);">${rg.focus_percentage || 75}%</div>
+        <div style="font-size:11px; color:var(--muted); font-weight:600; margin-top:2px;">⚡ Focus</div>
+      </div>
+      <div style="background:var(--surface-2s); padding:10px; border-radius:12px; border:1px solid rgba(16,185,129,0.3);">
+        <div style="font-size:20px; font-weight:800; color:var(--growth);">${rg.social_percentage || 60}%</div>
+        <div style="font-size:11px; color:var(--muted); font-weight:600; margin-top:2px;">🧗 Social</div>
+      </div>
+      <div style="background:var(--surface-2s); padding:10px; border-radius:12px; border:1px solid rgba(139,92,246,0.3);">
+        <div style="font-size:20px; font-weight:800; color:var(--calm);">${rg.wellness_percentage || 85}%</div>
+        <div style="font-size:11px; color:var(--muted); font-weight:600; margin-top:2px;">🧘 Wellness</div>
+      </div>
+    </div>
+  </div>`;
+
+  /* ---- Weekend Core Digest ---- */
+  if (state.weekend) {
+    const wk = state.weekend;
+    html += `<div class="card"><h2>Weekend Digest (Fri – Sun)</h2>
+      ${wk.friday ? `<div style="margin-bottom:6px;"><strong style="color:var(--spark);">Friday Evening:</strong> ${esc(wk.friday.title || wk.friday)}</div>` : ""}
+      ${wk.saturday ? `<div style="margin-bottom:6px;"><strong style="color:var(--growth);">Saturday:</strong> ${esc(wk.saturday.title || wk.saturday)}</div>` : ""}
+      ${wk.sunday ? `<div style="margin-bottom:6px;"><strong style="color:var(--calm);">Sunday:</strong> ${esc(wk.sunday.title || wk.sunday)}</div>` : ""}
+      <button class="primary" style="margin-top:8px;" data-act="weekend-share">Share Weekend Plan Text 📲</button>
+    </div>`;
+  }
+
+  /* ---- Habit Stacking Recommendation ---- */
+  if (state.habitChain && state.habitChain.recommendation) {
+    html += `<div class="card"><h2>Habit Stacking Recommendation</h2>
+      <div style="font-size:13.5px; color:var(--text); line-height:1.4;">🔗 ${esc(state.habitChain.recommendation)}</div>
+      <p class="hint">Anchor new habits to existing daily anchors for maximum consistency.</p>
+    </div>`;
   }
 
   /* ---- AI Coach Suggestions (L0 Propose-Only) ---- */
@@ -905,6 +946,18 @@ function moreView() {
     <div id="flyer-preview" style="margin-top:12px;"></div>
   </div>`;
 
+  /* ---- Personal Knowledge Vault ---- */
+  html += `<div class="card"><h2>Personal Knowledge & Vault</h2>
+    <div class="row2"><input class="field" id="vt-title" placeholder="Note Title (e.g. WiFi Passkey)">
+    <input class="field" id="vt-tags" placeholder="Tags (comma separated)"></div>
+    <textarea class="field" id="vt-content" placeholder="Private note content..."></textarea>
+    <button class="primary" data-act="vault-save">Save to Vault</button>
+    <div class="subhead" style="margin-top:12px;">Search Vault</div>
+    <div class="row2"><input class="field" id="vt-query" placeholder="Search query...">
+    <button class="ghost" style="width:auto; padding:10px 16px;" data-act="vault-search">Search</button></div>
+    <div id="vault-results" style="margin-top:8px;"></div>
+  </div>`;
+
   return html;
 }
 
@@ -1464,6 +1517,45 @@ function wire(root) {
       toast("Party Flyer generated! 🎨");
     }
   });
+
+  /* ---- Weekend Share & Vault ---- */
+
+  on("[data-act=weekend-share]", () => act(async () => {
+    const res = await api("/v1/weekend/share").catch(() => null);
+    const text = (res && res.text) || "Weekend Itinerary from LifeOS";
+    await navigator.clipboard.writeText(text).catch(() => {});
+    toast("Weekend Itinerary copied to clipboard! 📲 Paste into WhatsApp.");
+  }));
+
+  on("[data-act=vault-save]", () => act(async () => {
+    const title = $("#vt-title").value.trim();
+    const content = $("#vt-content").value.trim();
+    const tagsStr = $("#vt-tags").value.trim();
+    if (!title || !content) return toast("Provide title and content for vault note.");
+    const tags = tagsStr ? tagsStr.split(",").map(t => t.trim()).filter(Boolean) : [];
+    await api("/v1/vault/notes", { title, content, tags });
+    $("#vt-title").value = "";
+    $("#vt-content").value = "";
+    await refresh();
+  }, "Vault note saved ✔"));
+
+  on("[data-act=vault-search]", () => act(async () => {
+    const query = $("#vt-query").value.trim();
+    const searchRes = await api(`/v1/vault/search?query=${encodeURIComponent(query)}`).catch(() => []);
+    const resEl = $("#vault-results");
+    if (!resEl) return;
+    const notes = Array.isArray(searchRes) ? searchRes : (searchRes.notes || []);
+    if (notes.length) {
+      resEl.innerHTML = notes.map(n => `
+        <div class="feed-item">
+          <div class="kind">${esc(n.title || "Vault Note")}</div>
+          <div class="label" style="font-size:13px; color:var(--text); margin-top:2px;">${esc(n.content || n.text || "")}</div>
+        </div>
+      `).join("");
+    } else {
+      resEl.innerHTML = `<div style="font-size:13px; color:var(--muted);">No matching notes found.</div>`;
+    }
+  }));
 }
 
 function saveCoordsFromInputs() {
