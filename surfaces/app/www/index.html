@@ -17,6 +17,7 @@
   <header>
     <div class="brand"><span class="dot"></span> LifeOS</div>
     <div class="header-right">
+      <button id="cmd-k-btn" class="pill" style="font-size:11px; padding:4px 10px; border-color:var(--spark)40;" title="Keyboard Shortcuts (Ctrl+K)">Ctrl+K ⚡</button>
       <span id="mode-badge" class="badge">…</span>
       <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
     </div>
@@ -47,6 +48,21 @@
       <button id="set-close">Close</button>
     </div>
     <p class="hint">Your data lives on your own gateway. Export is always available — the graph is yours.</p>
+  </dialog>
+
+  <dialog id="cmd-palette" style="background:var(--surface-1); border:1px solid var(--spark); border-radius:16px; padding:20px; max-width:480px; width:90%; color:var(--text);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2 style="margin:0; font-size:18px;">⚡ Command Palette Shortcuts</h2>
+      <button id="cmd-close" class="pill" style="width:auto; padding:4px 10px;">✕</button>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px; font-size:14px;">
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>Go to Today</span><code>T</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>Go to People / Crews</span><code>P</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>Go to Map & Hotspots</span><code>M</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>🎙️ VoiceOS Mic Capture</span><code>V</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>🛡️ Start 45m Focus Shield</span><code>F</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>🧘 2-Min Mindfulness Reset</span><code>B</code></div>
+    </div>
   </dialog>
 
   <div id="toast" hidden></div>

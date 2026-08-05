@@ -2185,4 +2185,21 @@ if (window.location.hash && window.location.hash.includes("join-crew")) {
   }
 }
 
+/* ---- Command Palette (Ctrl+K / Cmd+K) Listener ---- */
+const cmdDlg = $("#cmd-palette");
+const openCmd = () => cmdDlg && cmdDlg.showModal();
+const closeCmd = () => cmdDlg && cmdDlg.close();
+
+const cmdBtn = $("#cmd-k-btn");
+if (cmdBtn) cmdBtn.addEventListener("click", openCmd);
+const cmdCloseBtn = $("#cmd-close");
+if (cmdCloseBtn) cmdCloseBtn.addEventListener("click", closeCmd);
+
+window.addEventListener("keydown", (evt) => {
+  if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === "k") {
+    evt.preventDefault();
+    openCmd();
+  }
+});
+
 refresh();
