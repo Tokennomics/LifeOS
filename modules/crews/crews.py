@@ -71,13 +71,14 @@ def _load_visible(session, crew_id: str, subject: str | None = None) -> tuple[di
     if crew is not None and crew["attrs"].get("type") == "crew":
         return crew, True
     if subject:
-        crew = session.get_if_granted(crew_id, subject, {ADMIN, MEMBER})
+        crew = session.get_if_granted(crew_id, subject, {ADMIN, MEMBER, INVITED})
         if crew is not None and crew["kind"] == "content" and crew["attrs"].get("type") == "crew":
             return crew, False
     crew = session.get_public(crew_id)
     if crew is None or crew["kind"] != "content" or crew["attrs"].get("type") != "crew":
         raise ValueError("unknown crew")
     return crew, False
+
 
 
 def _account_handle(session, subject_id: str) -> str | None:
@@ -328,11 +329,12 @@ def accept_invite(graph: Graph, crew_id: str, person_id: str, source: str = MODU
 
 def decline_invite(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:
     session = graph.session(MODULE, SCOPES)
-    _load(session, crew_id)
+    _load_visible(session, crew_id, person_id)
     if _state_of(session, crew_id, person_id) != INVITED:
         raise ValueError("no open invite for that person")
     _set_state(session, crew_id, person_id, None, source)
     return {**_reload_view(session, crew_id), "declined": True}
+
 
 
 def request_join(graph: Graph, crew_id: str, person_id: str, source: str = MODULE) -> dict:

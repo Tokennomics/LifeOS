@@ -1597,12 +1597,14 @@ def build_router(auth) -> APIRouter:
     @router.post("/comms/messages")
     def send_message_endpoint(request: Request, body: ChatMessageIn):
         from modules.comms import chat
-        return guard(lambda: chat.send_message(_graph(request), body.sender_id, body.recipient_id, body.body, body.linked_entity_id))
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: chat.send_message(_graph(request), body.sender_id, body.recipient_id, body.body, body.linked_entity_id, caller.get("account_id")))
 
     @router.get("/comms/messages")
     def get_messages_endpoint(request: Request, recipient_id: str):
         from modules.comms import chat
-        return chat.get_messages(_graph(request), recipient_id)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: chat.get_messages(_graph(request), recipient_id, caller.get("account_id")))
 
     @router.post("/miniapp/register")
     def register_miniapp_endpoint(request: Request, body: MiniAppRegisterIn):
@@ -1732,12 +1734,14 @@ def build_router(auth) -> APIRouter:
     @router.post("/comms/bulletin")
     def publish_bulletin_endpoint(request: Request, body: BulletinPublishIn):
         from modules.comms import bulletin
-        return guard(lambda: bulletin.publish_bulletin(_graph(request), body.crew_id, body.title, body.body))
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: bulletin.publish_bulletin(_graph(request), body.crew_id, body.title, body.body, caller.get("account_id")))
 
     @router.get("/comms/bulletin/list")
     def list_bulletins_endpoint(request: Request, crew_id: str):
         from modules.comms import bulletin
-        return bulletin.list_bulletins(_graph(request), crew_id)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: bulletin.list_bulletins(_graph(request), crew_id, caller.get("account_id")))
 
     @router.post("/routines/chaining-recommendation")
     def suggest_habit_chain_endpoint(request: Request):
@@ -1747,12 +1751,14 @@ def build_router(auth) -> APIRouter:
     @router.post("/comms/gallery")
     def upload_photo_endpoint(request: Request, body: PhotoUploadIn):
         from modules.comms import gallery
-        return guard(lambda: gallery.upload_photo(_graph(request), body.event_id, body.owner_id, body.photo_url))
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: gallery.upload_photo(_graph(request), body.event_id, body.owner_id, body.photo_url, caller.get("account_id")))
 
     @router.get("/comms/gallery/list")
     def list_photos_endpoint(request: Request, event_id: str):
         from modules.comms import gallery
-        return gallery.list_photos(_graph(request), event_id)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: gallery.list_photos(_graph(request), event_id, caller.get("account_id")))
 
     @router.get("/routines/consistency-forecast")
     def forecast_consistency_endpoint(request: Request):
@@ -1767,12 +1773,14 @@ def build_router(auth) -> APIRouter:
     @router.post("/comms/chatroom/send")
     def send_message_endpoint(request: Request, body: ChatroomMessageIn):
         from modules.comms import chatroom
-        return guard(lambda: chatroom.send_message(_graph(request), body.event_id, body.user_id, body.message))
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: chatroom.send_message(_graph(request), body.event_id, body.user_id, body.message, caller.get("account_id")))
 
     @router.get("/comms/chatroom/list")
     def list_messages_endpoint(request: Request, event_id: str):
         from modules.comms import chatroom
-        return chatroom.list_messages(_graph(request), event_id)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: chatroom.list_messages(_graph(request), event_id, caller.get("account_id")))
 
     @router.post("/routines/milestone-achieved")
     def award_milestone_endpoint(request: Request, body: MilestoneAwardIn):
@@ -1812,7 +1820,8 @@ def build_router(auth) -> APIRouter:
     @router.get("/comms/gallery/collage")
     def create_photo_collage_endpoint(request: Request, event_id: str):
         from modules.comms import collage
-        return collage.create_photo_collage(_graph(request), event_id)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: collage.create_photo_collage(_graph(request), event_id, caller.get("account_id")))
 
     @router.get("/routines/cohort/leaderboard")
     def get_cohort_leaderboard_endpoint(request: Request, routine_id: str):
