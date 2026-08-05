@@ -101,11 +101,12 @@ async function refresh() {
       state.me = await api("/v1/auth/me").catch(() => null);
     }
     if (state.tab === "today") {
-      [state.today, state.visions, state.admin, state.journal] = await Promise.all([
+      [state.today, state.visions, state.admin, state.journal, state.parked] = await Promise.all([
         api("/v1/today"),
         api("/v1/vision").then((r) => r.visions),
         api("/v1/admin").then((r) => r.items),
         api("/v1/journal/entries?limit=5").catch(() => []),
+        api("/v1/parked").then((r) => r.parked).catch(() => []),
       ]);
     } else if (state.tab === "people") {
       const [people, crews] = await Promise.all([api("/v1/people"), api("/v1/crews")]);
@@ -187,6 +188,37 @@ function todayView() {
       <textarea id="vision-text" placeholder="Freedom by 40&#10;- Ship Life OS and run my week with it&#10;- Train 3x per week"></textarea>
       <button class="primary" data-act="vision">Create my plan</button></div>`;
   }
+
+  /* ---- AI Coach Suggestions (L0 Propose-Only) ---- */
+  if (window.TravelCoach) {
+    const coachCtx = {
+      thisWeek: t ? t.week : "",
+      weeks: t ? [t] : [],
+      log: (state.graph && state.graph.recent) || [],
+      goals: state.visions || [],
+      retrosCompleted: (state.journal || []).length,
+      dismissed: state.dismissedProposals || new Set()
+    };
+    try {
+      const proposals = window.TravelCoach.proposals(coachCtx);
+      if (proposals && proposals.length) {
+        html += `<div class="card"><h2>AI Coach Suggestions</h2>`;
+        html += proposals.map(p => `
+          <div class="feed-item" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+            <div>
+              <div class="kind" style="color:var(--spark); font-weight:600;">${esc(p.title)}</div>
+              <div class="label" style="font-size:13px; color:var(--text); margin-top:2px;">${esc(p.why || p.text || "")}</div>
+            </div>
+            <button class="pill" style="margin-left:8px; width:auto; padding:4px 10px;" data-act="coach-dismiss" data-id="${esc(p.id)}">✕</button>
+          </div>
+        `).join("");
+        html += `</div>`;
+      }
+    } catch (err) {
+      console.warn("Coach error:", err);
+    }
+  }
+
   html += `<div class="card"><h2>Week ${esc(t.week)}</h2>`;
   if (!t.tasks.length) {
     html += `<p class="empty">Nothing planned yet.</p><button class="primary" data-act="plan">Plan this week</button>`;
@@ -200,6 +232,49 @@ function todayView() {
     html += `<button class="ghost" data-act="retro">Run the weekly retro</button>`;
   }
   html += `</div>`;
+
+  /* ---- Parked Ideas (Anti-Hindrance Distraction Sink) ---- */
+  if (state.parked && state.parked.length) {
+    html += `<div class="card"><h2>Parked Ideas (Distraction Sink)</h2>
+      <p class="hint" style="margin-bottom:8px;">Captured, not abandoned — current gate first!</p>`;
+    html += state.parked.map(item => {
+      const label = item.attrs ? (item.attrs.text || item.attrs.title || item.id) : item.id;
+      return `
+        <div class="person"><div class="who">
+          <div class="name">${esc(label)}</div>
+          <div class="meta">Parked idea</div>
+        </div><div class="pills">
+          <button class="pill warm" data-act="parked-promote" data-id="${item.id}">Promote</button>
+        </div></div>
+      `;
+    }).join("");
+    html += `</div>`;
+  }
+
+  /* ---- Compounding Graph Memory & Journey ---- */
+  if (window.TravelStats && state.graph) {
+    try {
+      const statsCtx = {
+        log: (state.graph && state.graph.recent) || [],
+        today: t,
+        journal: state.journal || []
+      };
+      const stats = window.TravelStats.stats(statsCtx);
+      if (stats) {
+        html += `<div class="card"><h2>Compounding Graph Memory</h2>
+          <div class="kv"><span>Days Shown Up</span><span class="v">${stats.daysShownUp || 1}d</span></div>
+          <div class="kv"><span>Tasks Finished</span><span class="v">${stats.tasksDone || 0}</span></div>
+          ${stats.recall ? `<div style="margin-top:10px; background:var(--surface-2s); padding:10px 14px; border-radius:10px;">
+            <div style="font-size:11px; color:var(--spark); font-weight:600;">Recall Memory (${esc(stats.recall.date || "")}):</div>
+            <div style="font-size:13.5px; color:var(--text); font-style:italic; margin-top:2px;">"${esc(stats.recall.text)}"</div>
+          </div>` : ""}
+        </div>`;
+      }
+    } catch (err) {
+      console.warn("Stats error:", err);
+    }
+  }
+
   if (state.retro) {
     html += `<div class="card"><h2>Retro</h2><div class="retro-text">${esc(state.retro)}</div></div>`;
   }
@@ -724,6 +799,17 @@ function wire(root) {
     state.retro = (await api("/v1/retro", {})).text;
     render();
   }));
+
+  on("[data-act=coach-dismiss]", (el) => {
+    if (!state.dismissedProposals) state.dismissedProposals = new Set();
+    state.dismissedProposals.add(el.dataset.id);
+    render();
+  });
+
+  on("[data-act=parked-promote]", (el) => act(async () => {
+    await api(`/v1/parked/${el.dataset.id}/promote`, { target_level: "goal" });
+    await refresh();
+  }, "Idea promoted to Goal ✔"));
 
   on("[data-act=scan]", () => act(async () => {
     const r = await api("/v1/admin/scan", {});
