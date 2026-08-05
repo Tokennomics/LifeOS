@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  lifeos:
+    build: .
+    container_name: lifeos-node
+    ports:
+      - "8000:8000"
+    environment:
+      - LIFEOS_ENV=production
+      - LIFEOS_PORT=8000
+    volumes:
+      - ./data:/app/data
+    restart: always
