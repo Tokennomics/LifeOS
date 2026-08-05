@@ -25,7 +25,12 @@ def current_week_id() -> str:
     return f"{year}-W{week:02d}"
 
 
-def generate_triage_brief(graph: Graph, cfg: dict | None = None) -> dict:
+def generate_triage_brief(
+    graph: Graph,
+    cfg: dict | None = None,
+    lat: float | None = None,
+    lon: float | None = None
+) -> dict:
     """Compiles the daily triage briefing payload from graph state."""
     session = graph.session("triage", SCOPES)
     week = current_week_id()
@@ -68,6 +73,34 @@ def generate_triage_brief(graph: Graph, cfg: dict | None = None) -> dict:
     # 5. Gate status
     v01_gate = gate.gate_status(graph)
 
+    # 6. Sleep Stats integration
+    from modules.routines import sleep_tracker
+    sleep_summary = sleep_tracker.get_circadian_summary(graph)
+    sleep_session = graph.session("routines", {"admin:read"})
+    records = sleep_session.find_entities("admin_item", {"type": "sleep_record"}, limit=1)
+    last_night = None
+    if records:
+        rattrs = records[0]["attrs"]
+        last_night = {
+            "hours": rattrs.get("hours_slept"),
+            "quality": rattrs.get("sleep_quality"),
+            "wake_time": rattrs.get("wake_time"),
+            "date": rattrs.get("date")
+        }
+
+    # 7. Finance Stats integration
+    from modules.finance import budget_tracker
+    finance_summary = budget_tracker.get_financial_summary(graph)
+
+    # 8. Location-based Habit Recommendation
+    recommended_habit = None
+    if lat is not None and lon is not None:
+        try:
+            from modules.routines import habits_rec
+            recommended_habit = habits_rec.recommend_vital_habit(graph, lat, lon)
+        except Exception:
+            pass
+
     # Construct priority inbox slot (single top item)
     top_escalation = None
     if overdue_tasks:
@@ -101,4 +134,18 @@ def generate_triage_brief(graph: Graph, cfg: dict | None = None) -> dict:
         "stuck_work": stuck_tasks,
         "reconnect_nudges": reconnect_nudges[:3],
         "gate_status": v01_gate,
+        "sleep_summary": {
+            "last_night": last_night,
+            "average_hours": sleep_summary.get("average_hours"),
+            "average_quality": sleep_summary.get("average_quality"),
+            "alignment_score": sleep_summary.get("circadian_alignment_score")
+        },
+        "finance_summary": {
+            "goals_count": finance_summary.get("financial_goals_count"),
+            "total_target": finance_summary.get("total_target_amount"),
+            "total_current": finance_summary.get("total_current_amount"),
+            "completion_percentage": finance_summary.get("overall_completion_percentage")
+        },
+        "recommended_habit": recommended_habit
     }
+

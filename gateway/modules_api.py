@@ -543,6 +543,16 @@ class ExploreSaveIn(BaseModel):
     place_info: dict
 
 
+class AcceptCaptureLinkIn(BaseModel):
+    capture_id: str
+    goal_id: str
+
+
+class MicroBreakExecuteIn(BaseModel):
+    task_id: str
+    steps: list[str]
+
+
 
 
 
@@ -985,9 +995,10 @@ def build_router(auth) -> APIRouter:
     # ---- Triage OS Brief -------------------------------------------------
 
     @router.get("/triage/brief")
-    def triage_brief(request: Request):
+    def triage_brief(request: Request, lat: float | None = None, lon: float | None = None):
         from modules.triage import brief
-        return brief.generate_triage_brief(_graph(request))
+        return brief.generate_triage_brief(_graph(request), lat=lat, lon=lon)
+
 
     # ---- Vision & Goals Expansion ----------------------------------------
 
@@ -1544,6 +1555,17 @@ def build_router(auth) -> APIRouter:
         from modules.vault import auto_linker
         return auto_linker.auto_link_notes(_graph(request))
 
+    @router.post("/vault/auto-link/capture")
+    def auto_link_captures_endpoint(request: Request):
+        from modules.vault import auto_linker
+        return auto_linker.auto_link_captures_to_goals(_graph(request), claude=_claude(request))
+
+    @router.post("/vault/auto-link/capture/accept")
+    def accept_capture_link_endpoint(request: Request, body: AcceptCaptureLinkIn):
+        from modules.vault import auto_linker
+        return guard(lambda: auto_linker.accept_capture_link(_graph(request), body.capture_id, body.goal_id))
+
+
     @router.post("/routines/sleep")
     def log_sleep_data_endpoint(request: Request, body: SleepDataIn):
         from modules.routines import sleep_tracker
@@ -1645,6 +1667,16 @@ def build_router(auth) -> APIRouter:
     def calculate_habit_synergies_endpoint(request: Request):
         from modules.routines import synergy
         return synergy.calculate_habit_synergies(_graph(request))
+
+    @router.get("/horizon/planner/micro-break")
+    def list_micro_breaks_endpoint(request: Request):
+        from modules.horizon import micro_planner
+        return micro_planner.suggest_micro_breaks(_graph(request), claude=_claude(request))
+
+    @router.post("/horizon/planner/micro-break/execute")
+    def execute_micro_break_endpoint(request: Request, body: MicroBreakExecuteIn):
+        from modules.horizon import micro_planner
+        return guard(lambda: micro_planner.execute_micro_break_plan(_graph(request), body.task_id, body.steps))
 
     @router.post("/horizon/crew-goals")
     def create_crew_goal_endpoint(request: Request, body: CrewGoalIn):
