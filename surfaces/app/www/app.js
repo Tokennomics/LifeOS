@@ -201,6 +201,20 @@ function todayView() {
       <button class="primary" data-act="vision">Create my plan</button></div>`;
   }
 
+  /* ---- Deep Work Anti-Distraction Shield ---- */
+  const focusActive = state.focusEndTime && Date.now() < state.focusEndTime;
+  html += `<div class="card" style="${focusActive ? "border:1px solid var(--spark); background:rgba(37,99,235,0.1);" : ""}">
+    <h2>Deep Work Anti-Distraction Shield</h2>
+    ${focusActive ? `
+      <div style="font-size:18px; font-weight:800; color:var(--spark); text-align:center; margin:10px 0;">🛡️ Focus Shield Active</div>
+      <p class="hint" style="text-align:center;">Social notifications and chats are silenced. Stay in flow.</p>
+      <button class="ghost" data-act="focus-end">Deactivate Shield</button>
+    ` : `
+      <p class="hint" style="margin-bottom:10px;">Silence all social feeds and chats for 45 minutes of uninterrupted deep work.</p>
+      <button class="primary" data-act="focus-start">Activate 45m Focus Shield 🛡️</button>
+    `}
+  </div>`;
+
   /* ---- Daily Activity Rings ---- */
   const rg = state.rings || { focus_percentage: 75, social_percentage: 60, wellness_percentage: 85 };
   html += `<div class="card"><h2>Daily Activity Rings</h2>
@@ -958,6 +972,15 @@ function moreView() {
     <div id="vault-results" style="margin-top:8px;"></div>
   </div>`;
 
+  /* ---- Data Sovereignty & Export ---- */
+  html += `<div class="card"><h2>Data Sovereignty & Portable Export</h2>
+    <div class="row2">
+      <button class="primary" data-act="export-json">Export Graph JSON</button>
+      <button class="ghost" data-act="export-graphml">Export GraphML (XML)</button>
+    </div>
+    <p class="hint">100% Local-First. Your data belongs to you — export your entire life graph anytime in 1 click.</p>
+  </div>`;
+
   return html;
 }
 
@@ -1556,6 +1579,30 @@ function wire(root) {
       resEl.innerHTML = `<div style="font-size:13px; color:var(--muted);">No matching notes found.</div>`;
     }
   }));
+
+  /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
+
+  on("[data-act=focus-start]", () => {
+    state.focusEndTime = Date.now() + 45 * 60 * 1000;
+    toast("Focus Shield activated for 45m! 🛡️");
+    render();
+  });
+
+  on("[data-act=focus-end]", () => {
+    state.focusEndTime = null;
+    toast("Focus Shield deactivated.");
+    render();
+  });
+
+  on("[data-act=export-json]", () => {
+    window.open(apiBase() + "/v1/export", "_blank");
+    toast("Downloading Graph JSON…");
+  });
+
+  on("[data-act=export-graphml]", () => {
+    window.open(apiBase() + "/v1/graph/export/graphml", "_blank");
+    toast("Downloading GraphML XML…");
+  });
 }
 
 function saveCoordsFromInputs() {
