@@ -127,11 +127,16 @@ async function refresh() {
       state.map = mapRes;
       state.convoy = convoyRes;
     } else if (state.tab === "more") {
-      const [convoy, decisions, spend, vitals, spaces, people] = await Promise.all([
+      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
         api("/v1/vitals"), api("/v1/spaces"), api("/v1/people"),
+        api("/v1/triage/critical").catch(() => null),
+        api("/v1/triage/deadman/status").catch(() => null),
+        api("/v1/dating/availability").catch(() => null),
+        api("/v1/dating/matches").catch(() => ({ matches: [] })),
+        api("/v1/miniapp/list").catch(() => [])
       ]);
-      state.more = { convoy, decisions, spend, vitals, spaces };
+      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps };
       state.people = people.people;
     } else {
       state.graph = await api("/v1/graph");
@@ -569,6 +574,74 @@ function moreView() {
     ${m.spaces.spaces.length
       ? m.spaces.spaces.map((s) => `<div class="kv"><span>${esc(s.name)}</span><span class="v">${s.members.length} member${s.members.length === 1 ? "" : "s"}</span></div>`).join("")
       : `<p class="empty">No shared spaces yet.</p>`}</div>`;
+
+  /* ---- Critical Medical ID Card ---- */
+  const crit = m.critical || {};
+  html += `<div class="card"><h2>Critical Medical ID Card</h2>
+    <div class="row2"><input class="field" id="cr-name" placeholder="Full Name" value="${esc(crit.full_name || "")}">
+    <input class="field" id="cr-blood" placeholder="Blood Type (e.g. O+)" value="${esc(crit.blood_type || "")}"></div>
+    <textarea class="field" id="cr-allergies" placeholder="Allergies (e.g. Penicillin, Peanut)">${esc(crit.allergies || "")}</textarea>
+    <textarea class="field" id="cr-notes" placeholder="Important Medical Notes">${esc(crit.notes || "")}</textarea>
+    <button class="primary" data-act="critical-save">Save Critical Info</button>
+    <p class="hint">Static Medical ID card stored on your private graph. Does not auto-dispatch.</p></div>`;
+
+  /* ---- Dead-Man's Switch ---- */
+  const dm = m.deadman || {};
+  const dmStatus = dm.enabled ? (dm.is_overdue ? "OVERDUE — Grace active" : "Active & Healthy") : "Not configured";
+  const dmBadgeClass = dm.is_overdue ? "err" : (dm.enabled ? "good" : "");
+  html += `<div class="card"><h2>Dead-Man's Switch</h2>
+    <div class="kv"><span>Status</span><span class="badge ${dmBadgeClass}">${esc(dmStatus)}</span></div>
+    ${dm.last_ping ? `<div class="kv"><span>Last Ping</span><span class="v">${esc(new Date(dm.last_ping).toLocaleString())}</span></div>` : ""}
+    <button class="primary" style="margin-bottom:12px;" data-act="deadman-ping">I'm OK — Reset Timer</button>
+    <div class="subhead">Check-in Configuration</div>
+    <div class="row2"><input class="field" id="dm-interval" type="number" step="0.5" placeholder="Interval (hours)" value="${dm.interval_hours || 24}">
+    <input class="field" id="dm-grace" type="number" step="0.5" placeholder="Grace (hours)" value="${dm.grace_hours || 12}"></div>
+    <button class="ghost" data-act="deadman-save">Save Deadman Config</button>
+    <p class="hint">Best-effort notification ping to trusted contacts if check-in is missed.</p></div>`;
+
+  /* ---- Dating & Mutual Match ---- */
+  const dt = m.datingAvail || { available: false, reason: "Unconfigured" };
+  const matches = (m.datingMatches && m.datingMatches.matches) || [];
+  html += `<div class="card"><h2>Dating & Activity Match</h2>
+    <div class="kv"><span>Surface Status</span><span class="badge ${dt.available ? "good" : "warn"}">${dt.available ? "Available" : esc(dt.reason || "Disabled")}</span></div>`;
+  if (dt.available) {
+    html += `<div class="subhead">Age Verification (18+)</div>
+      <div class="row2"><input class="field" id="dt-dob" type="date" placeholder="Date of birth">
+      <button class="pill warm" style="margin:0; width:auto;" data-act="dating-age">Declare 18+</button></div>
+      <div class="subhead" style="margin-top:12px;">Express Intent</div>
+      <input class="field" id="dt-target" placeholder="Target Account ID">
+      <input class="field" id="dt-act" placeholder="Activity ID (e.g. sushi_night)">
+      <button class="primary" data-act="dating-interest">Declare Interest</button>
+      <div class="subhead" style="margin-top:12px;">Mutual Matches (${matches.length})</div>
+      ${matches.length ? matches.map(mat => `
+        <div class="person"><div class="who">
+          <div class="name">${esc(mat.target_account_id)}</div>
+          <div class="meta">Matched for ${esc(mat.activity_id)}</div>
+        </div><div class="pills">
+          <button class="pill bad" data-act="dating-block" data-target="${mat.target_account_id}">Block</button>
+        </div></div>
+      `).join("") : `<p class="empty">No mutual matches yet.</p>`}`;
+  }
+  html += `<p class="hint">Activity-based mutual consent matching. Double-blinded until both express interest.</p></div>`;
+
+  /* ---- Mini-Apps & Developer Platform ---- */
+  const miniapps = m.miniapps || [];
+  html += `<div class="card"><h2>Mini-Apps & Extensions</h2>
+    ${miniapps.length ? miniapps.map(app => `
+      <div class="person"><div class="who">
+        <div class="name">${esc(app.icon || "🧩")} ${esc(app.name)}</div>
+        <div class="meta">${esc(app.url)}</div>
+      </div><div class="pills">
+        <button class="pill warm" data-act="miniapp-launch" data-url="${esc(app.url)}" data-name="${esc(app.name)}">Launch</button>
+      </div></div>
+    `).join("") : `<p class="empty">No mini-apps registered yet.</p>`}
+    <div class="subhead" style="margin-top:12px;">Register Mini-App Manifest</div>
+    <div class="row2"><input class="field" id="ma-name" placeholder="App Name (e.g. Weather Mini)">
+    <input class="field" id="ma-icon" placeholder="Icon (e.g. 🌤️)"></div>
+    <input class="field" id="ma-url" placeholder="Manifest / App URL (https://...)">
+    <button class="primary" data-act="miniapp-add">Register Mini-App</button>
+    <p class="hint">Micro-frontends running in declarative sandboxed capabilities.</p></div>`;
+
   return html;
 }
 
@@ -901,6 +974,65 @@ function wire(root) {
     await api("/v1/spaces", { name });
     await refresh();
   }, "Space created ✔"));
+
+  /* ---- Triage, Dating & Mini-Apps ---- */
+
+  on("[data-act=critical-save]", () => act(async () => {
+    const full_name = $("#cr-name").value.trim();
+    const blood_type = $("#cr-blood").value.trim();
+    const allergies = $("#cr-allergies").value.trim();
+    const notes = $("#cr-notes").value.trim();
+    await api("/v1/triage/critical", { full_name, blood_type, allergies, notes });
+    await refresh();
+  }, "Critical info saved ✔"));
+
+  on("[data-act=deadman-ping]", () => act(async () => {
+    await api("/v1/triage/deadman/ping");
+    await refresh();
+  }, "Check-in logged ✔"));
+
+  on("[data-act=deadman-save]", () => act(async () => {
+    const interval_hours = Number($("#dm-interval").value) || 24;
+    const grace_hours = Number($("#dm-grace").value) || 12;
+    await api("/v1/triage/deadman/config", { interval_hours, grace_hours, contacts: [] });
+    await refresh();
+  }, "Dead-man switch updated ✔"));
+
+  on("[data-act=dating-age]", () => act(async () => {
+    const dob = $("#dt-dob").value;
+    if (!dob) return toast("Select date of birth");
+    await api("/v1/dating/age", { date_of_birth: dob });
+    await refresh();
+  }, "Age verified 18+ ✔"));
+
+  on("[data-act=dating-interest]", () => act(async () => {
+    const target_account_id = $("#dt-target").value.trim();
+    const activity_id = $("#dt-act").value.trim();
+    if (!target_account_id || !activity_id) return toast("Enter target account and activity ID");
+    await api("/v1/dating/interest", { target_account_id, activity_id });
+    await refresh();
+  }, "Interest declared ✔"));
+
+  on("[data-act=dating-block]", (el) => act(async () => {
+    await api("/v1/dating/block", { subject_account_id: el.dataset.target });
+    await refresh();
+  }, "Account blocked ✔"));
+
+  on("[data-act=miniapp-add]", () => act(async () => {
+    const name = $("#ma-name").value.trim();
+    const url = $("#ma-url").value.trim();
+    const icon = $("#ma-icon").value.trim();
+    if (!name || !url) return toast("Provide name and app URL");
+    await api("/v1/miniapp/register", { name, url, icon });
+    await refresh();
+  }, "Mini-App registered ✔"));
+
+  on("[data-act=miniapp-launch]", (el) => {
+    const url = el.dataset.url;
+    const name = el.dataset.name;
+    window.open(url, "_blank");
+    toast(`Launching ${name}…`);
+  });
 }
 
 function saveCoordsFromInputs() {
