@@ -264,6 +264,22 @@ function todayView() {
     </div>`;
   }
 
+  /* ---- Ambient Focus & Plane Journey Sleep Soundscapes ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.12), rgba(139,92,246,0.12)); border:1px solid rgba(37,99,235,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎧 Ambient Focus & Plane Sleep Soundscapes</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Offline Audio</span>
+    </div>
+    <p class="hint" style="margin-bottom:10px;">Offline synth audio for deep work, sleeping on plane journeys, or drowning out background noise.</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="ghost" style="padding:8px; text-align:left;" data-act="audio-play" data-preset="rain">🌧️ <strong>Gentle Rain</strong><br><small style="color:var(--muted)">Relaxing rainfall</small></button>
+      <button class="ghost" style="padding:8px; text-align:left;" data-act="audio-play" data-preset="brown">🟤 <strong>Deep Brown Noise</strong><br><small style="color:var(--muted)">Deep focus shield</small></button>
+      <button class="ghost" style="padding:8px; text-align:left;" data-act="audio-play" data-preset="plane">✈️ <strong>Jet Cabin Sleep</strong><br><small style="color:var(--muted)">Plane journey sleep</small></button>
+      <button class="ghost" style="padding:8px; text-align:left;" data-act="audio-play" data-preset="space">🌌 <strong>Cosmic Drift</strong><br><small style="color:var(--muted)">Meditation drone</small></button>
+    </div>
+    <button class="pill bad" style="width:auto; padding:6px 16px; margin-top:4px;" data-act="audio-stop">Stop Audio 🛑</button>
+  </div>`;
+
   /* ---- Diurnal Ritual Engine (Morning Intent / Evening Sunset) ---- */
   const hour = new Date().getHours();
   const isMorning = hour < 17;
@@ -1136,6 +1152,9 @@ function moreView() {
       <button class="primary" data-act="export-json">Export Graph JSON</button>
       <button class="ghost" data-act="export-graphml">Export GraphML (XML)</button>
     </div>
+    <div style="margin-top:8px;">
+      <button class="ghost" style="width:100%;" data-act="export-csv">Export CSV (Excel / Spreadsheets) 📊</button>
+    </div>
     <p class="hint">100% Local-First. Your data belongs to you — export your entire life graph anytime in 1 click.</p>
   </div>`;
 
@@ -1956,6 +1975,60 @@ function wire(root) {
     await api("/v1/notifications/schedule", { am_time, pm_time });
     toast(`Daily Push Notifications Scheduled for ${am_time} AM & ${pm_time} PM 🔔`);
   }));
+
+  /* ---- Ambient Focus & Sleep Audio Synthesizer ---- */
+  let audioCtx = null;
+  let noiseNode = null;
+
+  on("[data-act=audio-play]", (el) => {
+    const preset = el.dataset.preset;
+    if (noiseNode) { try { noiseNode.stop(); } catch(e){} }
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return toast("Audio API not supported in browser.");
+    if (!audioCtx) audioCtx = new AudioContext();
+
+    const bufferSize = audioCtx.sampleRate * 2;
+    const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    let lastOut = 0.0;
+    for (let i = 0; i < bufferSize; i++) {
+      const white = Math.random() * 2 - 1;
+      output[i] = (lastOut + (0.02 * white)) / 1.02; // Brown noise filter
+      lastOut = output[i];
+      output[i] *= 3.5;
+    }
+
+    noiseNode = audioCtx.createBufferSource();
+    noiseNode.buffer = noiseBuffer;
+    noiseNode.loop = true;
+
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.15;
+    noiseNode.connect(gain);
+    gain.connect(audioCtx.destination);
+    noiseNode.start();
+
+    toast(`Playing Ambient ${preset.toUpperCase()} Soundscape 🎧 Perfect for focus & plane journey sleep!`);
+  });
+
+  on("[data-act=audio-stop]", () => {
+    if (noiseNode) {
+      try { noiseNode.stop(); } catch(e){}
+      noiseNode = null;
+    }
+    toast("Audio Stopped 🛑");
+  });
+
+  on("[data-act=export-csv]", () => act(async () => {
+    const res = await fetch("/v1/graph/export/csv");
+    const csv = await res.text();
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "lifeos_graph.csv";
+    a.click();
+  }, "Exported Graph to CSV 📊"));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
 

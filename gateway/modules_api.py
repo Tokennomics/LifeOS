@@ -1665,6 +1665,16 @@ def build_router(auth) -> APIRouter:
         from substrate import graphml_exporter
         return Response(content=graphml_exporter.export_graphml(_graph(request)), media_type="application/xml")
 
+    @router.get("/graph/export/csv")
+    def export_csv_endpoint(request: Request):
+        g = _graph(request)
+        entities = g.all_entities()
+        lines = ["id,domain,type,created_at"]
+        for e in entities:
+            lines.append(f"{e.get('id','')},{e.get('domain','')},{e.get('attrs',{}).get('type','')},{e.get('created_at','')}")
+        csv_data = "\n".join(lines)
+        return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lifeos_graph.csv"})
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
