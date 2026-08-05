@@ -1551,6 +1551,14 @@ def build_router(auth) -> APIRouter:
         from modules.telemetry import consent
         return guard(lambda: consent.set_consent(_graph(request), body.enabled, body.share_interests, body.share_city_events))
 
+    @router.post("/voiceos/capture")
+    def voiceos_capture_endpoint(request: Request, body: dict):
+        from modules.voiceos import capture
+        text = body.get("text", "")
+        if not text.strip():
+            raise ValueError("text is required")
+        return guard(lambda: capture.capture(text, _graph(request), claude=claude))
+
     # ---- Security Hardening & Threat Defense -----------------------------
 
     @router.post("/security/sanitize")

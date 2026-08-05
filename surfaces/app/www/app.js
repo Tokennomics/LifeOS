@@ -420,8 +420,12 @@ function todayView() {
 function captureView() {
   const recent = (state.graph?.recent || []).filter((r) => r.kind === "content");
   return `<div class="card"><h2>Capture a thought</h2>
-      <textarea id="capture-text" placeholder="Anything. Tasks, people and interests get extracted into the graph."></textarea>
-      <button class="primary" data-act="capture">Capture</button></div>
+      <textarea id="capture-text" placeholder="Anything. Tasks, people and interests get extracted into the graph automatically."></textarea>
+      <div class="row2">
+        <button class="primary" data-act="capture">Capture</button>
+        <button class="ghost" style="width:auto; padding:10px 16px;" data-act="voice-record">🎙️ Mic Speak</button>
+      </div>
+      <p class="hint">VoiceOS transcribes speech and extracts tasks, people, and interests into your context graph.</p></div>
     <div class="card"><h2>Recent captures</h2>
       ${recent.length ? recent.map((r) => `<div class="feed-item"><div class="label">${esc(r.label)}</div></div>`).join("")
                       : `<p class="empty">Nothing captured yet.</p>`}
@@ -1065,13 +1069,35 @@ function wire(root) {
 
   on("[data-act=capture]", () => act(async () => {
     const text = $("#capture-text").value.trim();
-    if (!text) return toast("Nothing to capture.");
-    const result = await api("/v1/capture", { text });
+    if (!text) return toast("Write or speak something first.");
+    const result = await api("/v1/voiceos/capture", { text });
     $("#capture-text").value = "";
     state.graph = await api("/v1/graph");
     render();
-    toast(result.tasks + result.interests + result.people > 0 ? "Captured + extracted ✔" : "Captured ✔");
+    toast(result.parked ? "Idea parked in distraction sink ✔" : "Captured & Extracted to Graph ✔");
   }));
+
+  on("[data-act=voice-record]", () => {
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Speech) {
+      return toast("Speech recognition not supported in browser. Type your thought.");
+    }
+    try {
+      const rec = new Speech();
+      rec.lang = "en-US";
+      rec.interimResults = false;
+      toast("Listening… Speak your thought 🎙️");
+      rec.onresult = (evt) => {
+        const transcript = evt.results[0][0].transcript;
+        $("#capture-text").value = transcript;
+        toast("Transcribed! Tapping Capture…");
+      };
+      rec.onerror = () => toast("Voice recognition error.");
+      rec.start();
+    } catch (err) {
+      toast("Voice error.");
+    }
+  });
 
   on("[data-act=jr-submit]", () => act(async () => {
     const wins = $("#jr-wins").value.split("\n").map(w => w.trim()).filter(Boolean);
