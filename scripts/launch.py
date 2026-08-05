@@ -16,8 +16,8 @@ def main():
     print("[*] Loading 42 engine modules...")
     print("[*] Initializing 20% Community Treasury Pool...")
     print("[*] Starting Gateway on http://127.0.0.1:8000...")
-    print("[*] Serving PWA on http://127.0.0.1:8000/app/www/index.html")
-    print("[*] Interactive API Docs available at http://127.0.0.1:8000/docs")
+    print("[*] Web Application UI: http://127.0.0.1:8000/ (or http://127.0.0.1:8000/app/)")
+    print("[*] Interactive API Docs: http://127.0.0.1:8000/docs")
 
     uvicorn.run("gateway.main:create_app", factory=True, host="127.0.0.1", port=8000, reload=False)
 
