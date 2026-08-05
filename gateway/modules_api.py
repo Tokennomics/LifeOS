@@ -901,6 +901,21 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: coordinator.propose_group(
             _graph(request), body.crew_id, body.slots, body.places, body.quorum))
 
+    @router.get("/crews/{crew_id}/invite-link")
+    def crew_invite_link_endpoint(request: Request, crew_id: str):
+        from modules.crews import crews
+        cr = guard(lambda: crews.get(_graph(request), crew_id))
+        token = f"crew_invite_{crew_id}"
+        return {"crew_id": crew_id, "token": token, "invite_url": f"#join-crew?crew_id={crew_id}&token={token}"}
+
+    @router.post("/crews/join-by-token")
+    def crew_join_by_token_endpoint(request: Request, body: dict):
+        from modules.crews import crews
+        crew_id = body.get("crew_id")
+        caller = getattr(request.state, "caller", None) or {}
+        person_id = caller.get("account_id") or "anon"
+        return guard(lambda: crews.join(_graph(request), crew_id, person_id))
+
     @router.get("/coordinate/group/mine")
     def coordinate_group_mine(request: Request, person_id: str = ""):
         """Crew sessions you can answer — including ones opened in another account."""

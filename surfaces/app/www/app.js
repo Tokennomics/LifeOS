@@ -541,10 +541,20 @@ function crewsView() {
       </div><div class="pills">
         <button class="pill warm" data-crew-plan="${c.id}">Plan</button>
         <button class="pill calm" data-act="chat-crew" data-id="${c.id}" data-name="${esc(c.name)}">Chat</button>
+        <button class="pill" data-act="crew-link" data-id="${c.id}">🔗 Invite</button>
         <button class="pill" data-act="crew-ics" data-id="${c.id}">📅 .ics</button>
       </div></div>`).join("");
   }
-  html += `<div class="subhead">Start a crew</div>
+
+  html += `<div class="subhead" style="margin-top:12px;">Instant Crew Starters (1-Tap)</div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-starter" data-name="Lisbon Bouldering & Coffee" data-topic="climbing" data-city="Lisbon">🧗 <strong>Bouldering</strong><br><small style="color:var(--muted)">Climbing & coffee</small></button>
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-starter" data-name="Wednesday Dinner Club" data-topic="food" data-city="Lisbon">🍣 <strong>Dinner Club</strong><br><small style="color:var(--muted)">Weekly food outing</small></button>
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-starter" data-name="Morning Trail Runners" data-topic="running" data-city="Lisbon">🏃 <strong>Trail Runners</strong><br><small style="color:var(--muted)">Weekend morning runs</small></button>
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-starter" data-name="Board Game & Pizza Night" data-topic="games" data-city="Lisbon">🎲 <strong>Board Games</strong><br><small style="color:var(--muted)">Fridays games & pizza</small></button>
+    </div>
+
+    <div class="subhead">Custom Crew</div>
     <div class="row2"><input class="field" id="crew-name" placeholder="Name (e.g. Lisbon Climbing)">
     <input class="field" id="crew-topic" placeholder="Topic"></div>
     <div class="row2"><input class="field" id="crew-city" placeholder="City">
@@ -1346,6 +1356,22 @@ function wire(root) {
     $("#sp-amount").value = "";
     await refresh();
   }, "Expense split logged ✔"));
+
+  on("[data-act=crew-link]", (el) => act(async () => {
+    const res = await api(`/v1/crews/${el.dataset.id}/invite-link`);
+    const fullUrl = window.location.origin + window.location.pathname + res.invite_url;
+    await navigator.clipboard.writeText(fullUrl).catch(() => {});
+    toast("WhatsApp Invite Link copied to clipboard! 📋");
+  }));
+
+  on("[data-act=crew-starter]", (el) => act(async () => {
+    const name = el.dataset.name;
+    const topic = el.dataset.topic;
+    const city = el.dataset.city;
+    const crew = await api("/v1/crews", { name, topic, city, visibility: "public", admission: "open" });
+    state.crewOpen = crew.id;
+    await refresh();
+  }, "Instant Crew created ✔"));
 }
 
 function saveCoordsFromInputs() {
@@ -1448,6 +1474,26 @@ function initLeafletMap() {
 
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+// Check hash URL for signed crew invite link: #join-crew?crew_id=XYZ&token=...
+if (window.location.hash && window.location.hash.includes("join-crew")) {
+  try {
+    const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
+    const crew_id = params.get("crew_id");
+    if (crew_id) {
+      api("/v1/crews/join-by-token", { crew_id }).then(() => {
+        toast("Joined crew via invite link! ✓");
+        state.tab = "people";
+        state.crewOpen = crew_id;
+        refresh();
+      }).catch(err => {
+        toast("Invite link expired or invalid");
+      });
+    }
+  } catch (e) {
+    console.warn("Invite link parse error:", e);
+  }
 }
 
 refresh();
