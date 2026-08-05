@@ -73,6 +73,22 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  feedsync:
+    # Venue feeds go stale silently, and a weekend digest showing last month's listings
+    # looks exactly like one showing this month's — until somebody turns up on the wrong
+    # night. --interval is the politeness floor: a feed fetched more recently than that is
+    # skipped, so a crash-looping container cannot hammer a small venue's server.
+    build:
+      context: ../..
+    restart: unless-stopped
+    command: python -m tools.feedsync --interval 360 --sleep 3600
+    environment:
+      - LIFEOS_TICKETMASTER_KEY
+    volumes:
+      - lifeos_data:/app/data
+    security_opt:
+      - no-new-privileges:true
+
   backup:
     # A snapshot every 6 hours, verified on the way out, 14 kept. See tools/backup.py for
     # why this is VACUUM INTO and not a file copy.

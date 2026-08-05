@@ -1,0 +1,9 @@
+{
+  "city": "Example City",
+  "note": "The format, not a real pack. These addresses resolve to nothing on purpose — see README.md for why no invented URLs are committed here.",
+  "venues": [
+    {"url": "https://example.com/", "venue": "Example Club", "topic": "techno"},
+    {"url": "https://example.org/whats-on", "venue": "Example Gallery", "topic": "art"},
+    {"url": "https://example.net/", "topic": "climbing"}
+  ]
+}

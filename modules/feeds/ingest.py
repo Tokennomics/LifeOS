@@ -31,7 +31,7 @@ carry on.
 import datetime
 
 from modules.feeds import discover, parse
-from substrate import SYSTEM_OWNER, now_iso
+from substrate import SYSTEM_OWNER, now_iso        # noqa: F401  (now_iso used below)
 from substrate.graph import Graph
 
 SCOPES = {"content:read", "content:write", "events:read", "events:write"}
@@ -229,14 +229,87 @@ def _host(url: str) -> str:
     return urlparse(url).netloc.removeprefix("www.")[:80]
 
 
-def sync_all(graph: Graph, source: str = MODULE) -> dict:
-    """Sync every live subscription. One bad feed is reported, not fatal."""
-    results = []
+# ---- Tier 2: official APIs ---------------------------------------------------
+
+def sync_provider(graph: Graph, name: str, city: str = "", size: int = 50,
+                  now: str = "", source: str = MODULE, **kwargs) -> dict:
+    """Pull a city from an official API into the same public events as a venue feed.
+
+    Deliberately shares every rule with `sync`: system-owned public rows, `origin: "feed"`
+    so it renders as `· listed`, a global dedupe key, and the same horizon. A provider is a
+    different way to *find* listings, not a different kind of thing to store — which is why
+    the weekend digest needed no changes at all to show them.
+
+    An unconfigured provider returns `not_configured` and writes nothing. That is the
+    ROADMAP condition on this tier: no key degrades to the feed-and-crew list, never errors.
+    """
+    from modules.feeds import providers
+
+    provider = providers.get(name)
+    result = provider.search(city=city, size=size, **kwargs)
+    if result["status"] != "ok":
+        return {"provider": provider.NAME, "city": city, "status": result["status"],
+                "added": 0, "updated": 0, "skipped_out_of_range": 0,
+                "detail": result.get("detail", "")}
+
+    stamp = parse_start(now) if now else datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    system = _sys(graph)
+    added = updated = out_of_range = 0
+
+    for item in result["items"][:MAX_ITEMS]:
+        if not _in_horizon(item["start"], stamp):
+            out_of_range += 1
+            continue
+        key = _dedupe_key(f"provider:{provider.NAME}", item["uid"])
+        attrs = {
+            "type": "social", "title": item.get("title") or "Event",
+            "start": item["start"], "end": item.get("end", ""),
+            "place": item.get("place", ""), "city": item.get("city") or city,
+            "topic": "", "visibility": "public", "busy": False,
+            "origin": ORIGIN, "provider": provider.NAME, "feed_key": key,
+            "feed_url": "", "venue": item.get("place", ""), "url": item.get("url", ""),
+        }
+        existing = system.find_entities("event", {"feed_key": key}, limit=1)
+        if existing:
+            system.update_entity(existing[0]["id"], attrs, source=source)
+            updated += 1
+        else:
+            system.create_entity("event", {**attrs, "created_at": now_iso()},
+                                 source=source, owner_id=SYSTEM_OWNER)
+            added += 1
+
+    return {"provider": provider.NAME, "city": city, "status": "ok", "added": added,
+            "updated": updated, "skipped_out_of_range": out_of_range}
+
+
+def _synced_within(feed: dict, minutes: int, now: datetime.datetime) -> bool:
+    last = parse_start(feed.get("last_synced_at", ""))
+    if last is None:
+        return False
+    return (now - last) < datetime.timedelta(minutes=max(0, minutes))
+
+
+def sync_all(graph: Graph, source: str = MODULE, min_interval_minutes: int = 0,
+             now: str = "") -> dict:
+    """Sync every live subscription. One bad feed is reported, not fatal.
+
+    `min_interval_minutes` is what makes this safe to run on a loop. Without it a scheduler
+    that fires every ten minutes hits every venue every ten minutes forever — a small
+    venue's server does not deserve that, and a well-behaved reader is the price of the
+    "a feed is published to be read" argument this whole module rests on. Skipped feeds are
+    reported as skipped rather than silently dropped, so a scheduler that is doing nothing
+    looks different from one that is not running.
+    """
+    stamp = parse_start(now) if now else datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    results, skipped = [], []
     for feed in feeds(graph):
         row = graph.session(MODULE, SCOPES).get_entity(feed["id"])
         if row and row["attrs"].get("removed"):
             continue
+        if min_interval_minutes and _synced_within(feed, min_interval_minutes, stamp):
+            skipped.append(feed["url"])
+            continue
         results.append({**sync(graph, feed["id"], source=source), "url": feed["url"]})
-    return {"feeds": len(results), "results": results,
+    return {"feeds": len(results), "results": results, "skipped_recent": skipped,
             "added": sum(r["added"] for r in results),
             "updated": sum(r["updated"] for r in results)}

@@ -104,6 +104,19 @@ def test_an_unrelated_query_string_is_not_mistaken_for_a_feed(href):
     assert discover.find_feeds(f'<a href="{href}">x</a>', base_url="https://v.example/") == []
 
 
+@pytest.mark.parametrize("href,expected", [
+    ("/events/?ical=1", "https://v.example/events/?ical=1"),   # root-relative
+    ("?ical=1", "https://v.example/agenda?ical=1"),            # query-only, same page
+    ("feed/", "https://v.example/feed/"),                      # path-relative
+    ("//cdn.example/f.ics", "https://cdn.example/f.ics"),      # protocol-relative
+])
+def test_every_shape_of_relative_href_resolves(href, expected):
+    """The Events Calendar emits `?ical=1` relative to the page it is on, and plenty of
+    sites host the feed on a CDN behind a protocol-relative link."""
+    page = f'<link rel="alternate" type="text/calendar" href="{href}">'
+    assert discover.find_feeds(page, base_url="https://v.example/agenda")[0]["url"] == expected
+
+
 # ---- real venue sites are not valid HTML -------------------------------------
 
 @pytest.mark.parametrize("junk", [

@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#15 are merged; #16 (venue feeds) is open.** `python -m pytest` → **666 passing**.
+explicit permission). **PRs #1–#15 are merged; #16 (venue feeds) is open.** `python -m pytest` → **734 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -54,7 +54,9 @@ in anyone else's graph.
 | Discover · feed | shipped |
 | Coordination (1:1 + crew, quorum-based) | shipped |
 | **Weekend digest** (`GET /v1/weekend`, `/weekend/share`) | shipped |
-| **Venue feeds** — ICS/RSS ingest (`modules/feeds/`) | shipped |
+| **Venue feeds** — ICS/RSS ingest + discovery + seed packs | shipped |
+| **Scheduled feed refresh** (`tools/feedsync.py`, compose service) | shipped |
+| **Tier 2 event APIs** (`modules/feeds/providers/`) | shipped, off without a key |
 | Cross-account discovery / membership / **scheduling** | shipped (#8, #9, **#10**) |
 
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
@@ -201,10 +203,36 @@ published *to be* read, which is the whole difference from ROADMAP's Tier 3.
   `?format=rss`, The Events Calendar's `?ical=1`, WordPress's `?feed=rss2` — because a
   path-only check silently misses whole platforms.
 
-**Not verified from here: a fetch against a real venue feed.** The sandbox proxy 403s
-arbitrary hosts. `_fetch` itself was exercised against a reachable URL (correct bytes,
-redirects, `raise_for_status`, and non-feed content parsing to zero items rather than
-raising), but the first real venue calendar is worth watching when the box is up.
+### Seed packs, scheduling, Tier 2
+
+- **`seeds/<city>.json` holds venue WEBSITES, not feed URLs**, and `POST /v1/feeds/seeds/<city>`
+  subscribes to the lot. **No real packs are committed and that is deliberate** — verifying a
+  URL means reaching it, and a pack of guessed addresses is a list of 404s that reads as
+  "broken feature" rather than "unseeded city". `seeds/README.md` has the assembly recipe;
+  `example.json` is the format. **The first real pack is the owner's to make**: paste 10–20
+  venue websites once there is a box, check `last_status` on each, drop the ones that
+  produced nothing, commit what is left.
+- **`tools/feedsync.py` + the `feedsync` compose service refresh on a loop.**
+  `--interval` is a *politeness floor*, not the loop period: a feed fetched more recently
+  than that is skipped, so a crash-looping container cannot hammer a small venue's server.
+  Skipped feeds are reported, so a scheduler doing nothing looks different from one that is
+  not running. Ingested content that silently goes stale is worse than less content — the
+  digest looks identical either way until someone turns up on the wrong night.
+- **Tier 2 providers degrade, they never error.** `modules/feeds/providers/` is a registry;
+  Ticketmaster is the first. No key ⇒ `not_configured`, zero writes, and the rest of the
+  product is untouched. Its coverage is ticketed and mainstream — it finds the arena show
+  and misses the basement party, which is the gap seeded venue feeds are for. **Provider
+  events go through the same path as feeds**: system-owned, public, `origin: "feed"` so
+  they render `· listed`, namespaced dedupe key so a venue ICS `uid` cannot collide with an
+  API id. A provider is a new `search()`, not a new architecture.
+
+**Not verified from here: any real external fetch.** The sandbox proxy 403s arbitrary hosts,
+so neither a live venue calendar nor api.ticketmaster.com has been called. `_fetch` was
+exercised against a reachable URL (bytes, redirects, `raise_for_status`, non-feed content
+parsing to zero items rather than raising), and the Ticketmaster response shape is coded
+from the documented `_embedded.events[]` structure against recorded-shape fixtures — which
+is why `normalise` tolerates every level being missing or the wrong type. **Treat the first
+real call as the test.** The failure mode is an empty result and a recorded status.
 
 ## Gotchas — read these before touching anything
 

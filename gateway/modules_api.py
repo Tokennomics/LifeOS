@@ -290,6 +290,15 @@ class FeedSyncIn(BaseModel):
     text: str = ""
 
 
+class FeedSeedIn(BaseModel):
+    sync: bool = False
+
+
+class FeedProviderSyncIn(BaseModel):
+    city: str = ""
+    size: int = 50
+
+
 class FeedDiscoverIn(BaseModel):
     url: str
     html: str = ""
@@ -1242,6 +1251,33 @@ def build_router(auth) -> APIRouter:
     def feeds_sync_all(request: Request):
         from modules.feeds import ingest
         return guard(lambda: ingest.sync_all(_graph(request)))
+
+    @router.get("/feeds/seeds")
+    def feeds_seeds(request: Request):
+        """City packs available to load. See seeds/README.md for why none are real yet."""
+        from modules.feeds import seeds
+        return {"packs": seeds.available()}
+
+    @router.post("/feeds/seeds/{city}")
+    def feeds_seed_apply(request: Request, city: str, body: FeedSeedIn | None = None):
+        from modules.feeds import seeds
+        return guard(lambda: seeds.apply(_graph(request), city,
+                                         sync=bool(body and body.sync)))
+
+    @router.get("/feeds/providers")
+    def feeds_providers(request: Request):
+        """Which Tier 2 APIs exist and which are switched on. Never returns a key."""
+        from modules.feeds import providers
+        return {"providers": providers.status()}
+
+    @router.post("/feeds/providers/{name}/sync")
+    def feeds_provider_sync(request: Request, name: str, body: FeedProviderSyncIn | None = None):
+        """An unconfigured provider reports `not_configured` and writes nothing — no key
+        degrades to the feed-and-crew list, it does not error."""
+        from modules.feeds import ingest
+        return guard(lambda: ingest.sync_provider(
+            _graph(request), name, city=(body.city if body else ""),
+            size=(body.size if body else 50)))
 
     @router.post("/feeds/discover")
     def feeds_discover(request: Request, body: FeedDiscoverIn):
