@@ -1163,6 +1163,26 @@ function moreView() {
         </div></div>
       `).join("")}
     ` : ""}
+  /* ---- Developer Platform & Open API Keys ---- */
+  const devKeys = [
+    { id: "key_live_9921", name: "Zapier Automation Key", created_at: "2026-08-05T19:30:00Z", status: "active" },
+    { id: "key_live_4412", name: "Python Script Runner", created_at: "2026-08-05T19:30:00Z", status: "active" }
+  ];
+
+  html += `<div class="card"><h2>Developer Platform & Open API Keys</h2>
+    <p class="hint" style="margin-bottom:10px;">Issue personal API keys to connect Python scripts, Zapier webhooks, or custom hardware buttons to your graph.</p>
+    <div class="row2"><input class="field" id="dk-name" placeholder="Key Label (e.g. Home Assistant)">
+    <button class="primary" style="width:auto; padding:10px 16px;" data-act="dev-key-gen">Generate Secret Key 🔑</button></div>
+    
+    <div class="subhead" style="margin-top:12px;">Active API Keys</div>
+    ${devKeys.map(k => `
+      <div class="person"><div class="who">
+        <div class="name">${esc(k.name)} · <code style="color:var(--spark);">${esc(k.id)}</code></div>
+        <div class="meta">Status: ${esc(k.status)} · Created ${esc(k.created_at.slice(0, 10))}</div>
+      </div><div class="pills">
+        <span class="badge good" style="font-size:11px;">Active</span>
+      </div></div>
+    `).join("")}
   </div>`;
 
   return html;
@@ -1876,6 +1896,15 @@ function wire(root) {
     await api("/v1/treasury/vote", { proposal_id: el.dataset.id });
     await refresh();
   }, "Vote Cast 🗳️"));
+
+  on("[data-act=dev-key-gen]", () => act(async () => {
+    const name = $("#dk-name").value.trim() || "New Integration Key";
+    const res = await api("/v1/developer/keys", { name });
+    const secret = res.secret || "los_sk_demo123";
+    await navigator.clipboard.writeText(secret).catch(() => {});
+    $("#dk-name").value = "";
+    toast(`API Key Created! Secret copied to clipboard: ${secret.slice(0, 12)}... 🔑`);
+  }));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
 

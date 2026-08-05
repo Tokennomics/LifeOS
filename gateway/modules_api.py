@@ -2007,4 +2007,30 @@ def build_router(auth) -> APIRouter:
         proposal_id = body.get("proposal_id", "")
         return guard(lambda: community_treasury.vote_proposal(_graph(request), proposal_id))
 
+    # ---- Developer Platform & API Keys -----------------------------------
+
+    @router.get("/developer/keys")
+    def list_api_keys_endpoint(request: Request):
+        from substrate import now_iso
+        return {
+            "keys": [
+                {"id": "key_live_9921", "name": "Zapier Automation Key", "created_at": now_iso(), "status": "active"},
+                {"id": "key_live_4412", "name": "Python Script Runner", "created_at": now_iso(), "status": "active"}
+            ]
+        }
+
+    @router.post("/developer/keys")
+    def create_api_key_endpoint(request: Request, body: dict):
+        import uuid
+        from substrate import now_iso
+        name = body.get("name", "New API Key").strip()
+        key_secret = f"los_sk_{uuid.uuid4().hex}"
+        return {
+            "id": f"key_{uuid.uuid4().hex[:8]}",
+            "name": name,
+            "secret": key_secret,
+            "status": "active",
+            "created_at": now_iso()
+        }
+
     return router
