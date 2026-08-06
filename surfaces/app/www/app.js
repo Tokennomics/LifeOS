@@ -869,6 +869,32 @@ function peopleView() {
     </div>`;
   }
 
+  /* ---- SafeWalk Live Companion & Safety Escort ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(37,99,235,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🛡️ SafeWalk Live Companion & Escort</h2>
+      <span class="badge good" style="font-weight:bold;">Safety Radar</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Heading out for an evening date or night outing? Notify your crew & activate live ETA monitoring!</p>
+    <div class="row2"><input class="field" id="sw-dest" placeholder="Destination Spot">
+    <input class="field" id="sw-eta" type="number" placeholder="ETA (mins)" value="15"></div>
+    <button class="primary" data-act="start-safewalk-escort">Activate SafeWalk Escort 🛡️</button>
+  </div>`;
+
+  /* ---- Outing Expense Splitter & Payment Links ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(240,169,74,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💸 Outing Expense Splitter & Payment Link</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">1-Tap Payment Link</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Split drinks, dinners, or venue fees across outing members & generate 1-tap payment links!</p>
+    <div class="row2"><input class="field" id="qs-title" placeholder="Expense Title (e.g. Sunset Drinks)">
+    <input class="field" id="qs-amount" type="number" step="0.01" placeholder="Total € (e.g. 60.00)">
+    <input class="field" id="qs-people" type="number" placeholder="People" value="4"></div>
+    <button class="primary" data-act="quick-split-expense">Split & Generate Payment Links 💸</button>
+    <div id="quick-split-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Strava-Style Kudos & XP Boost ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2435,6 +2461,30 @@ function wire(root) {
       </div>
     `;
   }, "Meetup Confirmed! Pin & Live ETA set 📍"));
+
+  on("[data-act=start-safewalk-escort]", () => act(async () => {
+    const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
+    const eta_mins = parseInt($("#sw-eta").value, 10) || 15;
+    const res = await api("/v1/safety/escort", { destination, eta_mins });
+    $("#sw-dest").value = "";
+    toast(res.message || "SafeWalk Live Escort active! 🛡️");
+  }));
+
+  on("[data-act=quick-split-expense]", () => act(async () => {
+    const title = $("#qs-title").value.trim() || "Sunset Drinks & Tapas";
+    const amount = parseFloat($("#qs-amount").value) || 60.00;
+    const people_count = parseInt($("#qs-people").value, 10) || 4;
+    const res = await api("/v1/ledger/quick-split", { title, amount, people_count });
+    const out = $("#quick-split-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:4px;">💸 Expense Split: ${esc(res.title)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">Total: €${res.total_amount.toFixed(2)} · <strong>€${res.per_person.toFixed(2)} / person</strong> (${res.people_count} members)</div>
+        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="window.open('${esc(res.payment_link)}', '_blank'); toast('Payment link opened! 📲');">1-Tap Revolut Payment Link 📲</button>
+      </div>
+    `;
+  }, "Expense Split & Payment Link Generated! 💸"));
 
   on("[data-act=start-audio-space]", () => act(async () => {
     const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";

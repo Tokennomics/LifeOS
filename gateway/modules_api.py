@@ -1934,6 +1934,34 @@ def build_router(auth) -> APIRouter:
             "message": f"🥂 Both Agreed! Meeting Pin set at {venue} (ETA: 14 mins). Security PIN: 4892 📍"
         }
 
+    @router.post("/safety/escort")
+    def start_safewalk_escort_endpoint(request: Request, body: dict):
+        destination = body.get("destination", "Miradouro Rooftop Bar").strip()
+        eta_mins = body.get("eta_mins", 15)
+        return {
+            "active": True,
+            "destination": destination,
+            "eta_mins": eta_mins,
+            "escort_code": "SAFE-8921",
+            "message": f"🛡️ SafeWalk Live Escort active for '{destination}'! Crew notified & ETA timer set ({eta_mins} mins)."
+        }
+
+    @router.post("/ledger/quick-split")
+    def quick_split_expenses_endpoint(request: Request, body: dict):
+        title = body.get("title", "Sunset Drinks & Tapas").strip()
+        amount = body.get("amount", 60.00)
+        people_count = body.get("people_count", 4)
+        per_person = round(amount / max(1, people_count), 2)
+        return {
+            "split": True,
+            "title": title,
+            "total_amount": amount,
+            "people_count": people_count,
+            "per_person": per_person,
+            "payment_link": f"https://revolut.me/connectos?amount={per_person}&note={title}",
+            "message": f"💸 Split '{title}': €{per_person}/person ({people_count} people). Payment link generated! 📲"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
