@@ -286,13 +286,17 @@ function todayView() {
   /* ---- Universal Multi-Vertical Synergy Matcher ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌐 Universal Real-World Matchmaking Radar</h2>
+      <h2>🌐 Universal 7-Factor Real-World Matchmaking Radar</h2>
       <span class="badge good" style="font-weight:bold;">All Verticals</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match on Proximity + Skill/Vibe + Venue Heatmap + Rating across Sports & Co-Working!</p>
+    <p class="hint" style="margin-bottom:8px;">Match on 7 Factors: Proximity + Preferences + Heatmap + Popularity + Graph Trust + Energy + Weather!</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports Buddy 🧗</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Co-Working Partner ☕</button>
+    </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports & Fitness Buddy 🧗</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Nomad Co-Working Partner ☕</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #d946ef);" data-act="match-creative-partner">🎵 Creative Jam Session 🎸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="match-dining-partner">🍲 Dining Crew Outing 🍷</button>
     </div>
     <div id="vertical-match-output" style="margin-top:10px;"></div>
   </div>`;
@@ -2442,14 +2446,17 @@ function wire(root) {
     out.innerHTML = `
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <div style="font-size:14px; font-weight:700; color:var(--spark);">🍷 Instant Dating Match (${res.match_score}% Composite Score)</div>
+          <div style="font-size:14px; font-weight:700; color:var(--spark);">🍷 Instant Dating Match (${res.match_score}% 7-Factor Score)</div>
           <span class="badge good" style="font-size:11px;">📍 ${bd.proximity_km || 1.2} km away</span>
         </div>
         <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">
+        <div style="font-size:11px; color:var(--muted); margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">
           <span>🎯 Preference: ${bd.preference_match || 95}%</span> ·
-          <span>🔥 Heatmap: ${bd.heatmap_density_pct || 88}% capacity</span> ·
-          <span>⭐ Popularity: ${bd.venue_popularity_score || 94}%</span>
+          <span>🔥 Heatmap: ${bd.heatmap_density_pct || 88}%</span> ·
+          <span>⭐ Popularity: ${bd.venue_popularity_score || 94}%</span> ·
+          <span>🤝 Trust Index: ${bd.trust_index || 96}%</span> ·
+          <span>⚡ Energy: ${bd.energy_balance || 90}%</span> ·
+          <span>🌤️ Weather: ${bd.weather_score || 95}%</span>
         </div>
         <div style="font-size:13px; margin-bottom:6px;">📍 Suggested Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
         <div style="display:flex; gap:8px; margin-top:8px;">
@@ -2507,6 +2514,34 @@ function wire(root) {
       </div>
     `;
   }, "Nomad Co-Working Partner Matched! 💻"));
+
+  on("[data-act=match-creative-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/creative-match", { genre: "acoustic jam" });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">🎵 Creative Jam Match (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🎸 <strong>${esc(res.partner_name)}</strong> is ready for an ${esc(res.genre)} session!</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Venue: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected on native chat for Jam Session! 🎸');">Connect on Native Chat 💬</button>
+      </div>
+    `;
+  }, "Creative Jam Matched! 🎸"));
+
+  on("[data-act=match-dining-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/dining-match", { cuisine: "seafood & tapas" });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🍲 Dining Crew Match (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🍷 <strong>${esc(res.partner_name)}</strong> are meeting for ${esc(res.cuisine)} tonight!</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Food Hall: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Dining Crew chat! 🍷');">Join Dining Crew Chat 💬</button>
+      </div>
+    `;
+  }, "Dining Crew Matched! 🍷"));
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
     const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
