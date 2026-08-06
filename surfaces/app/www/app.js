@@ -839,6 +839,29 @@ function peopleView() {
     <button class="primary" data-act="send-micro-tip">Send Coffee Tip (€3.50) ☕</button></div>
   </div>`;
 
+  /* ---- Live Audio Crew Space ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(99,102,241,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎙️ Live Audio Drop-In Space</h2>
+      <span class="badge good" style="font-weight:bold;">Voice Hangout</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Start a live voice room for crew outing prep or casual weekend chats!</p>
+    <div class="row2"><input class="field" id="as-title" placeholder="Space Title (e.g. Weekend Bouldering Prep)">
+    <button class="primary" data-act="start-audio-space">Launch Audio Space 🎙️</button></div>
+  </div>`;
+
+  /* ---- Anonymous Kindness & Positive Vibes Box ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(244,63,94,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💌 Anonymous Kindness Note Box</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Positive Vibes</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Send an anonymous note of gratitude or encouragement to a friend!</p>
+    <div class="row2"><input class="field" id="kn-name" placeholder="Friend Name (e.g. Alex)">
+    <input class="field" id="kn-text" placeholder="Your kind message..."></div>
+    <button class="primary" data-act="send-kindness-note">Send Kindness Note 💌</button>
+  </div>`;
+
   /* ---- Public Event URL Importer ---- */
   html += `<div class="card"><h2>Import External Event (Luma / Eventbrite / Meetup)</h2>
     <div class="row2"><input class="field" id="imp-url" placeholder="Paste Luma or Meetup event URL...">
@@ -2289,6 +2312,22 @@ function wire(root) {
     const res = await api("/v1/ledger/tip", { recipient, amount: 3.50, currency: "EUR" });
     $("#tp-name").value = "";
     toast(res.message || `Sent €3.50 Coffee Tip to ${recipient}! ☕`);
+  }));
+
+  on("[data-act=start-audio-space]", () => act(async () => {
+    const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";
+    const res = await api("/v1/spaces/audio", { title });
+    $("#as-title").value = "";
+    toast(res.message || "Live Audio Crew Space launched! 🎙️");
+  }));
+
+  on("[data-act=send-kindness-note]", () => act(async () => {
+    const recipient = $("#kn-name").value.trim() || "Alex";
+    const note = $("#kn-text").value.trim() || "Thanks for organizing the bouldering meet yesterday!";
+    const res = await api("/v1/social/kindness", { recipient, note });
+    $("#kn-name").value = "";
+    $("#kn-text").value = "";
+    toast(res.message || `Anonymous Kindness Note sent to ${recipient}! 💌`);
   }));
 
   on("[data-act=sunset-win-save]", () => act(async () => {

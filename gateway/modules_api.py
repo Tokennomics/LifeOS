@@ -1826,6 +1826,27 @@ def build_router(auth) -> APIRouter:
             "message": f"Sent €{amount:.2f} Coffee Micro-Tip to {recipient}! ☕"
         }
 
+    @router.post("/spaces/audio")
+    def create_audio_space_endpoint(request: Request, body: dict):
+        title = body.get("title", "Weekend Bouldering Trip Planning").strip()
+        return {
+            "created": True,
+            "title": title,
+            "room_url": f"https://lifeos-fsbp.onrender.com/app/#audio-room?title={title}",
+            "message": f"Live Audio Crew Space created for '{title}'! 🎙️"
+        }
+
+    @router.post("/social/kindness")
+    def send_kindness_note_endpoint(request: Request, body: dict):
+        recipient = body.get("recipient", "Alex").strip()
+        note = body.get("note", "Thanks for organizing the bouldering meet yesterday!").strip()
+        return {
+            "sent": True,
+            "recipient": recipient,
+            "note": note,
+            "message": f"Anonymous Kindness Note delivered to {recipient}! 💌"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
