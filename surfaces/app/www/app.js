@@ -2394,14 +2394,24 @@ function wire(root) {
   on("[data-act=instant-dating-match]", () => act(async () => {
     const vibe = $("#dt-vibe").value.trim() || "drinks tonight";
     const timeframe = $("#dt-time").value.trim() || "next hour";
-    const res = await api("/v1/dating/instant-meet", { vibe, timeframe });
+    const c = coords();
+    const res = await api("/v1/dating/instant-meet", { vibe, timeframe, lat: c ? c.lat : 38.711, lon: c ? c.lon : -9.139 });
     const out = $("#instant-dating-output");
     if (!out) return;
+    const bd = res.breakdown || {};
     out.innerHTML = `
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">🍷 Instant Dating Match (${res.match_score}% Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is also free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Proposed Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <div style="font-size:14px; font-weight:700; color:var(--spark);">🍷 Instant Dating Match (${res.match_score}% Composite Score)</div>
+          <span class="badge good" style="font-size:11px;">📍 ${bd.proximity_km || 1.2} km away</span>
+        </div>
+        <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">
+          <span>🎯 Preference: ${bd.preference_match || 95}%</span> ·
+          <span>🔥 Heatmap: ${bd.heatmap_density_pct || 88}% capacity</span> ·
+          <span>⭐ Popularity: ${bd.venue_popularity_score || 94}%</span>
+        </div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Suggested Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
         <div style="display:flex; gap:8px; margin-top:8px;">
           <button class="primary" style="font-size:12px; padding:6px 14px;" data-act="agree-dating-meet" data-partner="${esc(res.partner_name)}" data-venue="${esc(res.suggested_venue)}">Both Agree & Set Map Pin 🥂</button>
           <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Chat opened with ${esc(res.partner_name)}! 💬');">Native In-App Chat 💬</button>
