@@ -358,6 +358,31 @@ function todayView() {
     <div id="pop-mint-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Real-World AR Spatial Overlay & Beacons Radar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(147,51,234,0.15)); border:1px solid rgba(6,182,212,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>👓 Real-World AR Spatial Overlay & Beacons</h2>
+      <span class="badge good" style="font-weight:bold;">Spatial Camera Radar</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live AR View: Floating 3D beacons rendered in space for nearby outings, heatmaps & audio rooms!</p>
+    <div style="display:grid; grid-template-columns:1fr; gap:6px; margin-bottom:10px;">
+      <div style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div><strong style="color:var(--spark);">☕ Specialty Coffee Meetup</strong> · Elena R.</div>
+        <span class="badge" style="font-size:10px;">85m away · 42° NNE</span>
+      </div>
+      <div style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div><strong style="color:var(--growth);">🔥 Miradouro Rooftop Bar</strong> · 88% Density</div>
+        <span class="badge" style="font-size:10px;">240m away · 115° E</span>
+      </div>
+      <div style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
+        <div><strong style="color:#06b6d4;">🎙️ Bouldering Audio Drop-In</strong> · Alex & Crew</div>
+        <span class="badge" style="font-size:10px;">310m away · 280° W</span>
+      </div>
+    </div>
+    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">🤖 AI Social Co-Pilot: Generate Tailored Icebreakers</button>
+    <div id="ai-icebreaker-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2657,6 +2682,24 @@ function wire(root) {
     $("#dp-cat").value = "";
     toast(res.message || `Published '${name}' to ConnectOS Developer Hub! 🚀`);
   }));
+
+  on("[data-act=gen-ai-icebreakers]", () => act(async () => {
+    const res = await api("/v1/ai/copilot-icebreaker", { partner_name: "Elena R.", shared_hobby: "Specialty Coffee & Bouldering" });
+    const out = $("#ai-icebreaker-output");
+    if (!out) return;
+    const ibs = res.icebreakers || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">🤖 Tailored Icebreakers for ${esc(res.partner_name)}:</div>
+        ${ibs.map(ib => `
+          <div style="font-size:12px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
+            <span>${esc(ib)}</span>
+            <button class="ghost" style="font-size:10px; padding:2px 8px; margin-left:6px;" onclick="navigator.clipboard.writeText('${esc(ib.replace(/'/g, "\\'"))}'); toast('Icebreaker copied! 💬');">Copy 📲</button>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }, "AI Social Co-Pilot Icebreakers Generated! 🤖"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
     const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });

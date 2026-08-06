@@ -2138,6 +2138,63 @@ def build_router(auth) -> APIRouter:
             "message": "🧠 AI Social Battery: 82% Capacity. Real-World Ratio: 85% Real World / 15% Screen."
         }
 
+    @router.get("/ar/spatial-flares")
+    def get_ar_spatial_flares_endpoint(request: Request):
+        return {
+            "ar_mode": "ACTIVE_SPATIAL_RADAR",
+            "flares": [
+                {
+                    "id": "flare-101",
+                    "type": "OUTING_BEACON",
+                    "title": "☕ Specialty Coffee Meetup",
+                    "creator": "Elena R. (96% Match)",
+                    "distance_m": 85,
+                    "bearing_deg": 42,
+                    "altitude_offset_m": 1.5,
+                    "ar_glyph": "☕",
+                    "color": "#f0a94a"
+                },
+                {
+                    "id": "flare-102",
+                    "type": "VENUE_HEATMAP",
+                    "title": "🔥 Miradouro Rooftop (88% Density)",
+                    "creator": "Official Partner Venue",
+                    "distance_m": 240,
+                    "bearing_deg": 115,
+                    "altitude_offset_m": 12.0,
+                    "ar_glyph": "🍷",
+                    "color": "#ec4899"
+                },
+                {
+                    "id": "flare-103",
+                    "type": "AUDIO_SPACE",
+                    "title": "🎙️ Live Audio Drop-In: Weekend Bouldering",
+                    "creator": "Alex & Crew",
+                    "distance_m": 310,
+                    "bearing_deg": 280,
+                    "altitude_offset_m": 0.0,
+                    "ar_glyph": "🎙️",
+                    "color": "#10b981"
+                }
+            ],
+            "message": "👓 AR Spatial Radar Active: 3 real-world social beacons rendered in your 3D view!"
+        }
+
+    @router.post("/ai/copilot-icebreaker")
+    def generate_ai_icebreaker_endpoint(request: Request, body: dict):
+        partner_name = body.get("partner_name", "Elena R.").strip()
+        shared_hobby = body.get("shared_hobby", "Specialty Coffee & Bouldering").strip()
+        return {
+            "partner_name": partner_name,
+            "shared_hobby": shared_hobby,
+            "icebreakers": [
+                f"☕ 'Hey {partner_name}! Saw you're into specialty coffee too — have you tried the washed Ethiopian pour-over at Fabrica?'",
+                f"🧗 'Hi {partner_name}! Down for a quick bouldering session at Monsanto Crag before coffee?'",
+                f"🌅 'Hey {partner_name}! Going to tonight's sunset drinks at Miradouro Rooftop?'"
+            ],
+            "message": f"🤖 AI Social Co-Pilot: 3 tailored icebreakers generated for {partner_name}!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()
