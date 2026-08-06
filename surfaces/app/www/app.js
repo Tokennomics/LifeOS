@@ -114,7 +114,7 @@ async function refresh() {
         api("/v1/routines/heatmap").catch(() => null),
       ]);
     } else if (state.tab === "people") {
-      const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms, communityReviews] = await Promise.all([
+      const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms, communityReviews, cityPassport] = await Promise.all([
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
@@ -122,7 +122,8 @@ async function refresh() {
         api("/v1/venues/activity-heatmap").catch(() => null),
         api("/v1/synergy/overlap").catch(() => null),
         api("/v1/venues/programs").catch(() => null),
-        api("/v1/feed/reviews").catch(() => null)
+        api("/v1/feed/reviews").catch(() => null),
+        api("/v1/gamification/passport").catch(() => null)
       ]);
       state.people = people.people;
       state.crews = crews.crews;
@@ -132,6 +133,7 @@ async function refresh() {
       state.synergyOverlaps = synergyOverlaps;
       state.venuePrograms = venuePrograms;
       state.communityReviews = communityReviews;
+      state.cityPassport = cityPassport;
       if (state.activeChat) {
         await refreshChatMessages();
       }
@@ -250,6 +252,18 @@ function todayView() {
       <button class="primary" data-act="find-tomorrow-pm">Find 20:00 (8 PM) Drinks & Outings 🌅</button>
     </div>
     <div id="tomorrow-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Outing Squad Beacon ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(240,169,74,0.15)); border:1px solid rgba(239,68,68,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⚡ Outing Squad Beacon</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Instant Flare</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Free right now? Broadcast an instant 30-min outing flare to nearby crew members!</p>
+    <div class="row2"><input class="field" id="bc-act" placeholder="Activity (e.g. Coffee & Bouldering)">
+    <input class="field" id="bc-time" placeholder="Timeframe (e.g. 30 mins)" value="30 mins"></div>
+    <button class="primary" data-act="send-squad-beacon">Broadcast Outing Beacon ⚡</button>
   </div>`;
 
   /* ---- Evening Sunset Win Ritual ---- */
@@ -814,6 +828,27 @@ function peopleView() {
       <div class="row2" style="margin-top:8px;"><input class="field" id="rv-place" placeholder="Spot / Venue Name">
       <input class="field" id="rv-text" placeholder="Condition / Review..."></div>
       <button class="primary" data-act="post-venue-review">Post Field Report 📝</button>
+    </div>`;
+  }
+
+  /* ---- Real-World City Passport & Stamps ---- */
+  if (state.cityPassport && state.cityPassport.stamps) {
+    const st = state.cityPassport.stamps;
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(240,169,74,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>🏅 Real-World City Passport</h2>
+        <span class="badge good" style="font-weight:bold;">${state.cityPassport.stamps_count} Venue Stamps</span>
+      </div>
+      <p class="hint" style="margin-bottom:8px;">Your digital passport stamps & badges collected from exploring spots in ${esc(state.cityPassport.city)}!</p>
+      ${st.map(s => `
+        <div class="feed-item" style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div style="font-size:13px; font-weight:700; color:var(--spark);">${s.badge}</div>
+            <div style="font-size:12px; color:var(--muted);">${esc(s.venue)} · ${esc(s.date)}</div>
+          </div>
+          <span class="badge" style="font-size:11px;">${esc(s.category)}</span>
+        </div>
+      `).join("")}
     </div>`;
   }
 
@@ -2312,6 +2347,14 @@ function wire(root) {
     const res = await api("/v1/ledger/tip", { recipient, amount: 3.50, currency: "EUR" });
     $("#tp-name").value = "";
     toast(res.message || `Sent €3.50 Coffee Tip to ${recipient}! ☕`);
+  }));
+
+  on("[data-act=send-squad-beacon]", () => act(async () => {
+    const activity = $("#bc-act").value.trim() || "Coffee & Quick Bouldering";
+    const timeframe = $("#bc-time").value.trim() || "30 mins";
+    const res = await api("/v1/crews/beacon", { activity, timeframe });
+    $("#bc-act").value = "";
+    toast(res.message || `⚡ Outing Squad Beacon broadcasted!`);
   }));
 
   on("[data-act=start-audio-space]", () => act(async () => {

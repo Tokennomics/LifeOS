@@ -1847,6 +1847,29 @@ def build_router(auth) -> APIRouter:
             "message": f"Anonymous Kindness Note delivered to {recipient}! 💌"
         }
 
+    @router.post("/crews/beacon")
+    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
+        activity = body.get("activity", "Coffee & Quick Bouldering").strip()
+        timeframe = body.get("timeframe", "30 mins").strip()
+        return {
+            "broadcasted": True,
+            "activity": activity,
+            "timeframe": timeframe,
+            "message": f"⚡ Outing Squad Beacon broadcasted! '{activity}' in next {timeframe}."
+        }
+
+    @router.get("/gamification/passport")
+    def get_city_passport_endpoint(request: Request):
+        return {
+            "city": "Lisbon",
+            "stamps_count": 8,
+            "stamps": [
+                {"venue": "Monsanto Outdoor Crag", "category": "Climbing", "date": "2026-08-01", "badge": "🧗 Crag Pioneer"},
+                {"venue": "Fabrica Coffee Roasters", "category": "Specialty Coffee", "date": "2026-08-03", "badge": "☕ Roast Aficionado"},
+                {"venue": "Miradouro Sunset Spot", "category": "Social Outing", "date": "2026-08-05", "badge": "🌅 Sunset Chaser"}
+            ]
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
