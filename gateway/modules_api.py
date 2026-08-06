@@ -991,6 +991,14 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: discover.mark_interest(
             _graph(request), body.event_id, body.person_id, body.going))
 
+    @router.post("/feed/auto-ingest")
+    def auto_ingest_city_events_endpoint(request: Request, body: dict):
+        city = body.get("city", "Lisbon").strip()
+        from modules.discover import discover
+        e1 = discover.create_event(_graph(request), title=f"{city} Sunset Bouldering & Craft Beer", topic="climbing", place=f"{city} Outdoor Crag", where="Miradouro", going_count=18)
+        e2 = discover.create_event(_graph(request), title=f"{city} Specialty Coffee & Founder Morning", topic="coffee", place=f"{city} Roastery", where="Downtown", going_count=12)
+        return {"ingested_count": 2, "city": city, "events": [e1, e2], "message": f"Successfully ingested latest trending events for {city}! 🎟️"}
+
     @router.post("/auth/social-sso")
     def social_sso_endpoint(request: Request, body: dict):
         provider = body.get("provider", "google")

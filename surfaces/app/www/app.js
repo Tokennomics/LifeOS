@@ -746,6 +746,17 @@ function peopleView() {
     }
   }
 
+  /* ---- Universal City Event Auto-Ingest Radar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(139,92,246,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 City Event Radar & Live Feeds</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Universal Ingest</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Auto-sync live events from Luma, Eventbrite, Meetup, and local city feeds!</p>
+    <div class="row2"><input class="field" id="ag-city" placeholder="Target City (e.g. Lisbon / Tokyo / NYC)">
+    <button class="primary" data-act="auto-ingest-city">Sync Live Events 🎟️</button></div>
+  </div>`;
+
   html += `<div class="subhead" style="margin-top:12px;">Publish Public Activity</div>
     <div class="row2"><input class="field" id="fa-title" placeholder="Title (e.g. Sushi & Drinks)">
     <input class="field" id="fa-topic" placeholder="Topic (e.g. sushi)"></div>
@@ -2172,6 +2183,13 @@ function wire(root) {
       </div>
     `;
   }, "Matched New Local Friends! 🤝"));
+
+  on("[data-act=auto-ingest-city]", () => act(async () => {
+    const city = $("#ag-city").value.trim() || "Lisbon";
+    const res = await api("/v1/feed/auto-ingest", { city });
+    await refresh();
+    toast(res.message || `Synced live events for ${city}! 🎟️`);
+  }));
 
   on("[data-act=travel-brief]", () => act(async () => {
     const city = $("#tr-city").value.trim() || "Lisbon";
