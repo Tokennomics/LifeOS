@@ -270,7 +270,18 @@ function todayView() {
     <div id="instant-match-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Evening Sunset Win Ritual ---- */
+  /* ---- Instant Dating & Evening Drinks Radar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🍷 Instant Dating & Evening Drinks Radar</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Next Hour</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Want to meet someone new for drinks tonight in the next hour? Match instantly & set a shared map pin + ETA!</p>
+    <div class="row2"><input class="field" id="dt-vibe" placeholder="Vibe (e.g. drinks tonight)" value="drinks tonight">
+    <input class="field" id="dt-time" placeholder="Timeframe (e.g. next hour)" value="next hour"></div>
+    <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Match Instant Drinks Meetup 🍷</button>
+    <div id="instant-dating-output" style="margin-top:10px;"></div>
+  </div>`;
 
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
@@ -2379,6 +2390,41 @@ function wire(root) {
       </div>
     `;
   }, "Instant Synergy Outing Matched! ☕"));
+
+  on("[data-act=instant-dating-match]", () => act(async () => {
+    const vibe = $("#dt-vibe").value.trim() || "drinks tonight";
+    const timeframe = $("#dt-time").value.trim() || "next hour";
+    const res = await api("/v1/dating/instant-meet", { vibe, timeframe });
+    const out = $("#instant-dating-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">🍷 Instant Dating Match (${res.match_score}% Match):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is also free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Proposed Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="primary" style="font-size:12px; padding:6px 14px;" data-act="agree-dating-meet" data-partner="${esc(res.partner_name)}" data-venue="${esc(res.suggested_venue)}">Both Agree & Set Map Pin 🥂</button>
+          <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Chat opened with ${esc(res.partner_name)}! 💬');">Native In-App Chat 💬</button>
+        </div>
+      </div>
+    `;
+  }, "Instant Drinks Meetup Matched! 🍷"));
+
+  on("[data-act=agree-dating-meet]", (el) => act(async () => {
+    const partner_name = el.dataset.partner || "Elena R.";
+    const venue = el.dataset.venue || "Miradouro Rooftop";
+    const res = await api("/v1/dating/agree-meet", { partner_name, venue });
+    const out = $("#instant-dating-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🥂 Confirmed! Meeting Pin Set at ${esc(res.venue)}:</div>
+        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Shared Map Pin:</strong> Live ETA ${res.eta_mins} mins</div>
+        <div style="font-size:13px; margin-bottom:6px;">🛡️ <strong>Safety Pin Code:</strong> ${res.pin_code}</div>
+        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="toast('Connected in native in-app chatroom! 💬');">Launch Native Chatroom 💬</button>
+      </div>
+    `;
+  }, "Meetup Confirmed! Pin & Live ETA set 📍"));
 
   on("[data-act=start-audio-space]", () => act(async () => {
     const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";

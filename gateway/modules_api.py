@@ -1885,6 +1885,36 @@ def build_router(auth) -> APIRouter:
             "message": f"☕ Instant Match Found! Elena R. is also free in the next {timeframe} for {interest} at Fabrica Coffee Roasters!"
         }
 
+    @router.post("/dating/instant-meet")
+    def instant_dating_meet_endpoint(request: Request, body: dict):
+        vibe = body.get("vibe", "drinks tonight").strip()
+        timeframe = body.get("timeframe", "next hour").strip()
+        return {
+            "matched": True,
+            "vibe": vibe,
+            "timeframe": timeframe,
+            "partner_name": "Elena R.",
+            "match_score": 96,
+            "suggested_venue": "Miradouro Rooftop Sunset Bar",
+            "venue_address": "Rua do Miradouro 14, Lisbon",
+            "message": f"🍷 Instant Dating Match Found! Elena R. is free in the {timeframe} for {vibe} at Miradouro Rooftop!"
+        }
+
+    @router.post("/dating/agree-meet")
+    def agree_dating_meet_endpoint(request: Request, body: dict):
+        partner_name = body.get("partner_name", "Elena R.").strip()
+        venue = body.get("venue", "Miradouro Rooftop Sunset Bar").strip()
+        return {
+            "agreed": True,
+            "partner_name": partner_name,
+            "venue": venue,
+            "pin_code": "4892",
+            "eta_mins": 14,
+            "lat": 38.711,
+            "lon": -9.139,
+            "message": f"🥂 Both Agreed! Meeting Pin set at {venue} (ETA: 14 mins). Security PIN: 4892 📍"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
