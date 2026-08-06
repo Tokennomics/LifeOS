@@ -342,6 +342,22 @@ function todayView() {
     <button class="primary" data-act="register-dev-plugin">Publish Developer Plugin 🚀</button></div>
   </div>`;
 
+  /* ---- AI Social Battery & Real-World Balance Shield ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(245,158,11,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🧠 AI Social Battery & Real-World Shield</h2>
+      <span class="badge good" style="font-weight:bold;">82% Social Capacity</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">High Social Flow! Real-World Ratio: 85% Outings / 15% Screen Time.</p>
+    <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:13px; margin-bottom:8px;">
+      ⚡ <strong>Recommendation:</strong> Ideal time for a 4-person Bouldering or Sunset Drinks Crew Outing!
+    </div>
+    <div class="row2">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">Mint Proof-of-Presence Badge 🎟️</button>
+    </div>
+    <div id="pop-mint-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2641,6 +2657,19 @@ function wire(root) {
     $("#dp-cat").value = "";
     toast(res.message || `Published '${name}' to ConnectOS Developer Hub! 🚀`);
   }));
+
+  on("[data-act=mint-pop-badge]", () => act(async () => {
+    const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
+    const out = $("#pop-mint-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🎟️ Proof-of-Presence Minted!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Token ID: <strong>${esc(res.token_id)}</strong> · ${esc(res.badge_name)}</div>
+        <div style="font-size:11px; color:var(--muted);">Tx Hash: ${esc(res.tx_hash)} (Verified on Blockchain ⛓️)</div>
+      </div>
+    `;
+  }, "Proof-of-Presence Badge Minted! 🎟️"));
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
     const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";

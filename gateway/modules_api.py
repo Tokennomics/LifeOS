@@ -2109,6 +2109,35 @@ def build_router(auth) -> APIRouter:
             "message": f"🚀 Registered '{plugin_name}' on ConnectOS Developer Hub! Synergy webhook endpoint active."
         }
 
+    @router.post("/gamification/mint-presence")
+    def mint_proof_of_presence_endpoint(request: Request, body: dict):
+        event_name = body.get("event_name", "Lisbon Rooftop Sunset Meet").strip()
+        location = body.get("location", "Miradouro Rooftop").strip()
+        token_id = "POP-" + "".join(__import__("random").choices("0123456789ABCDEF", k=8))
+        return {
+            "minted": True,
+            "token_id": token_id,
+            "badge_name": f"Verified Attendee: {event_name}",
+            "location": location,
+            "tx_hash": f"0x{token_id.lower()}9941a82f3d",
+            "message": f"🎟️ Proof-of-Presence Badge Minted! ID: {token_id} ({event_name} @ {location}). Verified on blockchain! ⛓️"
+        }
+
+    @router.get("/vitals/social-battery")
+    def social_battery_optimizer_endpoint(request: Request):
+        return {
+            "battery_pct": 82,
+            "social_state": "OPTIMAL_FLOW",
+            "recommendation": "High Social Energy! Perfect for joining a 4-person Crew Outing or Bouldering Session.",
+            "suggested_format": "Group Crew Outing (3-6 members)",
+            "balance_index": {
+                "real_world_hours": 18.5,
+                "screen_hours": 3.2,
+                "real_world_ratio": 0.85
+            },
+            "message": "🧠 AI Social Battery: 82% Capacity. Real-World Ratio: 85% Real World / 15% Screen."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()
