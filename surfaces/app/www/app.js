@@ -678,6 +678,18 @@ function peopleView() {
     <div class="row2"><input class="field" id="person-name" placeholder="Name">
     <button class="primary" style="width:auto;flex:none;padding:10px 18px" data-act="add-person">Add</button></div>
     <p class="hint">People also arrive automatically from captures. Contact refreshes when you log a reconnect or mark a convoy attended.</p></div>`;
+  /* ---- Match New Local Friends Radar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(37,99,235,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🤝 Match New Friends in My City</h2>
+      <span class="badge good" style="font-weight:bold;">Shared Interests</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Find new friends in your city who share your exact hobbies (bouldering, specialty coffee, tech, running)!</p>
+    <div class="row2"><input class="field" id="mf-interest" placeholder="Hobby / Interest (e.g. bouldering)">
+    <button class="primary" data-act="match-new-friends">Find New Friends 🤝</button></div>
+    <div id="match-friends-output" style="margin-top:10px;"></div>
+  </div>`;
+
   html += `<div class="card"><h2>Reconnect radar</h2>`;
   if (!state.people.length) {
     html += `<p class="empty">Nobody in the graph yet.</p>`;
@@ -2147,6 +2159,19 @@ function wire(root) {
       </div>
     `;
   }, "Found 8:00 PM Matches! 🌅"));
+
+  on("[data-act=match-new-friends]", () => act(async () => {
+    const interest = $("#mf-interest").value.trim() || "bouldering";
+    const out = $("#match-friends-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🤝 Matched 3 New Friends in Lisbon (${esc(interest)}):</div>
+        <div class="person" style="margin-bottom:6px;"><div class="who"><div class="name">Elena R.</div><div class="meta">Bouldering & Specialty Coffee · 94% Match</div></div><button class="pill good" onclick="toast('Friend request & crew invite sent to Elena! 🤝');">Connect 🤝</button></div>
+        <div class="person" style="margin-bottom:6px;"><div class="who"><div class="name">Marcus T.</div><div class="meta">Outdoor Climbing & Tech · 89% Match</div></div><button class="pill good" onclick="toast('Friend request & crew invite sent to Marcus! 🤝');">Connect 🤝</button></div>
+      </div>
+    `;
+  }, "Matched New Local Friends! 🤝"));
 
   on("[data-act=travel-brief]", () => act(async () => {
     const city = $("#tr-city").value.trim() || "Lisbon";
