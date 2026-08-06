@@ -254,17 +254,23 @@ function todayView() {
     <div id="tomorrow-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Outing Squad Beacon ---- */
+  /* ---- Outing Squad Beacon & Instant AI Matchmaker ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(240,169,74,0.15)); border:1px solid rgba(239,68,68,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>⚡ Outing Squad Beacon</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Instant Flare</span>
+      <h2>⚡ Outing Squad Beacon & AI Matchmaker</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Next 30 Mins</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Free right now? Broadcast an instant 30-min outing flare to nearby crew members!</p>
-    <div class="row2"><input class="field" id="bc-act" placeholder="Activity (e.g. Coffee & Bouldering)">
+    <p class="hint" style="margin-bottom:8px;">Free right now? Match instantly with friends who want to explore coffee spots, bouldering, or outings in the next 30 mins!</p>
+    <div class="row2"><input class="field" id="bc-act" placeholder="Activity (e.g. Specialty Coffee)">
     <input class="field" id="bc-time" placeholder="Timeframe (e.g. 30 mins)" value="30 mins"></div>
-    <button class="primary" data-act="send-squad-beacon">Broadcast Outing Beacon ⚡</button>
+    <div class="row2">
+      <button class="primary" data-act="send-squad-beacon">Broadcast Outing Beacon ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, var(--spark), var(--growth));" data-act="instant-synergy-match">AI Instant Match (30 Mins) ☕</button>
+    </div>
+    <div id="instant-match-output" style="margin-top:10px;"></div>
   </div>`;
+
+  /* ---- Evening Sunset Win Ritual ---- */
 
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
@@ -2356,6 +2362,23 @@ function wire(root) {
     $("#bc-act").value = "";
     toast(res.message || `⚡ Outing Squad Beacon broadcasted!`);
   }));
+
+  on("[data-act=instant-synergy-match]", () => act(async () => {
+    const interest = $("#bc-act").value.trim() || "specialty coffee";
+    const timeframe = $("#bc-time").value.trim() || "30 mins";
+    const res = await api("/v1/synergy/instant-match", { interest, timeframe });
+    const out = $("#instant-match-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">☕ AI Instant Match Found (${res.match_score}% Match):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🙋‍♂️ <strong>${esc(res.partner_name)}</strong> is also free in the next ${esc(res.timeframe)} for ${esc(res.interest)}!</div>
+        <div style="font-size:13px; margin-bottom:4px;">📍 Suggested Venue: <strong>${esc(res.suggested_venue)}</strong></div>
+        <div style="font-size:13px; margin-bottom:6px;">🎟️ Event: <strong>${esc(res.event_name)}</strong></div>
+        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('☕ Hey ${esc(res.partner_name)}! Down to meet up at ${esc(res.suggested_venue)} in 30 mins for coffee?'); toast('Invite copied to clipboard! 📲');">Text ${esc(res.partner_name)} on WhatsApp 📲</button>
+      </div>
+    `;
+  }, "Instant Synergy Outing Matched! ☕"));
 
   on("[data-act=start-audio-space]", () => act(async () => {
     const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";

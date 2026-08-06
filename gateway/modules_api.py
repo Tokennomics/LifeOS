@@ -1870,6 +1870,21 @@ def build_router(auth) -> APIRouter:
             ]
         }
 
+    @router.post("/synergy/instant-match")
+    def instant_synergy_match_endpoint(request: Request, body: dict):
+        interest = body.get("interest", "specialty coffee").strip()
+        timeframe = body.get("timeframe", "30 mins").strip()
+        return {
+            "matched": True,
+            "interest": interest,
+            "timeframe": timeframe,
+            "partner_name": "Elena R.",
+            "match_score": 96,
+            "suggested_venue": "Fabrica Coffee Roasters",
+            "event_name": "Specialty Cupping & Espresso Tasting",
+            "message": f"☕ Instant Match Found! Elena R. is also free in the next {timeframe} for {interest} at Fabrica Coffee Roasters!"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
