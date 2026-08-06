@@ -769,6 +769,20 @@ function peopleView() {
     <button class="primary" data-act="feed-publish">Publish Public Activity</button>
   </div>`;
 
+  /* ---- Weekly Crew Outing Poll ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(234,179,8,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📊 Weekly Crew Outing Poll</h2>
+      <span class="badge good" style="font-weight:bold;">Active Poll</span>
+    </div>
+    <p class="hint" style="margin-bottom:10px;">Where should the crew go this Friday night?</p>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Outdoor Bouldering & Craft Beer">🧗 Outdoor Bouldering & Craft Beer <small style="color:var(--muted);">(4 votes)</small></button>
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Specialty Coffee Tasting & Walk">☕ Specialty Coffee Tasting & Walk <small style="color:var(--muted);">(2 votes)</small></button>
+      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Miradouro Sunset Drinks & Pizza">🌅 Miradouro Sunset Drinks & Pizza <small style="color:var(--muted);">(6 votes)</small></button>
+    </div>
+  </div>`;
+
   /* ---- Strava-Style Kudos & XP Boost ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2208,6 +2222,12 @@ function wire(root) {
       </div>
     `;
   }, "Matched New Local Friends! 🤝"));
+
+  on("[data-act=crew-poll-vote]", (el) => act(async () => {
+    const option = el.dataset.opt || "Outing";
+    const res = await api("/v1/crews/polls/vote", { option });
+    toast(res.message || `Voted for '${option}'! 📊`);
+  }));
 
   on("[data-act=auto-ingest-city]", () => act(async () => {
     const city = $("#ag-city").value.trim() || "Lisbon";

@@ -1758,6 +1758,11 @@ def build_router(auth) -> APIRouter:
             ]
         }
 
+    @router.post("/crews/polls/vote")
+    def vote_crew_poll_endpoint(request: Request, body: dict):
+        option = body.get("option", "Bouldering & Drinks")
+        return {"voted": True, "option": option, "message": f"Voted for '{option}'! 📊"}
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
