@@ -232,6 +232,20 @@ function todayView() {
     }
   }
 
+  /* ---- Tomorrow at 8:00 Activity & Friend Finder ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(99,206,139,0.15)); border:1px solid rgba(240,169,74,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🕒 Find Activities Tomorrow at 8:00</h2>
+      <span class="badge good" style="font-weight:bold;">Instant Finder</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Want to do something tomorrow at 8:00 AM or 8:00 PM? 1-tap to check local spots & available friends!</p>
+    <div class="row2">
+      <button class="primary" data-act="find-tomorrow-am">Find 8:00 AM Coffee & Workout ☕</button>
+      <button class="primary" data-act="find-tomorrow-pm">Find 20:00 (8 PM) Drinks & Outings 🌅</button>
+    </div>
+    <div id="tomorrow-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Guided Mindfulness & 2-Min Breathing Timer ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(16,185,129,0.12)); border:1px solid rgba(139,92,246,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2107,6 +2121,32 @@ function wire(root) {
     $("#kd-name").value = "";
     toast(res.message || `Kudos & +50 XP sent to ${recipient}! 👏`);
   }));
+
+  on("[data-act=find-tomorrow-am]", () => act(async () => {
+    const out = $("#tomorrow-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">☕ Tomorrow at 8:00 AM Matches:</div>
+        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Fabrica Coffee Roasters</strong> — Specialty Coffee & Morning Intent</div>
+        <div style="font-size:13px; margin-bottom:4px;">🧗 <strong>Morning Bouldering Session</strong> (Monsanto Crag · Alex & 2 others free)</div>
+        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('⚡ Hey Alex! Down for 8:00 AM Bouldering & Coffee tomorrow?'); toast('Message copied to clipboard! 📲');">Text Friends on WhatsApp 📲</button>
+      </div>
+    `;
+  }, "Found 8:00 AM Matches! ☕"));
+
+  on("[data-act=find-tomorrow-pm]", () => act(async () => {
+    const out = $("#tomorrow-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🌅 Tomorrow at 20:00 (8:00 PM) Matches:</div>
+        <div style="font-size:13px; margin-bottom:4px;">🎟️ <strong>Sunset Bouldering & Pizza Meet</strong> (Lisbon Center · 14 attending)</div>
+        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Miradouro Sunset Drinks</strong> (Elena & 3 crew members free)</div>
+        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('🌅 Hey crew! Anyone down for 20:00 Sunset Drinks tomorrow?'); toast('Message copied to clipboard! 📲');">Text Crew on WhatsApp 📲</button>
+      </div>
+    `;
+  }, "Found 8:00 PM Matches! 🌅"));
 
   on("[data-act=travel-brief]", () => act(async () => {
     const city = $("#tr-city").value.trim() || "Lisbon";
