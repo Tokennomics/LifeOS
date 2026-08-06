@@ -2000,6 +2000,56 @@ def build_router(auth) -> APIRouter:
             "message": f"🪩 Rave Match Found (98% Match)! Clara & Lisbon Rave Crew are heading to {subgenre} set at Lux Frágil!"
         }
 
+    @router.post("/synergy/surf-match")
+    def surf_swell_match_endpoint(request: Request, body: dict):
+        spot = body.get("spot", "Carcavelos Beach").strip()
+        swell_m = body.get("swell_m", 2.2)
+        period_s = body.get("period_s", 14)
+        wind = body.get("wind", "11 knot Offshore NNE").strip()
+        return {
+            "matched": True,
+            "category": "Surfing & Ocean Sports",
+            "swell_alert": True,
+            "telemetry": {
+                "swell_height_m": swell_m,
+                "wave_period_sec": period_s,
+                "wind_conditions": wind,
+                "water_temp_c": 17.5
+            },
+            "partner_name": "Tiago M. (Shortboard / Intermediate)",
+            "match_score": 99,
+            "suggested_venue": spot,
+            "breakdown": {
+                "marine_weather_score": 100,
+                "proximity_km": 1.1,
+                "beach_break_rating": 98,
+                "skill_alignment": 97
+            },
+            "message": f"🏄 Swell Alert Active ({swell_m}m @ {period_s}s, {wind})! Tiago M. is heading to {spot}!"
+        }
+
+    @router.get("/weather/radar")
+    def weather_radar_telemetry_endpoint(request: Request):
+        return {
+            "active_alerts": [
+                {"activity": "Surfing 🏄", "trigger": "2.2m Swell, 14s Period (Offshore Wind)", "status": "PRIME CONDITIONS"},
+                {"activity": "Alpine Skiing ⛷️", "trigger": "45cm Fresh Snowfall", "status": "POWDER ALERT"},
+                {"activity": "Golden Hour Sunset 🌅", "trigger": "Clear Sky, 24°C, 15% Clouds", "status": "IDEAL SUNSET"}
+            ],
+            "marine": {
+                "swell_m": 2.2,
+                "period_s": 14,
+                "wind_direction": "Offshore NNE",
+                "wind_speed_knots": 11
+            },
+            "atmosphere": {
+                "temp_c": 24,
+                "humidity_pct": 48,
+                "cloud_cover_pct": 15,
+                "uv_index": 6
+            }
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

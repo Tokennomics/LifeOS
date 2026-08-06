@@ -298,8 +298,11 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #d946ef);" data-act="match-creative-partner">🎵 Creative Jam Session 🎸</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="match-dining-partner">🍲 Dining Crew Outing 🍷</button>
     </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="match-ski-partner">⛷️ Powder Alert Skiing ❄️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="match-surf-partner">🏄 Swell Alert Surfing 🌊</button>
+    </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="match-ski-partner">⛷️ Powder Alert & Skiing ❄️</button>
       <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6d28d9);" data-act="match-rave-partner">🪩 Raves & Nightlife 🎶</button>
     </div>
     <div id="vertical-match-output" style="margin-top:10px;"></div>
@@ -2578,6 +2581,23 @@ function wire(root) {
       </div>
     `;
   }, "Nightlife Rave Match Found! 🪩"));
+
+  on("[data-act=match-surf-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/surf-match", { spot: "Carcavelos Beach", swell_m: 2.2, period_s: 14, wind: "11kt Offshore NNE" });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    const bd = res.breakdown || {};
+    const tel = res.telemetry || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
+        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:6px;">🏄 Swell Alert Surf Match (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🌊 <strong>${esc(res.partner_name)}</strong> is heading to ${esc(res.suggested_venue)}!</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Swell: ${tel.swell_height_m}m @ ${tel.wave_period_sec}s · Wind: ${esc(tel.wind_conditions)} · Marine Score: ${bd.marine_weather_score}%</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Surf Spot: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Surf Session on Native Chat! 🏄');">Plan Surf Session on Native Chat 💬</button>
+      </div>
+    `;
+  }, "Swell Alert Surf Match Found! 🏄"));
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
     const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
