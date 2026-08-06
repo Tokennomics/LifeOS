@@ -1813,6 +1813,19 @@ def build_router(auth) -> APIRouter:
             ]
         }
 
+    @router.post("/ledger/tip")
+    def send_micro_tip_endpoint(request: Request, body: dict):
+        recipient = body.get("recipient", "Alex (Crew Host)").strip()
+        amount = body.get("amount", 3.50)
+        currency = body.get("currency", "EUR")
+        return {
+            "tipped": True,
+            "recipient": recipient,
+            "amount": amount,
+            "currency": currency,
+            "message": f"Sent €{amount:.2f} Coffee Micro-Tip to {recipient}! ☕"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter

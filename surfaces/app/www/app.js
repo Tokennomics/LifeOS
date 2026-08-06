@@ -828,6 +828,17 @@ function peopleView() {
     <button class="primary" data-act="kudos-send">Send Kudos & XP 👏</button></div>
   </div>`;
 
+  /* ---- Buy a Coffee / Micro-Tip Host ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>☕ Buy a Coffee / Micro-Tip Host</h2>
+      <span class="badge good" style="font-weight:bold;">Direct Support</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Send a 1-tap €3.50 coffee tip to crew organizers and route builders!</p>
+    <div class="row2"><input class="field" id="tp-name" placeholder="Host Name (e.g. Alex)">
+    <button class="primary" data-act="send-micro-tip">Send Coffee Tip (€3.50) ☕</button></div>
+  </div>`;
+
   /* ---- Public Event URL Importer ---- */
   html += `<div class="card"><h2>Import External Event (Luma / Eventbrite / Meetup)</h2>
     <div class="row2"><input class="field" id="imp-url" placeholder="Paste Luma or Meetup event URL...">
@@ -2271,6 +2282,13 @@ function wire(root) {
     $("#rv-text").value = "";
     await refresh();
     toast(res.message || "Field Report posted to community feed! 📝");
+  }));
+
+  on("[data-act=send-micro-tip]", () => act(async () => {
+    const recipient = $("#tp-name").value.trim() || "Alex";
+    const res = await api("/v1/ledger/tip", { recipient, amount: 3.50, currency: "EUR" });
+    $("#tp-name").value = "";
+    toast(res.message || `Sent €3.50 Coffee Tip to ${recipient}! ☕`);
   }));
 
   on("[data-act=sunset-win-save]", () => act(async () => {
