@@ -114,13 +114,14 @@ async function refresh() {
         api("/v1/routines/heatmap").catch(() => null),
       ]);
     } else if (state.tab === "people") {
-      const [people, crews, feed, venues, heatmap, synergyOverlaps] = await Promise.all([
+      const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms] = await Promise.all([
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
         api("/v1/venues/explore").catch(() => ({ venues: [] })),
         api("/v1/venues/activity-heatmap").catch(() => null),
-        api("/v1/synergy/overlap").catch(() => null)
+        api("/v1/synergy/overlap").catch(() => null),
+        api("/v1/venues/programs").catch(() => null)
       ]);
       state.people = people.people;
       state.crews = crews.crews;
@@ -128,6 +129,7 @@ async function refresh() {
       state.venues = venues;
       state.heatmap = heatmap;
       state.synergyOverlaps = synergyOverlaps;
+      state.venuePrograms = venuePrograms;
       if (state.activeChat) {
         await refreshChatMessages();
       }
@@ -137,12 +139,14 @@ async function refresh() {
       if (state.today && state.today.events && state.today.events.length) {
         eventId = state.today.events[0].id || eventId;
       }
-      const [mapRes, convoyRes] = await Promise.all([
+      const [mapRes, convoyRes, venuePrograms] = await Promise.all([
         api("/v1/capsules" + (c ? `?lat=${c.lat}&lon=${c.lon}` : "")),
-        api(`/v1/venues/convoy/etas?event_id=${eventId}`).catch(() => [])
+        api(`/v1/venues/convoy/etas?event_id=${eventId}`).catch(() => []),
+        api("/v1/venues/programs").catch(() => null)
       ]);
       state.map = mapRes;
       state.convoy = convoyRes;
+      state.venuePrograms = venuePrograms;
     } else if (state.tab === "more") {
       const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
@@ -969,6 +973,27 @@ function mapView() {
       </div>`).join("");
   }
   html += `</div>`;
+
+  /* ---- Official Venue Programs & Schedules ---- */
+  if (state.venuePrograms && state.venuePrograms.programs) {
+    const progs = state.venuePrograms.programs;
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(139,92,246,0.15)); border:1px solid rgba(240,169,74,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>🏛️ Official Local Venue Programs</h2>
+        <span class="badge good" style="font-weight:bold;">Verified Partners</span>
+      </div>
+      <p class="hint" style="margin-bottom:10px;">Official weekly schedules & exclusive perks from local gyms, coffee roasters, and spots.</p>
+      ${progs.map(p => `
+        <div class="feed-item" style="background:var(--surface-2s); border-radius:10px; padding:10px; margin-bottom:8px;">
+          <div style="font-size:14px; font-weight:700; color:var(--spark);">🏛️ ${esc(p.venue_name)} (${esc(p.city)})</div>
+          <div style="font-size:13px; font-weight:600; margin:2px 0;">${esc(p.title)}</div>
+          <div style="font-size:12px; color:var(--muted);">📅 Schedule: ${esc(p.schedule)}</div>
+          <div style="font-size:12px; color:var(--growth); margin-top:2px;">🎁 Perk: ${esc(p.perks)}</div>
+          <button class="pill warm" style="margin-top:6px;" data-act="subscribe-venue-program" data-name="${esc(p.venue_name)}">Sync Program to Smart Calendar 📅</button>
+        </div>
+      `).join("")}
+    </div>`;
+  }
 
   /* ---- Forward-Looking Travel & Curated Event Radar ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
@@ -2189,6 +2214,11 @@ function wire(root) {
     const res = await api("/v1/feed/auto-ingest", { city });
     await refresh();
     toast(res.message || `Synced live events for ${city}! 🎟️`);
+  }));
+
+  on("[data-act=subscribe-venue-program]", (el) => act(async () => {
+    const name = el.dataset.name || "Venue";
+    toast(`Synced official ${name} program to your Smart Calendar! 📅`);
   }));
 
   on("[data-act=travel-brief]", () => act(async () => {

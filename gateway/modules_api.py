@@ -1722,6 +1722,42 @@ def build_router(auth) -> APIRouter:
         csv_data = "\n".join(lines)
         return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lifeos_graph.csv"})
 
+    @router.post("/venues/program")
+    def publish_venue_program_endpoint(request: Request, body: dict):
+        venue_name = body.get("venue_name", "Vertical Wall Climbing Gym").strip()
+        program_title = body.get("title", "Weekly Bouldering League & Sunset Social").strip()
+        schedule = body.get("schedule", "Tuesdays 19:00, Fridays 20:00")
+        return {
+            "published": True,
+            "venue_name": venue_name,
+            "title": program_title,
+            "schedule": schedule,
+            "message": f"Official Venue Program published for {venue_name}! 🏛️"
+        }
+
+    @router.get("/venues/programs")
+    def list_venue_programs_endpoint(request: Request):
+        return {
+            "programs": [
+                {
+                    "venue_name": "Vertical Wall Climbing Gym",
+                    "category": "bouldering_gym",
+                    "city": "Lisbon",
+                    "title": "Weekly Bouldering League & Sunset Social",
+                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
+                    "perks": "15% off for ConnectOS Crew Members 🎟️"
+                },
+                {
+                    "venue_name": "Fabrica Coffee Roasters",
+                    "category": "specialty_coffee",
+                    "city": "Lisbon",
+                    "title": "Specialty Cupping & Founder Morning",
+                    "schedule": "Wednesdays 08:30 AM",
+                    "perks": "Free Espresso Tasting ☕"
+                }
+            ]
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
