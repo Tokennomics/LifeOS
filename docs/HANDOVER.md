@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#15 are merged; #16 (venue feeds) is open.** `python -m pytest` → **734 passing**.
+explicit permission). **PRs #1–#15 are merged; #16 (feeds + security audit) is open.** `python -m pytest` → **774 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -233,6 +233,43 @@ parsing to zero items rather than raising), and the Ticketmaster response shape 
 from the documented `_embedded.events[]` structure against recorded-shape fixtures — which
 is why `normalise` tolerates every level being missing or the wrong type. **Treat the first
 real call as the test.** The failure mode is an empty result and a recorded status.
+
+## The pre-hosting security audit (2026-08-05) — read before exposing this
+
+Eight holes, every one **demonstrated against a running gateway with two real accounts**
+before it was touched, and every one now covered in `tests/test_security_audit.py`. The
+pattern worth internalising: **six of the eight were authorisation done on data the caller
+supplied.** Nothing was wrong with the substrate — owner scoping held everywhere — the
+gateway simply handed it the wrong identity.
+
+- **CRITICAL — crew takeover.** `crews._require_admin` compared the ACL against `by`, which
+  came straight off the request body. *Naming* the admin was the same as *being* the admin,
+  and the public roster hands out the admin's account id. Verified: a signed-in stranger
+  blocked a crew's owner from her own crew, members 1 → 0, admins emptied. **Every actor
+  parameter is now pinned to the session** (`_actor` / `_actor_opt` in `modules_api.py`);
+  a body id that disagrees with the session is a 403, not a silent override. **Targets are
+  not actors** — `person_id` in "invite this person" still comes from the body.
+- **HIGH — `/v1/export` and `/v1/graph` crossed the tenant boundary.** `entities` was
+  owner-filtered; `edges` and `observations` were not. Every account's export carried a
+  provenance row for every write on the box. Neither table has an `owner_id` and the v0
+  schema is final, so both are scoped by joining back to owned entities.
+- **HIGH — SSRF.** Three features fetch a URL a user chose. `169.254.169.254` hands out
+  instance credentials on Render, Fly, AWS, GCP and DO alike. All outbound fetches now go
+  through `substrate/safefetch.py`, which judges the **resolved address** (not the hostname —
+  `127.0.0.1` has a thousand spellings) and **re-checks every redirect hop**.
+- **HIGH — no brute-force protection.** `gateway/rate_limiter.py` existed, claimed to defend
+  against "brute-force authentication", and was imported by nothing. 60 wrong passwords, 60
+  clean 401s. Now wired into login (10/5min), registration (5/hr) and the fetch endpoints.
+  It was also a process-global singleton whose counters outlived the app that made them; it
+  is per-app now.
+- **HIGH — sender spoofing** in chat, chatroom, RSVP, convoy location and milestones.
+- **MED — signup is open.** Rate-limited now, still open by design; that is a product call.
+
+**Still open, and it is functional rather than a leak: direct messages cannot be delivered
+across accounts.** `chat.send_message` writes into the *sender's* owner slice and
+`get_messages` reads owner-scoped, so only the sender ever sees the message — the same shape
+as the dating bug. Inert, not leaky. Fix it the way dating was fixed (a shared home plus
+grants, or a blinded rendezvous), **not** by reaching for `find_public`.
 
 ## Gotchas — read these before touching anything
 

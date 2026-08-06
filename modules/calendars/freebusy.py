@@ -12,6 +12,7 @@ import argparse
 import datetime
 import json
 
+from substrate import safefetch
 from substrate.graph import Graph
 
 SCOPES = {"events:read", "events:write"}
@@ -109,9 +110,7 @@ def sync(graph: Graph, cfg: dict, ics_text: str | None = None, now: datetime.dat
         url = cal.get("ics_url", "")
         if not url:
             return {"status": "not-configured", "events": 0}
-        import httpx
-
-        ics_text = httpx.get(url, timeout=30, follow_redirects=True).raise_for_status().text
+        ics_text = safefetch.fetch_text(url)   # config-supplied url: SSRF guard
 
     now = now or datetime.datetime.now(datetime.timezone.utc)
     lo, hi = now - datetime.timedelta(days=1), now + datetime.timedelta(days=WINDOW_DAYS)

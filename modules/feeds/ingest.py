@@ -31,7 +31,7 @@ carry on.
 import datetime
 
 from modules.feeds import discover, parse
-from substrate import SYSTEM_OWNER, now_iso        # noqa: F401  (now_iso used below)
+from substrate import SYSTEM_OWNER, now_iso, safefetch
 from substrate.graph import Graph
 
 SCOPES = {"content:read", "content:write", "events:read", "events:write"}
@@ -97,8 +97,10 @@ def remove_feed(graph: Graph, feed_id: str, source: str = MODULE) -> dict:
 
 
 def _fetch(url: str) -> str:
-    import httpx
-    return httpx.get(url, timeout=30, follow_redirects=True).raise_for_status().text
+    """Every URL here was chosen by a user, so it goes through the SSRF guard. See
+    substrate/safefetch.py — the danger is not the venue, it is the cloud metadata service
+    sitting unauthenticated on a link-local address inside every hosted box."""
+    return safefetch.fetch_text(url)
 
 
 def _dedupe_key(url: str, uid: str) -> str:

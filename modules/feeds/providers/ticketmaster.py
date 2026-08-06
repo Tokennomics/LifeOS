@@ -99,6 +99,5 @@ def search(city: str = "", size: int = 50, page: int = 0, fetch=None) -> dict:
 
 
 def _fetch(url: str, params: dict) -> dict:
-    import httpx
-    return httpx.get(url, params=params, timeout=30,
-                     follow_redirects=True).raise_for_status().json()
+    from substrate import safefetch
+    return safefetch.fetch_json(url, params)
