@@ -1960,6 +1960,46 @@ def build_router(auth) -> APIRouter:
             "message": f"🍲 Dining Crew Match Found (98% Match)! Mateo & crew are meeting for {cuisine} tonight!"
         }
 
+    @router.post("/synergy/ski-match")
+    def ski_snowboard_match_endpoint(request: Request, body: dict):
+        resort = body.get("resort", "Serra da Estrela / Alpine Slopes").strip()
+        snow_depth = body.get("snow_depth_cm", 45)
+        return {
+            "matched": True,
+            "category": "Alpine Skiing & Snowboarding",
+            "fresh_powder_alert": True,
+            "snow_depth_cm": snow_depth,
+            "partner_name": "Julian B. (Advanced Freeride)",
+            "match_score": 99,
+            "suggested_venue": resort,
+            "breakdown": {
+                "snowfall_condition_score": 100,
+                "proximity_km": 0.9,
+                "resort_heatmap": 94,
+                "skill_level_match": 98
+            },
+            "message": f"⛷️ Powder Alert Triggered! 45cm fresh snow detected. Julian B. is ready for skiing at {resort}!"
+        }
+
+    @router.post("/synergy/rave-match")
+    def rave_nightlife_match_endpoint(request: Request, body: dict):
+        subgenre = body.get("subgenre", "techno & house").strip()
+        return {
+            "matched": True,
+            "category": "Nightlife, Raves & Underground Music",
+            "subgenre": subgenre,
+            "partner_name": "Clara & Lisbon Rave Crew (4 people)",
+            "match_score": 98,
+            "suggested_venue": "Lux Frágil Warehouse Stage",
+            "breakdown": {
+                "subgenre_match_pct": 98,
+                "club_heatmap_capacity": 94,
+                "sound_system_rating": 99,
+                "trust_index": 96
+            },
+            "message": f"🪩 Rave Match Found (98% Match)! Clara & Lisbon Rave Crew are heading to {subgenre} set at Lux Frágil!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

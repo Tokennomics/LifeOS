@@ -294,9 +294,13 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports Buddy 🧗</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Co-Working Partner ☕</button>
     </div>
-    <div class="row2">
+    <div class="row2" style="margin-bottom:6px;">
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #d946ef);" data-act="match-creative-partner">🎵 Creative Jam Session 🎸</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="match-dining-partner">🍲 Dining Crew Outing 🍷</button>
+    </div>
+    <div class="row2">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="match-ski-partner">⛷️ Powder Alert & Skiing ❄️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6d28d9);" data-act="match-rave-partner">🪩 Raves & Nightlife 🎶</button>
     </div>
     <div id="vertical-match-output" style="margin-top:10px;"></div>
   </div>`;
@@ -2542,6 +2546,38 @@ function wire(root) {
       </div>
     `;
   }, "Dining Crew Matched! 🍷"));
+
+  on("[data-act=match-ski-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/ski-match", { resort: "Serra da Estrela / Alpine Slopes", snow_depth_cm: 45 });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    const bd = res.breakdown || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">❄️ Powder Alert Skiing Match (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">⛷️ <strong>${esc(res.partner_name)}</strong> is ready for fresh powder!</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Snow Condition: 100% · Proximity: ${bd.proximity_km}km · Resort Heatmap: ${bd.resort_heatmap}%</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Resort: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Ski Trip on Native Chat! ⛷️');">Plan Ski Trip on Native Chat 💬</button>
+      </div>
+    `;
+  }, "Powder Alert Ski Match Found! ⛷️"));
+
+  on("[data-act=match-rave-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/rave-match", { subgenre: "techno & house" });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    const bd = res.breakdown || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:6px;">🪩 Nightlife Rave Match (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🎶 <strong>${esc(res.partner_name)}</strong> are going to ${esc(res.subgenre)} set tonight!</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Subgenre Match: ${bd.subgenre_match_pct}% · Club Capacity: ${bd.club_heatmap_capacity}% · Sound Rating: ${bd.sound_system_rating}★</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Warehouse: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Rave Squad Chatroom! 🪩');">Join Rave Squad Chatroom 💬</button>
+      </div>
+    `;
+  }, "Nightlife Rave Match Found! 🪩"));
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
     const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
