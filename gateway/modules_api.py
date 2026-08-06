@@ -2050,6 +2050,65 @@ def build_router(auth) -> APIRouter:
             }
         }
 
+    @router.get("/developer/plugins")
+    def list_developer_plugins_endpoint(request: Request):
+        return {
+            "plugins": [
+                {
+                    "id": "kitesurf-wind-radar",
+                    "name": "🪁 KiteSurf Wind Radar",
+                    "developer": "WindyDev Labs",
+                    "category": "Ocean & Wind Sports",
+                    "trigger_condition": "Wind Speed > 18 Knots (Offshore)",
+                    "installed": True,
+                    "rating": 4.9
+                },
+                {
+                    "id": "padel-4th-player",
+                    "name": "🎾 Padel 4th Player Finder",
+                    "developer": "PadelClub EU",
+                    "category": "Racquet Sports",
+                    "trigger_condition": "Matches 3 players lacking 1 player in 30 mins",
+                    "installed": True,
+                    "rating": 4.8
+                },
+                {
+                    "id": "scuba-vis-meter",
+                    "name": "🤿 Scuba Vis & Water Temp Meter",
+                    "developer": "DiveTech Global",
+                    "category": "Water Sports",
+                    "trigger_condition": "Water Vis > 15m & Low Tide",
+                    "installed": False,
+                    "rating": 4.7
+                },
+                {
+                    "id": "chess-park-match",
+                    "name": "♟️ Park Chess Matcher",
+                    "developer": "OpenChess DAO",
+                    "category": "Board Games",
+                    "trigger_condition": "Sunny Weather & Park Bench Check-in",
+                    "installed": False,
+                    "rating": 4.9
+                }
+            ],
+            "sdk_version": "2.4.0-synergy",
+            "message": "🔌 ConnectOS Developer Synergy SDK: Build activity plugins with 7-Factor scoring!"
+        }
+
+    @router.post("/developer/plugins/register")
+    def register_developer_plugin_endpoint(request: Request, body: dict):
+        plugin_name = body.get("name", "Custom Activity Plugin").strip()
+        category = body.get("category", "Custom Sports").strip()
+        trigger = body.get("trigger_condition", "Weather & Location Trigger").strip()
+        return {
+            "registered": True,
+            "plugin_id": f"dev-{plugin_name.lower().replace(' ', '-')}",
+            "name": plugin_name,
+            "category": category,
+            "trigger_condition": trigger,
+            "message": f"🚀 Registered '{plugin_name}' on ConnectOS Developer Hub! Synergy webhook endpoint active."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

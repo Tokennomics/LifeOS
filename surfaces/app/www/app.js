@@ -308,6 +308,40 @@ function todayView() {
     <div id="vertical-match-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- ConnectOS Open Developer Plugin Hub & SDK ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(99,102,241,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🔌 ConnectOS Open Developer Plugin Hub & SDK</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Synergy SDK v2.4</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">3rd-Party Developer Store: Build activity-specific plugins with 7-Factor real-time telemetry!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px;">
+      <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:12px;">
+        <div style="font-weight:700; color:var(--spark);">🪁 KiteSurf Wind Radar</div>
+        <div style="color:var(--muted); margin-top:2px;">WindyDev Labs · Wind > 18kts</div>
+        <span class="badge good" style="font-size:10px; margin-top:4px;">Installed ✓</span>
+      </div>
+      <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:12px;">
+        <div style="font-weight:700; color:var(--spark);">🎾 Padel 4th Player Finder</div>
+        <div style="color:var(--muted); margin-top:2px;">PadelClub EU · 3/4 Matcher</div>
+        <span class="badge good" style="font-size:10px; margin-top:4px;">Installed ✓</span>
+      </div>
+      <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:12px;">
+        <div style="font-weight:700; color:var(--text);">🤿 Scuba Vis & Temp Meter</div>
+        <div style="color:var(--muted); margin-top:2px;">DiveTech · Vis > 15m</div>
+        <button class="ghost" style="font-size:10px; padding:2px 8px; margin-top:4px;" onclick="toast('Scuba Vis Plugin Installed! 🤿');">Install Plugin ⚡</button>
+      </div>
+      <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:12px;">
+        <div style="font-weight:700; color:var(--text);">♟️ Park Chess Matcher</div>
+        <div style="color:var(--muted); margin-top:2px;">OpenChess DAO · Sunny Park</div>
+        <button class="ghost" style="font-size:10px; padding:2px 8px; margin-top:4px;" onclick="toast('Park Chess Plugin Installed! ♟️');">Install Plugin ⚡</button>
+      </div>
+    </div>
+    <div class="row2"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
+    <input class="field" id="dp-cat" placeholder="Category (e.g. Water Sports)">
+    <button class="primary" data-act="register-dev-plugin">Publish Developer Plugin 🚀</button></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2598,6 +2632,15 @@ function wire(root) {
       </div>
     `;
   }, "Swell Alert Surf Match Found! 🏄"));
+
+  on("[data-act=register-dev-plugin]", () => act(async () => {
+    const name = $("#dp-name").value.trim() || "Kitesurf Wind Radar";
+    const category = $("#dp-cat").value.trim() || "Water Sports";
+    const res = await api("/v1/developer/plugins/register", { name, category, trigger_condition: "Weather & Sensor Webhook Trigger" });
+    $("#dp-name").value = "";
+    $("#dp-cat").value = "";
+    toast(res.message || `Published '${name}' to ConnectOS Developer Hub! 🚀`);
+  }));
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
     const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
