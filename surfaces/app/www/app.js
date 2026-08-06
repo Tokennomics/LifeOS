@@ -250,6 +250,17 @@ function todayView() {
     <div id="tomorrow-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Evening Sunset Win Ritual ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌅 Evening Sunset Win Ritual (9 PM)</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Daily Win</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Log 1 win from today to share inspiration with your crew and close the day mindful.</p>
+    <div class="row2"><input class="field" id="sw-text" placeholder="What went awesome today? (e.g. Shipped ConnectOS!)">
+    <button class="primary" data-act="sunset-win-save">Log Evening Win 🌅</button></div>
+  </div>`;
+
   /* ---- Guided Mindfulness & 2-Min Breathing Timer ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.12), rgba(16,185,129,0.12)); border:1px solid rgba(139,92,246,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2228,6 +2239,29 @@ function wire(root) {
     const res = await api("/v1/crews/polls/vote", { option });
     toast(res.message || `Voted for '${option}'! 📊`);
   }));
+
+  on("[data-act=sunset-win-save]", () => act(async () => {
+    const win_text = $("#sw-text").value.trim() || "Shipped ConnectOS v2!";
+    const res = await api("/v1/rituals/sunset", { win_text });
+    $("#sw-text").value = "";
+    toast(res.message || "Evening Sunset Win logged! 🌅");
+  }));
+
+  on("[data-act=wrapped-generate]", () => act(async () => {
+    const res = await api("/v1/wrapped/monthly");
+    const out = $("#wrapped-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:15px; font-weight:700; color:var(--spark); margin-bottom:8px;">🏆 Your ConnectOS ${esc(res.month)} Wrapped:</div>
+        <div style="font-size:13px; margin-bottom:4px;">⚡ <strong>${res.focus_hours} Hours</strong> of Deep Work Focus</div>
+        <div style="font-size:13px; margin-bottom:4px;">🧗 <strong>${res.real_world_meetups} Real-World Outings</strong> & Crew Meets</div>
+        <div style="font-size:13px; margin-bottom:4px;">📍 Top Venue: <strong>${esc(res.top_venue)}</strong></div>
+        <div style="font-size:13px; margin-bottom:6px;">👏 <strong>${res.kudos_received} Kudos</strong> Received from Friends</div>
+        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('${esc(res.share_text.replace(/'/g, "\\'"))}'); toast('Wrapped story text copied! 📲');">Share to WhatsApp / IG Story 📲</button>
+      </div>
+    `;
+  }, "Monthly Wrapped Canvas Generated! 🏆"));
 
   on("[data-act=auto-ingest-city]", () => act(async () => {
     const city = $("#ag-city").value.trim() || "Lisbon";

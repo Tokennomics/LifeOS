@@ -1763,6 +1763,22 @@ def build_router(auth) -> APIRouter:
         option = body.get("option", "Bouldering & Drinks")
         return {"voted": True, "option": option, "message": f"Voted for '{option}'! 📊"}
 
+    @router.post("/rituals/sunset")
+    def post_sunset_win_endpoint(request: Request, body: dict):
+        win_text = body.get("win_text", "Shipped ConnectOS v2!").strip()
+        return {"logged": True, "win": win_text, "message": f"Evening Sunset Win logged: '{win_text}' 🌅"}
+
+    @router.get("/wrapped/monthly")
+    def get_monthly_wrapped_endpoint(request: Request):
+        return {
+            "month": "August 2026",
+            "focus_hours": 48.5,
+            "real_world_meetups": 12,
+            "top_venue": "Monsanto Outdoor Crag",
+            "kudos_received": 34,
+            "share_text": "🏆 My ConnectOS August Wrapped:\n⚡ 48.5 Focus Hours\n🧗 12 Real-World Outings\n📍 Top Venue: Monsanto Crag\n👏 34 Kudos Received!"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
