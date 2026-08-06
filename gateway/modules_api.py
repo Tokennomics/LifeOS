@@ -1779,6 +1779,40 @@ def build_router(auth) -> APIRouter:
             "share_text": "🏆 My ConnectOS August Wrapped:\n⚡ 48.5 Focus Hours\n🧗 12 Real-World Outings\n📍 Top Venue: Monsanto Crag\n👏 34 Kudos Received!"
         }
 
+    @router.post("/feed/reviews")
+    def post_venue_review_endpoint(request: Request, body: dict):
+        place = body.get("place", "Monsanto Outdoor Crag").strip()
+        review = body.get("review", "Dry and perfect conditions today!").strip()
+        rating = body.get("rating", 5)
+        return {
+            "published": True,
+            "place": place,
+            "review": review,
+            "rating": rating,
+            "message": f"Community Review published for '{place}'! 📝"
+        }
+
+    @router.get("/feed/reviews")
+    def list_venue_reviews_endpoint(request: Request):
+        return {
+            "reviews": [
+                {
+                    "place": "Monsanto Outdoor Crag",
+                    "author": "Alex M.",
+                    "review": "Crag is dry and friction is top tier today! Sunset climbing session starting at 18:30.",
+                    "rating": 5,
+                    "time": "10m ago"
+                },
+                {
+                    "place": "Fabrica Coffee Roasters",
+                    "author": "Elena R.",
+                    "review": "Fresh Ethiopian Anaerobic batch on pour-over today. Great vibe for deep work!",
+                    "rating": 5,
+                    "time": "1h ago"
+                }
+            ]
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter

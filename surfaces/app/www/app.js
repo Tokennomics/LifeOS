@@ -114,14 +114,15 @@ async function refresh() {
         api("/v1/routines/heatmap").catch(() => null),
       ]);
     } else if (state.tab === "people") {
-      const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms] = await Promise.all([
+      const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms, communityReviews] = await Promise.all([
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
         api("/v1/venues/explore").catch(() => ({ venues: [] })),
         api("/v1/venues/activity-heatmap").catch(() => null),
         api("/v1/synergy/overlap").catch(() => null),
-        api("/v1/venues/programs").catch(() => null)
+        api("/v1/venues/programs").catch(() => null),
+        api("/v1/feed/reviews").catch(() => null)
       ]);
       state.people = people.people;
       state.crews = crews.crews;
@@ -130,6 +131,7 @@ async function refresh() {
       state.heatmap = heatmap;
       state.synergyOverlaps = synergyOverlaps;
       state.venuePrograms = venuePrograms;
+      state.communityReviews = communityReviews;
       if (state.activeChat) {
         await refreshChatMessages();
       }
@@ -793,6 +795,27 @@ function peopleView() {
       <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Miradouro Sunset Drinks & Pizza">🌅 Miradouro Sunset Drinks & Pizza <small style="color:var(--muted);">(6 votes)</small></button>
     </div>
   </div>`;
+
+  /* ---- Live Field Reports & Spot Reviews ---- */
+  if (state.communityReviews && state.communityReviews.reviews) {
+    const revs = state.communityReviews.reviews;
+    html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(240,169,74,0.15)); border:1px solid rgba(16,185,129,0.3);">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h2>📝 Live Field Reports & Spot Reviews</h2>
+        <span class="badge good" style="font-weight:bold;">Community Feed</span>
+      </div>
+      <p class="hint" style="margin-bottom:8px;">Real-time conditions & reviews from crags, coffee roasters, and spots in your city!</p>
+      ${revs.map(r => `
+        <div class="feed-item" style="background:var(--surface-2s); padding:10px; border-radius:10px; margin-bottom:8px;">
+          <div style="font-size:13px; font-weight:700; color:var(--spark);">📍 ${esc(r.place)} · <small style="color:var(--muted);">${esc(r.time)} by ${esc(r.author)}</small></div>
+          <div style="font-size:13px; margin-top:2px;">"${esc(r.review)}" ⭐ ${r.rating}/5</div>
+        </div>
+      `).join("")}
+      <div class="row2" style="margin-top:8px;"><input class="field" id="rv-place" placeholder="Spot / Venue Name">
+      <input class="field" id="rv-text" placeholder="Condition / Review..."></div>
+      <button class="primary" data-act="post-venue-review">Post Field Report 📝</button>
+    </div>`;
+  }
 
   /* ---- Strava-Style Kudos & XP Boost ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(236,72,153,0.3);">
@@ -2238,6 +2261,16 @@ function wire(root) {
     const option = el.dataset.opt || "Outing";
     const res = await api("/v1/crews/polls/vote", { option });
     toast(res.message || `Voted for '${option}'! 📊`);
+  }));
+
+  on("[data-act=post-venue-review]", () => act(async () => {
+    const place = $("#rv-place").value.trim() || "Monsanto Outdoor Crag";
+    const review = $("#rv-text").value.trim() || "Great friction and awesome weather today!";
+    const res = await api("/v1/feed/reviews", { place, review });
+    $("#rv-place").value = "";
+    $("#rv-text").value = "";
+    await refresh();
+    toast(res.message || "Field Report posted to community feed! 📝");
   }));
 
   on("[data-act=sunset-win-save]", () => act(async () => {
