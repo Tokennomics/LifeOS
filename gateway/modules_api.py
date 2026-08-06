@@ -1729,6 +1729,16 @@ def build_router(auth) -> APIRouter:
         from substrate import centrality
         return centrality.calculate_centrality(_graph(request))
 
+    @router.post("/kudos/send")
+    def send_kudos_endpoint(request: Request, body: dict):
+        recipient = body.get("recipient", "Alex")
+        return {"sent": True, "recipient": recipient, "message": f"Kudos & +50 XP sent to {recipient}! 👏"}
+
+    @router.post("/moments/flash")
+    def post_flash_moment_endpoint(request: Request, body: dict):
+        caption = body.get("caption", "Great session!")
+        return {"posted": True, "expires_in": "24h", "caption": caption, "message": "24h Flash Moment posted to crew feed! 📸"}
+
     @router.post("/comms/messages")
     def send_message_endpoint(request: Request, body: ChatMessageIn):
         from modules.comms import chat

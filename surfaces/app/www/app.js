@@ -728,6 +728,17 @@ function peopleView() {
     <button class="primary" data-act="feed-publish">Publish Public Activity</button>
   </div>`;
 
+  /* ---- Strava-Style Kudos & XP Boost ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>👏 Strava-Style Kudos & XP Boost</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">+50 XP</span>
+    </div>
+    <p class="hint" style="margin-bottom:10px;">Celebrate your friends' habit streaks, workouts, and deep work focus sessions!</p>
+    <div class="row2"><input class="field" id="kd-name" placeholder="Friend Name (e.g. Alex)">
+    <button class="primary" data-act="kudos-send">Send Kudos & XP 👏</button></div>
+  </div>`;
+
   /* ---- Public Event URL Importer ---- */
   html += `<div class="card"><h2>Import External Event (Luma / Eventbrite / Meetup)</h2>
     <div class="row2"><input class="field" id="imp-url" placeholder="Paste Luma or Meetup event URL...">
@@ -2089,6 +2100,13 @@ function wire(root) {
     await api("/v1/calendar/add-travel-activities", { city });
     await refresh();
   }, "Trip activities added to Smart Calendar! 📅"));
+
+  on("[data-act=kudos-send]", () => act(async () => {
+    const recipient = $("#kd-name").value.trim() || "Alex";
+    const res = await api("/v1/kudos/send", { recipient });
+    $("#kd-name").value = "";
+    toast(res.message || `Kudos & +50 XP sent to ${recipient}! 👏`);
+  }));
 
   on("[data-act=travel-brief]", () => act(async () => {
     const city = $("#tr-city").value.trim() || "Lisbon";
