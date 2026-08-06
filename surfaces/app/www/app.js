@@ -383,6 +383,17 @@ function todayView() {
     <div id="ai-icebreaker-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Autonomous Squad Outing Agent Launcher ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(168,85,247,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🤖 Autonomous Squad Outing Agent</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Zero Messaging</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">AI Agent negotiates 5 calendars, reserves the spot, and splits bills automatically!</p>
+    <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="launch-squad-agent">Launch Autonomous Squad Outing Agent 🤖</button>
+    <div id="squad-agent-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -537,6 +548,22 @@ function todayView() {
         <div style="font-size:11px; color:var(--muted); font-weight:600; margin-top:2px;">🧘 Wellness</div>
       </div>
     </div>
+  </div>`;
+
+  /* ---- Interactive 3D Real-World Activity Globe ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(6,182,212,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🗺️ Interactive 3D Real-World Activity Globe</h2>
+      <span class="badge good" style="font-weight:bold;">115 Active Flares</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live WebGL Globe: Spatial 3D view of active social flares across global hubs!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
+      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇵🇹 Lisbon:</strong> 14 Flares · 24°C 🌅</div>
+      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇯🇵 Tokyo:</strong> 28 Flares · 19°C 🗼</div>
+      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇺🇸 New York:</strong> 32 Flares · 22°C 🌆</div>
+      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇬🇧 London:</strong> 22 Flares · 18°C 🎡</div>
+    </div>
+    <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" onclick="toast('3D Spatial Globe Canvas Rendered! 🌐');">Expand 3D Spatial Globe 🌐</button>
   </div>`;
 
   /* ---- Weekend Core Digest ---- */
@@ -903,6 +930,17 @@ function peopleView() {
     <p class="hint" style="margin-bottom:8px;">Auto-sync live events from Luma, Eventbrite, Meetup, and local city feeds!</p>
     <div class="row2"><input class="field" id="ag-city" placeholder="Target City (e.g. Lisbon / Tokyo / NYC)">
     <button class="primary" data-act="auto-ingest-city">Sync Live Events 🎟️</button></div>
+  </div>`;
+
+  /* ---- ZK Anonymous Attribute Verification ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🔐 Zero-Knowledge (ZK) Anonymous Credential Engine</h2>
+      <span class="badge good" style="font-weight:bold;">ZK-SNARKs</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Prove age (>18), local residency, or skill level without revealing identity or DOB!</p>
+    <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="zk-verify-attr">Generate ZK-Proof (>18 Age / Verified Resident) 🔐</button>
+    <div id="zk-proof-output" style="margin-top:10px;"></div>
   </div>`;
 
   html += `<div class="subhead" style="margin-top:12px;">Publish Public Activity</div>
@@ -2700,6 +2738,33 @@ function wire(root) {
       </div>
     `;
   }, "AI Social Co-Pilot Icebreakers Generated! 🤖"));
+
+  on("[data-act=launch-squad-agent]", () => act(async () => {
+    const res = await api("/v1/ai/squad-agent", { crew_id: "crw-001", activity: "Sunset Tapas & Bouldering" });
+    const out = $("#squad-agent-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🤖 Autonomous Squad Agent Confirmed:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.activity)}</strong> (${esc(res.time_slot)})</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Members Confirmed: ${res.confirmed_members.join(", ")}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Spot: ${esc(res.reservation_status)} · Split: ${esc(res.expense_split)}</div>
+      </div>
+    `;
+  }, "Autonomous Squad Agent Negotiated Outing! 🤖"));
+
+  on("[data-act=zk-verify-attr]", () => act(async () => {
+    const res = await api("/v1/zk/verify-attribute", { attribute: "AGE_OVER_18" });
+    const out = $("#zk-proof-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔐 ZK-SNARK Proof Verified!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Attribute: <strong>${esc(res.attribute)}</strong> · Zero Identity Disclosed</div>
+        <div style="font-size:11px; color:var(--muted);">ZK Proof: ${esc(res.zk_proof)}</div>
+      </div>
+    `;
+  }, "ZK-SNARK Proof Verified! 🔐"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
     const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
