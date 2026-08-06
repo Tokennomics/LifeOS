@@ -283,6 +283,20 @@ function todayView() {
     <div id="instant-dating-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Universal Multi-Vertical Synergy Matcher ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Universal Real-World Matchmaking Radar</h2>
+      <span class="badge good" style="font-weight:bold;">All Verticals</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Match on Proximity + Skill/Vibe + Venue Heatmap + Rating across Sports & Co-Working!</p>
+    <div class="row2">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports & Fitness Buddy 🧗</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Nomad Co-Working Partner ☕</button>
+    </div>
+    <div id="vertical-match-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2461,6 +2475,38 @@ function wire(root) {
       </div>
     `;
   }, "Meetup Confirmed! Pin & Live ETA set 📍"));
+
+  on("[data-act=match-sports-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/sports-match", { sport: "bouldering", timeframe: "next 45 mins" });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    const bd = res.breakdown || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🧗 Sports Match Found (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">🏃 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready for ${esc(res.sport)}!</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Skill Match: ${bd.skill_match_pct}% · Crag Heatmap: ${bd.venue_heatmap_pct}% · Rating: ${bd.venue_rating}★</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Spot: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Invite sent to ${esc(res.partner_name)} on native chat! 💬');">Meet at Crag on Native Chat 💬</button>
+      </div>
+    `;
+  }, "Sports Partner Matched! 🧗"));
+
+  on("[data-act=match-nomad-partner]", () => act(async () => {
+    const res = await api("/v1/synergy/nomad-match", { domain: "tech & design", timeframe: "next 30 mins" });
+    const out = $("#vertical-match-output");
+    if (!out) return;
+    const bd = res.breakdown || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
+        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">💻 Nomad Match Found (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">👩‍💻 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready to co-work!</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Domain Match: ${bd.domain_match_pct}% · Wi-Fi: ${bd.wifi_speed_mbps} Mbps · Noise: ${esc(bd.noise_level)}</div>
+        <div style="font-size:13px; margin-bottom:6px;">📍 Work Hub: <strong>${esc(res.suggested_venue)}</strong></div>
+        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected with ${esc(res.partner_name)} on native chat! 💬');">Meet at Work Hub on Native Chat 💬</button>
+      </div>
+    `;
+  }, "Nomad Co-Working Partner Matched! 💻"));
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
     const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";

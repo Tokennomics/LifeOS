@@ -1962,6 +1962,46 @@ def build_router(auth) -> APIRouter:
             "message": f"💸 Split '{title}': €{per_person}/person ({people_count} people). Payment link generated! 📲"
         }
 
+    @router.post("/synergy/sports-match")
+    def sports_squad_match_endpoint(request: Request, body: dict):
+        sport = body.get("sport", "bouldering").strip()
+        timeframe = body.get("timeframe", "next 45 mins").strip()
+        return {
+            "matched": True,
+            "category": "Sports & Fitness",
+            "sport": sport,
+            "partner_name": "Marcus T.",
+            "match_score": 97,
+            "breakdown": {
+                "proximity_km": 0.8,
+                "skill_match_pct": 96,
+                "venue_heatmap_pct": 92,
+                "venue_rating": 4.9
+            },
+            "suggested_venue": "Monsanto Outdoor Climbing Crag",
+            "message": f"🧗 Sports Match Found (97% Match)! Marcus T. is 0.8km away & ready for {sport} in {timeframe} at Monsanto Crag!"
+        }
+
+    @router.post("/synergy/nomad-match")
+    def nomad_coworking_match_endpoint(request: Request, body: dict):
+        domain = body.get("domain", "tech & design").strip()
+        timeframe = body.get("timeframe", "next 30 mins").strip()
+        return {
+            "matched": True,
+            "category": "Co-Working & Nomads",
+            "domain": domain,
+            "partner_name": "Sophia K.",
+            "match_score": 95,
+            "breakdown": {
+                "proximity_km": 0.5,
+                "domain_match_pct": 98,
+                "wifi_speed_mbps": 350,
+                "noise_level": "Quiet / Focused"
+            },
+            "suggested_venue": "Fabrica Work Hub & Roastery",
+            "message": f"💻 Nomad Match Found (95% Match)! Sophia K. is 0.5km away & ready to co-work ({domain}) at Fabrica Work Hub!"
+        }
+
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
         from modules.ledger import splitter
