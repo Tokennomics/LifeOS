@@ -184,3 +184,21 @@ def test_settle_photo_wall_and_quests(cfg):
     res3 = client.post("/v1/quests/city-discovery", json={"city": "Lisbon"})
     assert res3.status_code == 200
     assert "QST-" in res3.json()["quest_id"]
+
+def test_transparent_algo_and_revenue_share(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/feed/transparent-rules", json={"real_world_weight": 0.85})
+    assert res1.status_code == 200
+    assert res1.json()["applied"] is True
+
+    res2 = client.post("/v1/growth/habit-stacking", json={"anchor_habit": "Espresso"})
+    assert res2.status_code == 200
+    assert res2.json()["stacked"] is True
+
+    res3 = client.get("/v1/safety/community-grid")
+    assert res3.status_code == 200
+    assert res3.json()["grid_status"] == "NORMAL_OPERATION"
+
+    res4 = client.get("/v1/economics/revenue-share")
+    assert res4.status_code == 200
+    assert res4.json()["earnings_to_date"] == 145.00

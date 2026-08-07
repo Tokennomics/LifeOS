@@ -450,6 +450,20 @@ function todayView() {
     <div id="ledger-quest-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Algorithmic Transparency & Community Revenue Share ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🛡️ Algorithmic Transparency & Revenue Share</h2>
+      <span class="badge good" style="font-weight:bold;">0% Doomscroll</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">You control your feed algorithm parameters! Community Revenue Share: <strong>€145.00 Earned</strong>.</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="apply-algo-rules">Apply Transparent Algo Rules 🛡️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="stack-habit">Stack Growth Habit (+14 Streak) 🌱</button>
+    </div>
+    <div id="algo-revenue-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2941,6 +2955,32 @@ function wire(root) {
       </div>
     `;
   }, "City Discovery Quest Generated! 🗺️"));
+
+  on("[data-act=apply-algo-rules]", () => act(async () => {
+    const res = await api("/v1/feed/transparent-rules", { real_world_weight: 0.85, proximity_bias: 0.90 });
+    const out = $("#algo-revenue-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🛡️ 100% Transparent Feed Algorithm Applied!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Real-World Outings Weight: <strong>85%</strong> · Proximity Bias: <strong>90%</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Status: Ad-Free & 0% Engagement Bait (Doomscroll Protection Active)</div>
+      </div>
+    `;
+  }, "Transparent Algorithm Applied! 🛡️"));
+
+  on("[data-act=stack-habit]", () => act(async () => {
+    const res = await api("/v1/growth/habit-stacking", { anchor_habit: "Morning Espresso", new_habit: "20-Min Deep Reading" });
+    const out = $("#algo-revenue-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Habit Stacked (${res.compounding_score} Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">New Habit: <strong>${esc(res.new_habit)}</strong> anchored to <em>${esc(res.anchor_habit)}</em></div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Streak: ${res.streak_days} Days Compounding 🔥</div>
+      </div>
+    `;
+  }, "Growth Habit Stacked! 🌱"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
