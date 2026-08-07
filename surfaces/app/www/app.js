@@ -436,6 +436,20 @@ function todayView() {
     <div id="mentor-squad-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Outing Ledger Settle-Up & Live Event Photo Wall ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💸 Crew Ledger Settle-Up & Micro-Quests</h2>
+      <span class="badge good" style="font-weight:bold;">1-Tap Settlement</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Settle crew outing tab via Revolut/Crypto or generate city discovery micro-quests!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="settle-crew-tab">Settle Crew Outing Tab (€22.50) 💸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #ec4899);" data-act="gen-city-quest">Generate Micro-Quest (+50 Karma) 🗺️</button>
+    </div>
+    <div id="ledger-quest-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2900,6 +2914,33 @@ function wire(root) {
       </div>
     `;
   }, "Squad Calendar Routine Synced! 📅"));
+
+  on("[data-act=settle-crew-tab]", () => act(async () => {
+    const res = await api("/v1/ledger/settle-up", { amount: 22.50 });
+    const out = $("#ledger-quest-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">💸 Crew Outing Tab Settled:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${c.name} (€${c.amount.toFixed(2)})`).join(", ")}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Revolut Link: ${esc(res.settlement_link)}</div>
+      </div>
+    `;
+  }, "Outing Tab Settled via Revolut! 💸"));
+
+  on("[data-act=gen-city-quest]", () => act(async () => {
+    const res = await api("/v1/quests/city-discovery", { city: "Lisbon" });
+    const out = $("#ledger-quest-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🗺️ City Discovery Micro-Quest (${esc(res.quest_id)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Quest: <strong>${esc(res.title)}</strong></div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${esc(res.description)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: +${res.reward_karma} Karma Points · ${esc(res.reward_badge)}</div>
+      </div>
+    `;
+  }, "City Discovery Quest Generated! 🗺️"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

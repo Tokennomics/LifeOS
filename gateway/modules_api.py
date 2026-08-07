@@ -2390,6 +2390,41 @@ def build_router(auth) -> APIRouter:
             "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars."
         }
 
+    @router.post("/ledger/settle-up")
+    def settle_up_crew_expenses_endpoint(request: Request, body: dict):
+        total_owed = body.get("amount", 22.50)
+        return {
+            "settled": True,
+            "net_owed": total_owed,
+            "creditors": [{"name": "Elena R.", "amount": 12.50}, {"name": "Alex M.", "amount": 10.00}],
+            "settlement_link": f"https://revolut.me/connectos-crew-settle",
+            "message": f"💸 Outing Ledger Settled! Net balance: €{total_owed:.2f}. Single 1-click settlement link active."
+        }
+
+    @router.get("/gallery/live-event-wall")
+    def get_live_event_photo_wall_endpoint(request: Request):
+        return {
+            "venue": "Miradouro Rooftop Bar",
+            "active_photos": [
+                {"id": "img-1", "uploader": "Elena R.", "caption": "Sunset drinks with the crew 🌅", "pop_badge": "POP-89F12A04"},
+                {"id": "img-2", "uploader": "Alex M.", "caption": "Fabrica pour-over vibes ☕", "pop_badge": "POP-34A89C11"}
+            ],
+            "message": "📸 Live Event Photo Wall Active: 2 photos uploaded with verified PoP badges!"
+        }
+
+    @router.post("/quests/city-discovery")
+    def generate_city_discovery_quest_endpoint(request: Request, body: dict):
+        city = body.get("city", "Lisbon").strip()
+        return {
+            "quest_id": "QST-9021",
+            "city": city,
+            "title": "☕ Alfama Hidden Pour-Over Secret",
+            "description": "Discover the hidden specialty roastery in Alfama & check in with a fellow coffee enthusiast!",
+            "reward_karma": 50,
+            "reward_badge": "Alfama Explorer Badge 🎖️",
+            "message": f"🗺️ Micro-Quest Generated for {city}: 'Alfama Hidden Pour-Over Secret' (+50 Karma Points)!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

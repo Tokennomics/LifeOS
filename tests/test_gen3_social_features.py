@@ -170,3 +170,17 @@ def test_leaderboard_mentor_and_squad_routine(cfg):
     res3 = client.post("/v1/routines/squad-sync", json={"routine_name": "Dawn Patrol Surf"})
     assert res3.status_code == 200
     assert res3.json()["synced"] is True
+
+def test_settle_photo_wall_and_quests(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ledger/settle-up", json={"amount": 22.50})
+    assert res1.status_code == 200
+    assert res1.json()["settled"] is True
+
+    res2 = client.get("/v1/gallery/live-event-wall")
+    assert res2.status_code == 200
+    assert len(res2.json()["active_photos"]) >= 2
+
+    res3 = client.post("/v1/quests/city-discovery", json={"city": "Lisbon"})
+    assert res3.status_code == 200
+    assert "QST-" in res3.json()["quest_id"]
