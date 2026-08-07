@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged.** `python -m pytest` → **838 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **865 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -329,6 +329,45 @@ borrowed phone must not be able to erase a life), and the handle must be typed i
 **Stated rather than hidden:** database snapshots taken before an erasure still hold the
 data until they rotate out. Art. 17 is "without undue delay", not "instantly, everywhere" —
 `RETENTION_NOTE` says so and it is returned in the receipt.
+
+## Ways in — one account, several identities
+
+An account is now separable from the way you prove you own it: `password`, `google`,
+`apple`, `email`, `phone` are all `auth_identity` rows pointing at one account, so signing
+in on a new phone reaches the same graph.
+
+**The one rule, and it is the whole security of this: identities are NEVER auto-linked by
+email.** "You already have an account with this address, let me connect them" is the obvious
+convenience and the classic takeover — register the victim's address at a provider with weak
+verification, sign in, inherit the account. So an unrecognised identity creates a **new**
+account even when the email matches, and connecting a second way in is an explicit act
+**while already signed in** (`POST /v1/auth/identities`). The cost is a user who signs up by
+email then taps "Sign in with Google" gets a second empty account; that is confusing but
+recoverable, and the alternative is not.
+
+- **`modules/auth/rs256.py` verifies RS256 by hand, deliberately.** `cryptography` (which
+  PyJWT needs) does not load in the dev sandbox, so the choice was a dependency plus
+  *untested* signature verification, or a tested implementation with none. This repo has
+  been bitten three times by controls that were real on paper — that would have been the
+  fourth. It is defensible for this one primitive: verification uses only public values, so
+  there is no timing channel and no key to leak, and the historic flaw (Bleichenbacher '06)
+  comes from *parsing* the PKCS#1 block leniently — this rebuilds the whole expected block
+  and compares it, so there is nothing to be lenient about. There is a test for that exact
+  forgery shape. To swap in a library verifier later, keep `verify_rs256`'s signature.
+- **`alg` is never read from the token.** The header is attacker-controlled; honouring it is
+  how `alg: none` works. RS256 is assumed because that is what both providers issue.
+- **`aud` is checked.** Skipping it turns "sign in with Google" into "sign in as anyone" —
+  any other app's token would be accepted.
+- **`email_verified` is load-bearing.** An unverified email is something the user typed; it
+  is dropped and only the opaque `sub` is used.
+- Unlinking your **last** identity is refused. Passwordless accounts have an empty
+  `password_hash` and `_verify_password` refuses empty hashes outright, so they cannot be
+  entered with a blank password.
+
+**Not built yet: email and phone delivery.** The `email` and `phone` identity kinds work and
+are linkable, but there is no one-time-code sender — that needs an SMTP/SMS provider, which
+is the first thing here to need a real secret and a bill. `password reset` is the same
+missing piece and should be built with it.
 
 ## Gotchas — read these before touching anything
 

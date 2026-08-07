@@ -52,6 +52,19 @@ class ErasureIn(BaseModel):
     confirm: str = ""
 
 
+class OidcSignInIn(BaseModel):
+    provider: str
+    id_token: str
+    nonce: str = ""
+
+
+class LinkIdentityIn(BaseModel):
+    provider: str
+    subject: str = ""
+    id_token: str = ""
+    nonce: str = ""
+
+
 def _g(request: Request) -> Graph:
     """The caller's own slice of the graph (config owner when there are no accounts)."""
     return caller_graph(request)
@@ -194,6 +207,66 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     def auth_logout(request: Request, authorization: str = Header(default="")):
         token = authorization[len("Bearer "):].strip() if authorization.startswith("Bearer ") else ""
         return accounts.logout(graph, token)
+
+    # ---- Ways in: password, Google, Apple, email, phone -------------------
+
+    @app.post("/v1/auth/oidc")
+    def auth_oidc(request: Request, body: OidcSignInIn):
+        """Sign in with an ID token from Google or Apple.
+
+        A new identity makes a NEW account, even when the email matches an existing one —
+        auto-linking by email is the classic takeover and `gateway/identities.py` says why
+        at length. To connect a second way in, use /v1/auth/identities while signed in.
+        """
+        from modules.auth import oidc
+        from gateway import identities
+        rate_limiter.enforce(request, "auth:oidc", max_requests=20, window_seconds=300)
+        try:
+            proof = oidc.verify_id_token(body.provider, body.id_token, nonce=body.nonce or None)
+        except oidc.TokenRejected as exc:
+            raise HTTPException(status_code=401, detail=str(exc))
+        return identities.sign_in(graph, proof["provider"], proof["subject"],
+                                  handle_hint=proof["email"].split("@")[0] if proof["email"] else "")
+
+    @app.get("/v1/auth/identities", dependencies=[Depends(auth)])
+    def auth_identities(request: Request):
+        from gateway import identities
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        return {"identities": identities.for_account(graph, caller["account_id"])}
+
+    @app.post("/v1/auth/identities", dependencies=[Depends(auth)])
+    def auth_link_identity(request: Request, body: LinkIdentityIn):
+        """Connect another way in to the account you are signed in to — the only moment
+        both sides are known, which is why linking happens here and nowhere else."""
+        from modules.auth import oidc
+        from gateway import identities
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        subject = body.subject
+        if body.id_token:
+            try:
+                subject = oidc.verify_id_token(body.provider, body.id_token,
+                                               nonce=body.nonce or None)["subject"]
+            except oidc.TokenRejected as exc:
+                raise HTTPException(status_code=401, detail=str(exc))
+        try:
+            return identities.link(graph, caller["account_id"], body.provider, subject)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.delete("/v1/auth/identities", dependencies=[Depends(auth)])
+    def auth_unlink_identity(request: Request, body: LinkIdentityIn):
+        from gateway import identities
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        try:
+            return identities.unlink(graph, caller["account_id"], body.provider, body.subject)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
     # ---- Your data is yours: see it, take it, delete it -------------------
 

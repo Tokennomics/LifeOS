@@ -1748,8 +1748,15 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/auth/providers")
     def get_sso_providers_endpoint():
-        from modules.accounts import sso_auth
-        return sso_auth.get_supported_providers()
+        """Which sign-in methods this deployment actually offers.
+
+        This used to return `sso_auth.get_supported_providers()` — a hardcoded list with no
+        relation to whether anything was configured, from a module that operates on `person`
+        entities rather than accounts. It now reports real state: configured or not, and the
+        env var to set. Never the client id itself.
+        """
+        from modules.auth import oidc
+        return {"providers": oidc.status(), "password": True}
 
     # ---- Billing & Payments Gateway -------------------------------------
 

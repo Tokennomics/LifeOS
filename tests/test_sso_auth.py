@@ -27,7 +27,9 @@ def test_gateway_sso_endpoints(cfg):
 
     resp_p = client.get("/v1/auth/providers")
     assert resp_p.status_code == 200
-    assert "google" in resp_p.json()
+    # Shape changed deliberately: this used to be a hardcoded list with no relation to
+    # whether anything was configured. It now reports real state, and google is still in it.
+    assert "google" in {p["provider"] for p in resp_p.json()["providers"]}
 
     payload_l = {
         "provider": "email",
