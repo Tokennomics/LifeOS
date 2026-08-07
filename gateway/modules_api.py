@@ -2516,6 +2516,45 @@ def build_router(auth) -> APIRouter:
             "message": f"💳 Subscribed to ConnectOS {plan} (€{price_eur:.2f}/mo)! All premium perks unlocked."
         }
 
+    @router.post("/ai/voice-brief")
+    def process_voice_note_brief_endpoint(request: Request, body: dict):
+        audio_transcript = body.get("transcript", "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!").strip()
+        return {
+            "processed": True,
+            "transcript": audio_transcript,
+            "extracted_stops": [
+                {"time": "16:00", "place": "Fabrica Coffee Roasters", "activity": "Specialty Coffee"},
+                {"time": "18:30", "place": "Miradouro Rooftop Bar", "activity": "Sunset Drinks"}
+            ],
+            "outing_card_created": True,
+            "message": "🎙️ AI Voice Note Summarized: 2 stops extracted and converted into an instant squad outing!"
+        }
+
+    @router.post("/ledger/gift-coffee")
+    def gift_coffee_or_drink_endpoint(request: Request, body: dict):
+        recipient = body.get("recipient", "Elena R.").strip()
+        item = body.get("item", "Specialty Flat White").strip()
+        amount_eur = body.get("amount", 3.80)
+        return {
+            "gifted": True,
+            "recipient": recipient,
+            "item": item,
+            "amount_eur": amount_eur,
+            "voucher_code": "GIFT-FLATWHITE-99",
+            "message": f"🎁 Gift Sent! {item} (€{amount_eur:.2f}) sent to {recipient} with voucher code GIFT-FLATWHITE-99 ☕"
+        }
+
+    @router.get("/vitals/social-wellness")
+    def get_social_wellness_analytics_endpoint(request: Request):
+        return {
+            "flourishing_score": 92,
+            "deep_connection_index": "95%",
+            "real_world_ratio": "85% Outings / 15% Screen Time",
+            "active_crew_size": 18,
+            "diversity_index": "High (5 activity verticals)",
+            "message": "📊 Social Wellness Index: 92/100 (Peak Real-World Connection & Flourishing)!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

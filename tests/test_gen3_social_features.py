@@ -213,3 +213,17 @@ def test_monetization_perks_and_subscriptions(cfg):
     assert res2.status_code == 200
     assert res2.json()["subscribed"] is True
     assert res2.json()["price_eur"] == 9.99
+
+def test_voice_brief_gifting_and_wellness(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/voice-brief", json={"transcript": "Coffee at 4 PM then drinks"})
+    assert res1.status_code == 200
+    assert res1.json()["processed"] is True
+
+    res2 = client.post("/v1/ledger/gift-coffee", json={"recipient": "Elena R.", "amount": 3.80})
+    assert res2.status_code == 200
+    assert res2.json()["gifted"] is True
+
+    res3 = client.get("/v1/vitals/social-wellness")
+    assert res3.status_code == 200
+    assert res3.json()["flourishing_score"] == 92

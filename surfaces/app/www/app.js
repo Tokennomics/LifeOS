@@ -485,6 +485,20 @@ function todayView() {
     <div id="sub-monetization-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- AI Voice Note Brief & Social Micro-Gifting ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(168,85,247,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(168,85,247,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎙️ AI Voice Outing Brief & Social Micro-Gifting</h2>
+      <span class="badge good" style="font-weight:bold;">Voice & Perks</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Convert 30-sec voice notes into instant outings or gift a specialty coffee to a friend!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="convert-voice-brief">Convert Voice Brief 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Gift Coffee to Elena (€3.80) 🎁</button>
+    </div>
+    <div id="voice-gift-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3017,6 +3031,33 @@ function wire(root) {
       </div>
     `;
   }, "Explorer Pro Subscription Active (€9.99/mo)! 💳"));
+
+  on("[data-act=convert-voice-brief]", () => act(async () => {
+    const res = await api("/v1/ai/voice-brief", { transcript: "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!" });
+    const out = $("#voice-gift-output");
+    if (!out) return;
+    const stops = res.extracted_stops || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎙️ AI Voice Outing Brief Created:</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">"${esc(res.transcript)}"</div>
+        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${s.time} @ ${s.place} (${s.activity})`).join(" ➔ ")}</div>
+      </div>
+    `;
+  }, "AI Voice Brief Converted to Outing Card! 🎙️"));
+
+  on("[data-act=gift-friend-coffee]", () => act(async () => {
+    const res = await api("/v1/ledger/gift-coffee", { recipient: "Elena R.", item: "Specialty Flat White", amount: 3.80 });
+    const out = $("#voice-gift-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎁 Gift Voucher Sent to ${esc(res.recipient)}!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Item: <strong>${esc(res.item)}</strong> (€${res.amount_eur.toFixed(2)})</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Voucher Code: ${esc(res.voucher_code)}</div>
+      </div>
+    `;
+  }, "Specialty Coffee Gifted to Elena! 🎁"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
