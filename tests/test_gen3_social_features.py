@@ -309,3 +309,10 @@ def test_layover_gym_and_pet_verticals(cfg):
     res3 = client.post("/v1/pets/dog-walk-crew", json={"park": "Estrela Park"})
     assert res3.status_code == 200
     assert res3.json()["matched"] is True
+
+def test_language_swap(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/synergy/language-swap", json={"speak": "English", "learn": "Portuguese"})
+    assert res1.status_code == 200
+    assert res1.json()["matched"] is True
+    assert res1.json()["partner_name"] == "Inês M."

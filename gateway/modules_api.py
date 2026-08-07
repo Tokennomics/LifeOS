@@ -2758,6 +2758,21 @@ def build_router(auth) -> APIRouter:
             "message": f"🐶 Dog Pack Walk Matched! 6 local dogs & owners meeting at {park_name} today @ 5:30 PM!"
         }
 
+    @router.post("/synergy/language-swap")
+    def peer_language_swap_endpoint(request: Request, body: dict):
+        speak_lang = body.get("speak", "English").strip()
+        learn_lang = body.get("learn", "Portuguese").strip()
+        return {
+            "matched": True,
+            "speak_lang": speak_lang,
+            "learn_lang": learn_lang,
+            "partner_name": "Inês M.",
+            "match_score": 98,
+            "suggested_format": "30-Min Coffee Language Exchange",
+            "suggested_venue": "Fabrica Coffee Roasters, Baixa",
+            "message": f"🎓 Language Swap Matched! Native {learn_lang} speaker Inês M. matched for 30-min coffee exchange (98% Match Score)!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

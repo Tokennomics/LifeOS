@@ -574,8 +574,9 @@ function todayView() {
     </div>
     <p class="hint" style="margin-bottom:8px;">Match airport layover coffee buddies, climbing gym spotters, or neighborhood dog park walks!</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy (LIS Airport) ✈️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Bouldering Spotter 🏋️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy ✈️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Gym Spotter 🏋️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="match-language-swap">Language Swap 🎓</button>
     </div>
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
@@ -3284,6 +3285,19 @@ function wire(root) {
       </div>
     `;
   }, "Bouldering Spotter Matched! 🏋️"));
+
+  on("[data-act=match-language-swap]", () => act(async () => {
+    const res = await api("/v1/synergy/language-swap", { speak: "English", learn: "Portuguese" });
+    const out = $("#layover-gym-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎓 Language Swap Matched (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Partner: <strong>${esc(res.partner_name)}</strong> (Native ${esc(res.learn_lang)} Speaker)</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Format: ${esc(res.suggested_format)} @ ${esc(res.suggested_venue)}</div>
+      </div>
+    `;
+  }, "Language Swap Coffee Partner Matched! 🎓"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
