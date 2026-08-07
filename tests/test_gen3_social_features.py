@@ -124,3 +124,21 @@ def test_gen3_core_pillars(cfg):
     assert res4.status_code == 200
     assert res4.json()["verified"] is True
     assert "ZK-" in res4.json()["zk_proof"]
+
+def test_karma_audio_itinerary_and_sos(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.get("/v1/trust/karma-score")
+    assert res1.status_code == 200
+    assert res1.json()["karma_score"] == 98
+
+    res2 = client.get("/v1/audio/lounge-spaces")
+    assert res2.status_code == 200
+    assert len(res2.json()["active_lounges"]) >= 2
+
+    res3 = client.post("/v1/ai/micro-itinerary", json={"city": "Lisbon"})
+    assert res3.status_code == 200
+    assert len(res3.json()["stops"]) >= 3
+
+    res4 = client.post("/v1/safety/emergency-sos", json={"location": "Miradouro"})
+    assert res4.status_code == 200
+    assert res4.json()["sos_active"] is True

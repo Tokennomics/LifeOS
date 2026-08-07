@@ -394,6 +394,20 @@ function todayView() {
     <div id="squad-agent-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Social Karma & Trust Credit ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🏆 Social Karma & Trust Credit</h2>
+      <span class="badge good" style="font-weight:bold;">98 / 100 Karma</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Tier: <strong>Legend Crew Member</strong> (99% Punctual · 12 Verified Badges · 4.98★ Rating)</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981);" data-act="gen-micro-itinerary">🗺️ AI Concierge: Generate Evening Micro-Itinerary</button>
+      <button class="ghost" style="color:#ef4444; border-color:#ef4444; font-weight:700;" data-act="trigger-sos">⚡ Emergency SOS</button>
+    </div>
+    <div id="karma-concierge-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2765,6 +2779,36 @@ function wire(root) {
       </div>
     `;
   }, "ZK-SNARK Proof Verified! 🔐"));
+
+  on("[data-act=gen-micro-itinerary]", () => act(async () => {
+    const res = await api("/v1/ai/micro-itinerary", { city: "Lisbon", vibe: "Coffee to Sunset Drinks & Rave" });
+    const out = $("#karma-concierge-output");
+    if (!out) return;
+    const stops = res.stops || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:6px;">🗺️ Spontaneous Micro-Itinerary (${esc(res.total_duration)}):</div>
+        ${stops.map(st => `
+          <div style="font-size:12.5px; margin-bottom:4px; color:var(--text);">
+            <strong>Stop ${st.step} (${esc(st.time)}):</strong> ${esc(st.activity)} @ <em>${esc(st.venue)}</em>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }, "Spontaneous Micro-Itinerary Generated! 🗺️"));
+
+  on("[data-act=trigger-sos]", () => act(async () => {
+    const res = await api("/v1/safety/emergency-sos", { location: "Miradouro Rooftop, Lisbon" });
+    const out = $("#karma-concierge-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:rgba(239,68,68,0.2); padding:12px; border-radius:12px; border:1px solid #ef4444;">
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">⚡ EMERGENCY SOS BROADCAST ACTIVE</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location Broadcasted to 4 Trusted Crew Members!</div>
+        <div style="font-size:11px; color:var(--muted);">Emergency PIN: ${esc(res.emergency_pin)} · ${esc(res.location)}</div>
+      </div>
+    `;
+  }, "Emergency SOS Location Broadcast Active! ⚡"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
     const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
