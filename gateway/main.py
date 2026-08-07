@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from gateway import accounts
+from gateway import accounts, rate_limiter
 from gateway.auth import caller_graph, make_auth_dependency
 from gateway.claude import ClaudeGateway
 from gateway.modules_api import build_router
@@ -57,6 +57,28 @@ def _count(graph: Graph, sql: str, params: tuple = ()) -> int:
     return row["n"] if hasattr(row, "keys") or isinstance(row, dict) else row[0]
 
 
+# `edges` and `observations` carry no owner_id and the v0 schema is final, so the owner
+# boundary has to be reconstructed by joining back to entities. Both helpers return
+# ("", ()) for an unscoped caller (the single-user config-owner install), which is the
+# original behaviour and correct there — there is only one owner.
+
+_OWNED = "SELECT id FROM entities WHERE owner_id = ?"
+
+
+def _edges_scope(owner: str | None) -> tuple[str, tuple]:
+    """An edge belongs to you if either end does. A dangling edge to someone else's entity
+    is still part of your graph and must survive the export."""
+    if not owner:
+        return "", ()
+    return f"WHERE src IN ({_OWNED}) OR dst IN ({_OWNED})", (owner, owner)
+
+
+def _observations_scope(owner: str | None) -> tuple[str, tuple]:
+    if not owner:
+        return "", ()
+    return f"WHERE entity_id IN ({_OWNED})", (owner,)
+
+
 def _week_payload(graph: Graph) -> dict:
     week = planner.week_id()
     tasks = [
@@ -81,10 +103,18 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     claude = ClaudeGateway(cfg)
 
     app = FastAPI(title="Life OS Gateway", version="0.2.0")
-    app.add_middleware(  # the Capacitor app runs from capacitor:// — auth stays on the token
-        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    # The Capacitor app runs from capacitor:// and the PWA is served same-origin, so auth
+    # stays on the bearer token and `*` is workable — a cross-origin caller still needs a
+    # token, and tokens are never cookies. It is still wider than a public box wants, so
+    # `gateway.cors_origins` narrows it without a code change; `*` remains the default only
+    # because tightening it silently would break an installed app mid-trip.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cfg.get("gateway", {}).get("cors_origins") or ["*"],
+        allow_methods=["*"], allow_headers=["*"],
     )
     app.state.cfg = cfg
+    app.state.rate_limiter = rate_limiter.RateLimiter()
     app.state.graph = graph
     app.state.claude = claude
 
@@ -127,14 +157,20 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     # register/login are deliberately unauthenticated — they are how you get a token.
 
     @app.post("/v1/auth/register")
-    def auth_register(body: CredentialsIn):
+    def auth_register(request: Request, body: CredentialsIn):
+        """Open signup, but not unlimited: these two routes are the only ones reachable
+        without a token, so they are the whole unauthenticated attack surface."""
+        rate_limiter.enforce(request, "auth:register", max_requests=5, window_seconds=3600)
         try:
             return accounts.register(graph, body.handle, body.password)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
     @app.post("/v1/auth/login")
-    def auth_login(body: CredentialsIn):
+    def auth_login(request: Request, body: CredentialsIn):
+        """Rate-limited because PBKDF2 alone is not a lockout — 200k iterations makes each
+        guess cost ~100ms, which still allows tens of thousands of guesses a day."""
+        rate_limiter.enforce(request, "auth:login", max_requests=10, window_seconds=300)
         try:
             return accounts.login(graph, body.handle, body.password)
         except ValueError as exc:
@@ -255,22 +291,38 @@ def create_app(cfg: dict | None = None) -> FastAPI:
                 f"SELECT kind, attrs, created_at FROM entities {where} "
                 f"ORDER BY created_at DESC LIMIT 15", params).fetchall()
         ]
+        edge_sql, edge_params = _edges_scope(owner)
+        obs_sql, obs_params = _observations_scope(owner)
         return {"entities": sum(counts.values()), "counts": counts,
-                "edges": _count(scoped, "SELECT COUNT(*) AS n FROM edges"),
-                "observations": _count(scoped, "SELECT COUNT(*) AS n FROM observations"),
+                "edges": _count(scoped, f"SELECT COUNT(*) AS n FROM edges {edge_sql}", edge_params),
+                "observations": _count(
+                    scoped, f"SELECT COUNT(*) AS n FROM observations {obs_sql}", obs_params),
                 "recent": recent}
 
     @app.get("/v1/export", dependencies=[Depends(auth)])
     def export(request: Request):
-        """Law 2: full export always. The graph is the user's."""
+        """Law 2: full export always. The graph is the user's — and ONLY the user's.
+
+        `entities` was owner-filtered here and `edges`/`observations` were not, so every
+        account's export carried every other account's edge list and the provenance row for
+        every write in the database: entity ids, which module wrote them, and when. Not
+        content, but a complete activity timeline for every user on the box. Neither table
+        has an `owner_id` column and the v0 schema is final, so both are scoped by joining
+        back to the entities the caller actually owns.
+        """
         scoped = _g(request)
         owner = scoped.default_owner
 
         def rows(table):
-            if owner and table == "entities":
+            if not owner:
+                return [dict(r) for r in scoped._execute(f"SELECT * FROM {table}").fetchall()]
+            if table == "entities":
                 return [dict(r) for r in scoped._execute(
                     "SELECT * FROM entities WHERE owner_id = ?", (owner,)).fetchall()]
-            return [dict(r) for r in scoped._execute(f"SELECT * FROM {table}").fetchall()]
+            where, params = (_edges_scope(owner) if table == "edges"
+                             else _observations_scope(owner))
+            return [dict(r) for r in scoped._execute(
+                f"SELECT * FROM {table} {where}", params).fetchall()]
         entities = rows("entities")
         for e in entities:
             e["attrs"] = json.loads(e["attrs"]) if isinstance(e["attrs"], str) else e["attrs"]

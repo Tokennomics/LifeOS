@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#14 are merged; #15 (signing key) is open.** `python -m pytest` → **570 passing**.
+explicit permission). **PRs #1–#15 are merged; #16 (feeds + security audit, two rounds) is open.** `python -m pytest` → **821 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -54,6 +54,9 @@ in anyone else's graph.
 | Discover · feed | shipped |
 | Coordination (1:1 + crew, quorum-based) | shipped |
 | **Weekend digest** (`GET /v1/weekend`, `/weekend/share`) | shipped |
+| **Venue feeds** — ICS/RSS ingest + discovery + seed packs | shipped |
+| **Scheduled feed refresh** (`tools/feedsync.py`, compose service) | shipped |
+| **Tier 2 event APIs** (`modules/feeds/providers/`) | shipped, off without a key |
 | Cross-account discovery / membership / **scheduling** | shipped (#8, #9, **#10**) |
 
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
@@ -144,12 +147,19 @@ same weekend as plain text to send someone — **with your own plans left out un
 `include_yours=true`**, because there is no version of "here's what's on" that should carry
 your dentist appointment to a friend.
 
-**It is not a scraper and must not become one.** LifeOS does not know what is on at the
-city's clubs; Ticketmaster-style integrations are on the Don't-build list. An empty digest
-is an honest report that nobody published anything, and it says so and names the crews who
-could. Inventing events would hide the one signal that matters — GROWTH.md's atomic network
-is *one crew that actually meets twice*, and a digest full of scraped listings would look
-identical whether that had happened or not.
+**Where its content comes from — and the rule that governs it.** Owner's call, 2026-08-05:
+an empty directory is the real failure mode, so aggregating events is now wanted rather than
+forbidden. Tier 1 (**ICS/RSS venue feeds**) is built — see below. Tiers 2 and 3 (official
+APIs, then scrapers) are in ROADMAP under "Event aggregation", which supersedes the old
+Ticketmaster Don't-build entry.
+
+The condition attached to all of it: **aggregated listings must stay distinguishable from
+crew nights.** Every ingested event carries `origin: "feed"` and its `venue`, and the digest
+renders `· listed`. GROWTH.md's atomic network is *one crew that actually meets twice*, and a
+wall of listings looks identical whether that has happened or not. Keep the label.
+
+An empty digest is still an honest report that nobody published anything — it says so, and
+names the crews who could.
 
 Two behaviours worth knowing before editing:
 
@@ -159,6 +169,136 @@ Two behaviours worth knowing before editing:
 - **It lists everything on, not just what scores.** `discover.rank_feed` drops items that
   are neither interest-matched nor popular, which is right for an infinite feed and wrong
   for a finite weekend. Ranking sets the order here; it never sets the membership.
+
+## Venue feeds — `modules/feeds/`
+
+Subscribe to a venue's ICS or RSS calendar; sync turns it into public events the weekend
+digest and the discover feed both pick up. No API key, no scraping — a published feed is
+published *to be* read, which is the whole difference from ROADMAP's Tier 3.
+
+- **The subscription is yours; the events are everyone's.** A `venue_feed` record is
+  owner-scoped (you added it); the events it produces are SYSTEM-owned and public, so one
+  city's listings exist once rather than per account.
+- **Dedupe is global on `(feed url, item uid)` and deliberately excludes who subscribed** —
+  otherwise two people following the same venue double every event in the city.
+- **`pubDate` is never an event date.** It is when a listing was *posted*. An RSS item with
+  no determinable start is dropped and counted in `skipped_no_date`. A wrong date is
+  invisible to the reader forever; a skipped item shows up in the sync report. Only
+  unambiguous ISO dates are read out of text — `08/07/2026` is two different days depending
+  on where you live, and guessing is how an aggregator loses trust.
+- **A date lifted out of a title is removed from it.** `Late tour 2026-08-09T21:00` reads
+  like a machine wrote it. Found by reading the digest, not by a test.
+- **A dead venue is recorded, never raised.** `sync_all` reports per-feed status; one bad
+  feed does not stop the others. `sync(feed_id, text=...)` bypasses the fetch, which is how
+  the tests run and how an import works on a connection that blocks everything interesting.
+- Bounded per sync: `MAX_ITEMS` per feed, and a horizon of `STALE_DAYS` back to
+  `HORIZON_DAYS` forward, so a venue publishing its whole archive does not import it.
+- **`POST /v1/feeds/discover` takes a venue's *website*, not its feed URL.** Nobody knows
+  their favourite bar's `.ics` link, which made populating a city a page-source safari —
+  i.e. a task that quietly never happens. It reads the standard
+  `<link rel="alternate">` advertisement, ranks ICS above RSS (ICS states when an event is;
+  RSS only sometimes does) and the events feed above the blog and comments feeds.
+  **It proposes and does not add** unless asked: a page can advertise a dozen feeds and only
+  a human knows which is the gig calendar. Query-string feeds count — Squarespace's
+  `?format=rss`, The Events Calendar's `?ical=1`, WordPress's `?feed=rss2` — because a
+  path-only check silently misses whole platforms.
+
+### Seed packs, scheduling, Tier 2
+
+- **`seeds/<city>.json` holds venue WEBSITES, not feed URLs**, and `POST /v1/feeds/seeds/<city>`
+  subscribes to the lot. **No real packs are committed and that is deliberate** — verifying a
+  URL means reaching it, and a pack of guessed addresses is a list of 404s that reads as
+  "broken feature" rather than "unseeded city". `seeds/README.md` has the assembly recipe;
+  `example.json` is the format. **The first real pack is the owner's to make**: paste 10–20
+  venue websites once there is a box, check `last_status` on each, drop the ones that
+  produced nothing, commit what is left.
+- **`tools/feedsync.py` + the `feedsync` compose service refresh on a loop.**
+  `--interval` is a *politeness floor*, not the loop period: a feed fetched more recently
+  than that is skipped, so a crash-looping container cannot hammer a small venue's server.
+  Skipped feeds are reported, so a scheduler doing nothing looks different from one that is
+  not running. Ingested content that silently goes stale is worse than less content — the
+  digest looks identical either way until someone turns up on the wrong night.
+- **Tier 2 providers degrade, they never error.** `modules/feeds/providers/` is a registry;
+  Ticketmaster is the first. No key ⇒ `not_configured`, zero writes, and the rest of the
+  product is untouched. Its coverage is ticketed and mainstream — it finds the arena show
+  and misses the basement party, which is the gap seeded venue feeds are for. **Provider
+  events go through the same path as feeds**: system-owned, public, `origin: "feed"` so
+  they render `· listed`, namespaced dedupe key so a venue ICS `uid` cannot collide with an
+  API id. A provider is a new `search()`, not a new architecture.
+
+**Not verified from here: any real external fetch.** The sandbox proxy 403s arbitrary hosts,
+so neither a live venue calendar nor api.ticketmaster.com has been called. `_fetch` was
+exercised against a reachable URL (bytes, redirects, `raise_for_status`, non-feed content
+parsing to zero items rather than raising), and the Ticketmaster response shape is coded
+from the documented `_embedded.events[]` structure against recorded-shape fixtures — which
+is why `normalise` tolerates every level being missing or the wrong type. **Treat the first
+real call as the test.** The failure mode is an empty result and a recorded status.
+
+## The pre-hosting security audit (2026-08-05) — read before exposing this
+
+Eight holes, every one **demonstrated against a running gateway with two real accounts**
+before it was touched, and every one now covered in `tests/test_security_audit.py`. The
+pattern worth internalising: **six of the eight were authorisation done on data the caller
+supplied.** Nothing was wrong with the substrate — owner scoping held everywhere — the
+gateway simply handed it the wrong identity.
+
+- **CRITICAL — crew takeover.** `crews._require_admin` compared the ACL against `by`, which
+  came straight off the request body. *Naming* the admin was the same as *being* the admin,
+  and the public roster hands out the admin's account id. Verified: a signed-in stranger
+  blocked a crew's owner from her own crew, members 1 → 0, admins emptied. **Every actor
+  parameter is now pinned to the session** (`_actor` / `_actor_opt` in `modules_api.py`);
+  a body id that disagrees with the session is a 403, not a silent override. **Targets are
+  not actors** — `person_id` in "invite this person" still comes from the body.
+- **HIGH — `/v1/export` and `/v1/graph` crossed the tenant boundary.** `entities` was
+  owner-filtered; `edges` and `observations` were not. Every account's export carried a
+  provenance row for every write on the box. Neither table has an `owner_id` and the v0
+  schema is final, so both are scoped by joining back to owned entities.
+- **HIGH — SSRF.** Three features fetch a URL a user chose. `169.254.169.254` hands out
+  instance credentials on Render, Fly, AWS, GCP and DO alike. All outbound fetches now go
+  through `substrate/safefetch.py`, which judges the **resolved address** (not the hostname —
+  `127.0.0.1` has a thousand spellings) and **re-checks every redirect hop**.
+- **HIGH — no brute-force protection.** `gateway/rate_limiter.py` existed, claimed to defend
+  against "brute-force authentication", and was imported by nothing. 60 wrong passwords, 60
+  clean 401s. Now wired into login (10/5min), registration (5/hr) and the fetch endpoints.
+  It was also a process-global singleton whose counters outlived the app that made them; it
+  is per-app now.
+- **HIGH — sender spoofing** in chat, chatroom, RSVP, convoy location and milestones.
+- **MED — signup is open.** Rate-limited now, still open by design; that is a product call.
+
+**Still open, and it is functional rather than a leak: direct messages cannot be delivered
+across accounts.** `chat.send_message` writes into the *sender's* owner slice and
+`get_messages` reads owner-scoped, so only the sender ever sees the message — the same shape
+as the dating bug. Inert, not leaky. Fix it the way dating was fixed (a shared home plus
+grants, or a blinded rendezvous), **not** by reaching for `find_public`.
+
+### Round two (2026-08-07), after `main` gained 80 more Antigravity commits
+
+Found by **sweeping every POST body field that names an identity** rather than reading
+thirteen new modules — that sweep is kept as a test (`test_every_identity_field_in_the_whole_api_is_pinned`),
+so a new endpoint taking an identity from the body now fails in CI instead of in production.
+
+- **CRITICAL — the moderation queue was readable and resolvable by anyone, including the
+  person reported.** Mallory could read Ana's account of being followed home from a bar,
+  see that Ana filed it, and then dismiss it — queue to zero, reporter never told. This was
+  **my** code from the G3 work, and it is worse in kind than the crew takeover because it is
+  a physical-safety feature failing open. Moderation is now `_operator` only: the static
+  gateway token, or an account listed in `LIFEOS_MODERATOR_ACCOUNTS`. **The reporter cannot
+  read the queue either** — "who else has complained about this person" is not hers.
+- **HIGH — ballot stuffing.** `/v1/venues/vote` took `member_id` from the body, so one
+  account could cast every member's vote in a crew's venue poll.
+- **HIGH — forgeable audit log.** `/v1/security/audit-log` took `actor_id` from the body.
+  The audit log is what you read *after* an incident; anyone could write false entries
+  attributed to anyone.
+- **MED — `/v1/miniapp/resources`** registered a resource owned by someone else.
+
+**Also: `main` did not parse on Python 3.11**, which is what CI pins — an f-string in
+`modules_api.py` contained a backslash (legal only from 3.12). The gateway would not have
+started. Fixed, and every `.py` in the repo is now checked to parse under 3.11.
+
+**Good news from this round:** the "grants are not owner-authenticated" gotcha that stood in
+this file for weeks **has been closed at the substrate** — forging a grant now raises
+`ScopeError`. And `modules/comms` gained its own caller check plus working cross-account
+delivery, so the DM bug is fixed too.
 
 ## Gotchas — read these before touching anything
 
@@ -212,7 +352,7 @@ until the v0.1 gate passes. **Current gate first.**
 
 ## Don't build
 
-Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre · Ticketmaster ·
+Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre ·
 Google OAuth · Postgres migration (until measured, see above) · native store builds · SDK opening ·
 billing · licence/entity/ToS content · a swipe-style dating surface · sub-city location anywhere in
 the social layer.

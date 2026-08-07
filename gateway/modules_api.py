@@ -2,9 +2,12 @@
 Ledger, Calibre, Hearth). Mounted by gateway.main; handlers pull graph/claude off
 app.state. Every endpoint works with zero API keys (offline fallbacks in the modules)."""
 
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
+from gateway import rate_limiter
 from gateway.auth import caller_graph
 
 from modules.calibre import decisions as calibre
@@ -170,7 +173,7 @@ class CrewActIn(BaseModel):
 
 class CrewReportIn(BaseModel):
     crew_id: str
-    reporter_id: str
+    reporter_id: str = ""
     reason: str
     subject_id: str | None = None
 
@@ -277,6 +280,35 @@ class DatingInterestIn(BaseModel):
 
 class DatingAgeIn(BaseModel):
     date_of_birth: str
+
+
+class FeedAddIn(BaseModel):
+    url: str
+    city: str = ""
+    venue: str = ""
+    topic: str = ""
+
+
+class FeedSyncIn(BaseModel):
+    text: str = ""
+
+
+class FeedSeedIn(BaseModel):
+    sync: bool = False
+
+
+class FeedProviderSyncIn(BaseModel):
+    city: str = ""
+    size: int = 50
+
+
+class FeedDiscoverIn(BaseModel):
+    url: str
+    html: str = ""
+    add: bool = False
+    city: str = ""
+    venue: str = ""
+    topic: str = ""
 
 
 class DatingBlockIn(BaseModel):
@@ -426,11 +458,11 @@ class ExpenseSplitIn(BaseModel):
 class VenueVoteIn(BaseModel):
     poll_id: str
     place_id: str
-    member_id: str
+    member_id: str = ""
 
 
 class ChatMessageIn(BaseModel):
-    sender_id: str
+    sender_id: str = ""      # ignored in account mode; the session is the sender
     recipient_id: str
     body: str
     linked_entity_id: str | None = None
@@ -471,13 +503,13 @@ class LedgerSyncIn(BaseModel):
 
 
 class ResourceRegisterIn(BaseModel):
-    owner_id: str
+    owner_id: str = ""
     name: str
 
 
 class ResourceLoanIn(BaseModel):
     resource_id: str
-    borrower_id: str
+    borrower_id: str = ""
 
 
 class GraphQaIn(BaseModel):
@@ -491,7 +523,7 @@ class OutingMatchIn(BaseModel):
 
 class OutingRsvpIn(BaseModel):
     event_id: str
-    user_id: str
+    user_id: str = ""
     status: str
 
 
@@ -503,7 +535,7 @@ class PaymentRecordIn(BaseModel):
 
 
 class ConvoyUpdateIn(BaseModel):
-    user_id: str
+    user_id: str = ""
     latitude: float
     longitude: float
     eta: str
@@ -524,12 +556,12 @@ class PhotoUploadIn(BaseModel):
 
 class ChatroomMessageIn(BaseModel):
     event_id: str
-    user_id: str
+    user_id: str = ""
     message: str
 
 
 class MilestoneAwardIn(BaseModel):
-    user_id: str
+    user_id: str = ""
     title: str
     description: str = ""
 
@@ -590,14 +622,80 @@ class CrewItineraryIn(BaseModel):
 
 
 def _subject(request: Request, explicit: str | None) -> str:
-    """Who the action is for: an explicit local person, or — when omitted — the caller's
-    own ACCOUNT, which is the identity shared crews are built from."""
+    """WHO IS ACTING — the authenticated account, whenever there is one.
+
+    This used to prefer the body: `if explicit: return explicit`. Combined with
+    `crews._require_admin(session, crew_id, by, ...)` reading `by` straight off the request,
+    nothing anywhere bound the actor to the session — so *naming* the admin was the same as
+    *being* the admin. Verified end to end: a signed-in stranger read a public crew's roster,
+    which lists the admin's account id, called `/v1/crews/block` with `by` set to that id,
+    and removed the admin from their own crew. Member count 1 -> 0, admins emptied.
+
+    So an explicit id is now only honoured in single-user owner-key mode, where there is no
+    session identity to compare it against and the ids are local `person` records. In account
+    mode a mismatch is a 403 rather than a silent override, because a client sending someone
+    else's id is either broken or hostile and both deserve to hear about it.
+
+    Targets are NOT actors. `person_id` in "invite this person" is a target and still comes
+    from the body — only the identity claiming to perform the action is pinned.
+    """
+    caller = getattr(request.state, "caller", None)
+    account = caller.get("account_id") if caller else None
+    if account:
+        if explicit and explicit != account:
+            raise HTTPException(status_code=403, detail="you cannot act as another account")
+        return account
     if explicit:
         return explicit
-    caller = getattr(request.state, "caller", None)
-    if caller and caller.get("account_id"):
-        return caller["account_id"]
     raise HTTPException(status_code=400, detail="person_id required (or sign in with an account)")
+
+
+#: Same rule, named for the parameter it guards (`sender_id`, `user_id`, `person_id`).
+_actor = _subject
+
+MODERATORS_VAR = "LIFEOS_MODERATOR_ACCOUNTS"
+
+
+def _operator(request: Request) -> None:
+    """Only the instance operator may read or resolve abuse reports.
+
+    Found by probing, and it was the worst hole in the second pass — worse in kind than the
+    crew takeover, because it is a physical-safety feature failing open. `open_reports` and
+    `resolve_report` were behind ordinary auth, so **the person who had been reported could
+    read the report about himself** — the reporter's account id and her free-text account of
+    what happened ("he followed me home from the bar") — and then dismiss it. The queue went
+    to zero and the reporter was never told.
+
+    There is no role system here, so the operator is: whoever holds the static gateway token
+    (the owner's own key — `request.state.caller` is None in that mode), plus any account id
+    listed in LIFEOS_MODERATOR_ACCOUNTS. Everyone else gets 403, including the reporter,
+    because "who else has complained about this person" is not hers to read either.
+    """
+    caller = getattr(request.state, "caller", None)
+    if caller is None:
+        return                                   # owner key, or a single-user install
+    allowed = {a.strip() for a in os.environ.get(MODERATORS_VAR, "").split(",") if a.strip()}
+    if caller.get("account_id") in allowed:
+        return
+    raise HTTPException(status_code=403, detail="moderation is operator-only")
+
+
+def _actor_opt(request: Request, explicit: str | None) -> str | None:
+    """An actor that is allowed to be absent.
+
+    `admin_id` and `by` are genuinely optional: a personal crew with no admin stays open to
+    its members, and `crews._require_admin` handles `None`. The strict helper turns a missing
+    id into a 400, which is right for "who is sending this message" and wrong here — it broke
+    creating an adminless crew in single-user mode. The impersonation check is identical; only
+    the empty case differs.
+    """
+    caller = getattr(request.state, "caller", None)
+    account = caller.get("account_id") if caller else None
+    if account:
+        if explicit and explicit != account:
+            raise HTTPException(status_code=403, detail="you cannot act as another account")
+        return account
+    return explicit or None
 
 
 def _graph(request: Request):
@@ -800,13 +898,14 @@ def build_router(auth) -> APIRouter:
     def crews_create(request: Request, body: CrewIn):
         return guard(lambda: crews.create(
             _graph(request), body.name, body.topic, body.city, body.member_ids,
-            visibility=body.visibility, admin_id=body.admin_id, admission=body.admission))
+            visibility=body.visibility, admin_id=_actor_opt(request, body.admin_id), admission=body.admission))
 
     @router.post("/crews/policy")
     def crews_policy(request: Request, body: CrewPolicyIn):
         """Admin control: how the crew is found (visibility) and who gets in (admission)."""
         return guard(lambda: crews.set_policy(
-            _graph(request), body.crew_id, body.visibility, body.admission, body.by))
+            _graph(request), body.crew_id, body.visibility, body.admission,
+            _actor_opt(request, body.by)))
 
     @router.get("/crews/directory")
     def crews_directory(request: Request, topic: str = "", city: str = ""):
@@ -828,11 +927,11 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/crews/join")
     def crews_join(request: Request, body: CrewJoinIn):
-        return guard(lambda: crews.join(_graph(request), body.crew_id, body.person_id))
+        return guard(lambda: crews.join(_graph(request), body.crew_id, _actor(request, body.person_id)))
 
     @router.post("/crews/invite")
     def crews_invite(request: Request, body: CrewActIn):
-        return guard(lambda: crews.invite(_graph(request), body.crew_id, body.person_id, body.by))
+        return guard(lambda: crews.invite(_graph(request), body.crew_id, body.person_id, _actor_opt(request, body.by)))
 
     @router.post("/crews/invite/accept")
     def crews_accept(request: Request, body: CrewJoinIn):
@@ -870,11 +969,11 @@ def build_router(auth) -> APIRouter:
     @router.post("/crews/request/approve")
     def crews_approve(request: Request, body: CrewActIn):
         return guard(lambda: crews.approve_request(
-            _graph(request), body.crew_id, body.person_id, body.by))
+            _graph(request), body.crew_id, body.person_id, _actor_opt(request, body.by)))
 
     @router.post("/crews/request/deny")
     def crews_deny(request: Request, body: CrewActIn):
-        return guard(lambda: crews.deny_request(_graph(request), body.crew_id, body.person_id, body.by))
+        return guard(lambda: crews.deny_request(_graph(request), body.crew_id, body.person_id, _actor_opt(request, body.by)))
 
     @router.post("/crews/leave")
     def crews_leave(request: Request, body: CrewJoinIn):
@@ -883,23 +982,26 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/crews/block")
     def crews_block(request: Request, body: CrewActIn):
-        return guard(lambda: crews.block(_graph(request), body.crew_id, body.person_id, body.by))
+        return guard(lambda: crews.block(_graph(request), body.crew_id, body.person_id, _actor_opt(request, body.by)))
 
     @router.post("/crews/unblock")
     def crews_unblock(request: Request, body: CrewActIn):
-        return guard(lambda: crews.unblock(_graph(request), body.crew_id, body.person_id, body.by))
+        return guard(lambda: crews.unblock(_graph(request), body.crew_id, body.person_id, _actor_opt(request, body.by)))
 
     @router.get("/crews/reports/open")
     def crews_reports(request: Request, crew_id: str = "", status: str = ""):
+        _operator(request)
         return {"reports": crews.reports(_graph(request), crew_id=crew_id, status=status)}
 
     @router.post("/crews/report")
     def crews_report(request: Request, body: CrewReportIn):
         return guard(lambda: crews.report(
-            _graph(request), body.crew_id, body.reporter_id, body.reason, body.subject_id))
+            _graph(request), body.crew_id, _actor(request, body.reporter_id), body.reason,
+            body.subject_id))
 
     @router.post("/crews/report/resolve")
     def crews_report_resolve(request: Request, body: ReportResolveIn):
+        _operator(request)
         return guard(lambda: crews.resolve_report(_graph(request), body.report_id, body.action))
 
     @router.post("/coordinate/group/propose")
@@ -1259,11 +1361,13 @@ def build_router(auth) -> APIRouter:
     @router.get("/dating/reports")
     def dating_reports(request: Request):
         from modules.dating import safety as dating_safety
+        _operator(request)
         return {"reports": dating_safety.open_reports(_graph(request))}
 
     @router.post("/dating/reports/{report_id}/resolve")
     def dating_resolve_report(request: Request, report_id: str, body: DatingResolveIn):
         from modules.dating import safety as dating_safety
+        _operator(request)
         return dating_guard(lambda: dating_safety.resolve_report(
             _graph(request), report_id, body.action))
 
@@ -1273,6 +1377,77 @@ def build_router(auth) -> APIRouter:
     def platform_validate(request: Request, body: ManifestValidateIn):
         from modules.platform import manifest
         return guard(lambda: manifest.validate_manifest(body.manifest))
+
+    # ---- Venue feeds (ICS / RSS) -----------------------------------------
+
+    @router.get("/feeds")
+    def feeds_list(request: Request):
+        from modules.feeds import ingest
+        return {"feeds": ingest.feeds(_graph(request))}
+
+    @router.post("/feeds")
+    def feeds_add(request: Request, body: FeedAddIn):
+        from modules.feeds import ingest
+        return guard(lambda: ingest.add_feed(
+            _graph(request), body.url, city=body.city, venue=body.venue, topic=body.topic))
+
+    @router.delete("/feeds/{feed_id}")
+    def feeds_remove(request: Request, feed_id: str):
+        from modules.feeds import ingest
+        return guard(lambda: ingest.remove_feed(_graph(request), feed_id))
+
+    @router.post("/feeds/{feed_id}/sync")
+    def feeds_sync(request: Request, feed_id: str, body: FeedSyncIn | None = None):
+        """`text` lets a feed be imported without the gateway reaching the network —
+        the same door the tests use, and the one that keeps this working from a phone
+        on a hotel connection that blocks everything interesting."""
+        from modules.feeds import ingest
+        return guard(lambda: ingest.sync(_graph(request), feed_id,
+                                         text=(body.text if body else "")))
+
+    @router.post("/feeds/sync")
+    def feeds_sync_all(request: Request):
+        rate_limiter.enforce(request, "feeds:sync", max_requests=10, window_seconds=300)
+        from modules.feeds import ingest
+        return guard(lambda: ingest.sync_all(_graph(request)))
+
+    @router.get("/feeds/seeds")
+    def feeds_seeds(request: Request):
+        """City packs available to load. See seeds/README.md for why none are real yet."""
+        from modules.feeds import seeds
+        return {"packs": seeds.available()}
+
+    @router.post("/feeds/seeds/{city}")
+    def feeds_seed_apply(request: Request, city: str, body: FeedSeedIn | None = None):
+        from modules.feeds import seeds
+        return guard(lambda: seeds.apply(_graph(request), city,
+                                         sync=bool(body and body.sync)))
+
+    @router.get("/feeds/providers")
+    def feeds_providers(request: Request):
+        """Which Tier 2 APIs exist and which are switched on. Never returns a key."""
+        from modules.feeds import providers
+        return {"providers": providers.status()}
+
+    @router.post("/feeds/providers/{name}/sync")
+    def feeds_provider_sync(request: Request, name: str, body: FeedProviderSyncIn | None = None):
+        """An unconfigured provider reports `not_configured` and writes nothing — no key
+        degrades to the feed-and-crew list, it does not error."""
+        from modules.feeds import ingest
+        return guard(lambda: ingest.sync_provider(
+            _graph(request), name, city=(body.city if body else ""),
+            size=(body.size if body else 50)))
+
+    @router.post("/feeds/discover")
+    def feeds_discover(request: Request, body: FeedDiscoverIn):
+        rate_limiter.enforce(request, "feeds:discover", max_requests=30, window_seconds=300)
+        """Paste a venue's website, get its calendar feeds. Proposes; does not add,
+        unless you ask — a page can advertise a dozen feeds and only you know which one
+        is the gig calendar rather than the blog."""
+        from modules.feeds import ingest
+        return guard(lambda: ingest.discover_feeds(
+            _graph(request), body.url, html=body.html, add=body.add,
+            city=body.city, venue=body.venue, topic=body.topic))
 
     # ---- Weekend digest --------------------------------------------------
 
@@ -1369,12 +1544,16 @@ def build_router(auth) -> APIRouter:
     @router.post("/venues/vote")
     def submit_vote_endpoint(request: Request, body: VenueVoteIn):
         from modules.venues import voting
-        return guard(lambda: voting.submit_vote(_graph(request), body.poll_id, body.place_id, body.member_id))
+        return guard(lambda: voting.submit_vote(
+            _graph(request), body.poll_id, body.place_id,
+            _actor(request, body.member_id)))   # one member, one vote — as themselves
 
     @router.post("/venues/convoy/update")
     def update_location_endpoint(request: Request, body: ConvoyUpdateIn):
         from modules.venues import convoy
-        return guard(lambda: convoy.update_location(_graph(request), body.user_id, body.latitude, body.longitude, body.eta, body.event_id))
+        return guard(lambda: convoy.update_location(
+            _graph(request), _actor(request, body.user_id), body.latitude, body.longitude,
+            body.eta, body.event_id))
 
     @router.get("/venues/convoy/etas")
     def get_convoy_etas_endpoint(request: Request, event_id: str):
@@ -1521,7 +1700,8 @@ def build_router(auth) -> APIRouter:
     @router.post("/security/audit-log")
     def log_security_event_endpoint(request: Request, body: AuditLogIn):
         from modules.security import audit_logger
-        return guard(lambda: audit_logger.log_security_event(_graph(request), body.event_type, body.actor_id, body.details))
+        return guard(lambda: audit_logger.log_security_event(
+            _graph(request), body.event_type, _actor(request, body.actor_id), body.details))
 
     @router.get("/security/audit-log")
     def get_security_audit_log_endpoint(request: Request, limit: int = 100):
@@ -1562,7 +1742,9 @@ def build_router(auth) -> APIRouter:
     @router.post("/auth/sso/link")
     def sso_link_endpoint(request: Request, body: SsoLinkIn):
         from modules.accounts import sso_auth
-        return guard(lambda: sso_auth.link_identity_provider(_graph(request), body.account_id, body.provider, body.provider_user_id))
+        return guard(lambda: sso_auth.link_identity_provider(
+            _graph(request), _actor(request, body.account_id), body.provider,
+            body.provider_user_id))
 
     @router.get("/auth/providers")
     def get_sso_providers_endpoint():
@@ -1574,12 +1756,14 @@ def build_router(auth) -> APIRouter:
     @router.post("/billing/customer")
     def create_billing_customer_endpoint(request: Request, body: BillingCustomerIn):
         from modules.billing import payments
-        return guard(lambda: payments.create_customer(_graph(request), body.account_id, body.email))
+        return guard(lambda: payments.create_customer(_graph(request), _actor(request, body.account_id), body.email))
 
     @router.post("/billing/subscribe")
     def subscribe_billing_plan_endpoint(request: Request, body: BillingSubscribeIn):
         from modules.billing import payments
-        return guard(lambda: payments.subscribe_plan(_graph(request), body.account_id, body.plan_id, body.payment_token))
+        return guard(lambda: payments.subscribe_plan(
+            _graph(request), _actor(request, body.account_id), body.plan_id,
+            body.payment_token))
 
     @router.get("/billing/status")
     def get_billing_status_endpoint(request: Request, account_id: str):
@@ -2923,8 +3107,14 @@ def build_router(auth) -> APIRouter:
     @router.post("/comms/messages")
     def send_message_endpoint(request: Request, body: ChatMessageIn):
         from modules.comms import chat
+        # Both layers on purpose: `_actor` pins the sender to the session at the edge (403,
+        # and it also lets a client omit its own id), and `caller_id` keeps the module's own
+        # check, which is the one that still holds if this is ever called from the bot or a
+        # script rather than through here.
         caller = getattr(request.state, "caller", None) or {}
-        return guard(lambda: chat.send_message(_graph(request), body.sender_id, body.recipient_id, body.body, body.linked_entity_id, caller.get("account_id")))
+        return guard(lambda: chat.send_message(
+            _graph(request), _actor(request, body.sender_id), body.recipient_id,
+            body.body, body.linked_entity_id, caller.get("account_id")))
 
     @router.get("/comms/messages")
     def get_messages_endpoint(request: Request, recipient_id: str):
@@ -3027,12 +3217,13 @@ def build_router(auth) -> APIRouter:
     @router.post("/miniapp/resources")
     def register_resource_endpoint(request: Request, body: ResourceRegisterIn):
         from modules.miniapp import resources
-        return guard(lambda: resources.register_resource(_graph(request), body.owner_id, body.name))
+        return guard(lambda: resources.register_resource(_graph(request), _actor(request, body.owner_id), body.name))
 
     @router.post("/miniapp/resources/loan")
     def request_loan_endpoint(request: Request, body: ResourceLoanIn):
         from modules.miniapp import resources
-        return guard(lambda: resources.request_loan(_graph(request), body.resource_id, body.borrower_id))
+        return guard(lambda: resources.request_loan(
+            _graph(request), body.resource_id, _actor(request, body.borrower_id)))
 
     @router.post("/routines/streak-nudge")
     def trigger_streak_nudges_endpoint(request: Request):
@@ -3062,7 +3253,8 @@ def build_router(auth) -> APIRouter:
     @router.post("/venues/rsvp")
     def submit_rsvp_endpoint(request: Request, body: OutingRsvpIn):
         from modules.venues import rsvp
-        return guard(lambda: rsvp.submit_rsvp(_graph(request), body.event_id, body.user_id, body.status))
+        return guard(lambda: rsvp.submit_rsvp(
+            _graph(request), body.event_id, _actor(request, body.user_id), body.status))
 
     @router.get("/venues/rsvp/list")
     def list_rsvps_endpoint(request: Request, event_id: str):
@@ -3142,7 +3334,9 @@ def build_router(auth) -> APIRouter:
     def send_message_endpoint(request: Request, body: ChatroomMessageIn):
         from modules.comms import chatroom
         caller = getattr(request.state, "caller", None) or {}
-        return guard(lambda: chatroom.send_message(_graph(request), body.event_id, body.user_id, body.message, caller.get("account_id")))
+        return guard(lambda: chatroom.send_message(
+            _graph(request), body.event_id, _actor(request, body.user_id), body.message,
+            caller.get("account_id")))
 
     @router.get("/comms/chatroom/list")
     def list_messages_endpoint(request: Request, event_id: str):
@@ -3153,7 +3347,8 @@ def build_router(auth) -> APIRouter:
     @router.post("/routines/milestone-achieved")
     def award_milestone_endpoint(request: Request, body: MilestoneAwardIn):
         from modules.routines import milestones
-        return guard(lambda: milestones.award_milestone(_graph(request), body.user_id, body.title, body.description))
+        return guard(lambda: milestones.award_milestone(
+            _graph(request), _actor(request, body.user_id), body.title, body.description))
 
     @router.get("/routines/milestones/list")
     def list_milestones_endpoint(request: Request, user_id: str):
@@ -3301,7 +3496,10 @@ def build_router(auth) -> APIRouter:
         me = _graph(request).session("me", {"identity:read"}).find_entities("identity", {"type": "account"}, limit=1)
         name = me[0]["attrs"].get("name", "LifeOS Member") if me else "LifeOS Member"
         vcard = f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nNOTE:LifeOS Verified Meeter\nEND:VCARD"
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={vcard.replace(' ', '%20').replace('\n', '%0A')}"
+        # Escaped OUTSIDE the f-string: a backslash inside an f-string expression is a
+        # syntax error before Python 3.12, and CI pins 3.11 — this did not parse at all.
+        encoded = vcard.replace(" ", "%20").replace("\n", "%0A")
+        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={encoded}"
         return {"name": name, "vcard": vcard, "qr_url": qr_url}
 
     @router.get("/routines/heatmap")

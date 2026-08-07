@@ -141,6 +141,13 @@ def drop_past(days, now, tz_offset_minutes: int = 0) -> tuple[list, bool]:
 # ---- the text you actually send ----------------------------------------------
 
 def _line(item: dict) -> str:
+    """One event, one line.
+
+    The `· listed` marker matters more than it looks. Once venue feeds are ingested, most
+    of a weekend is public listings, and a listing is a different promise from "six people
+    from your climbing crew agreed on Thursday". Blurring the two buys density by spending
+    the only signal worth having, so a listing nobody has committed to says so.
+    """
     bits = [item.get("at", ""), str(item.get("title") or "untitled").strip()]
     where = str(item.get("place") or "").strip()
     if where:
@@ -148,6 +155,8 @@ def _line(item: dict) -> str:
     going = int(item.get("going_count") or 0)
     if going:
         bits.append(f"· {going} in")
+    elif item.get("origin") == "feed":
+        bits.append("· listed")
     return "  " + " ".join(b for b in bits if b)
 
 

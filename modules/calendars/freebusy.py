@@ -12,6 +12,7 @@ import argparse
 import datetime
 import json
 
+from substrate import safefetch
 from substrate.graph import Graph
 
 SCOPES = {"events:read", "events:write"}
@@ -54,11 +55,25 @@ def parse_ics(text: str, default_tz: str = "UTC") -> list[dict]:
             current["uid"] = value.strip()
         elif name == "SUMMARY":
             current["title"] = value.strip()
+        # Additive: free/busy sync ignores these, venue-feed ingest needs them. Extra keys
+        # in the returned dict cost existing callers nothing.
+        elif name == "LOCATION":
+            current["place"] = _unescape(value.strip())
+        elif name == "URL":
+            current["url"] = value.strip()
+        elif name == "DESCRIPTION":
+            current["description"] = _unescape(value.strip())
         elif name in ("DTSTART", "DTEND"):
             dt = _parse_dt(value.strip(), params, default_tz)
             if dt is not None:
                 current["start" if name == "DTSTART" else "end"] = dt.isoformat()
     return events
+
+
+def _unescape(value: str) -> str:
+    """RFC 5545 escapes commas, semicolons and newlines inside TEXT values."""
+    return (value.replace("\\n", "\n").replace("\\N", "\n")
+            .replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\"))
 
 
 def _parse_dt(value: str, params: list[str], default_tz: str):
@@ -95,9 +110,7 @@ def sync(graph: Graph, cfg: dict, ics_text: str | None = None, now: datetime.dat
         url = cal.get("ics_url", "")
         if not url:
             return {"status": "not-configured", "events": 0}
-        import httpx
-
-        ics_text = httpx.get(url, timeout=30, follow_redirects=True).raise_for_status().text
+        ics_text = safefetch.fetch_text(url)   # config-supplied url: SSRF guard
 
     now = now or datetime.datetime.now(datetime.timezone.utc)
     lo, hi = now - datetime.timedelta(days=1), now + datetime.timedelta(days=WINDOW_DAYS)
