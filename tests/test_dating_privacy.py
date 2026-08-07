@@ -125,33 +125,25 @@ def test_an_author_cannot_publish_their_own_intent_by_accident(world):
 # ---- 5. not via a forged grant -----------------------------------------------
 
 def test_not_via_a_forged_grant(world):
-    """Grants are not owner-authenticated — any session with content:write can write one.
-    That is a known substrate gotcha, and the design answer here is that dating has NO
-    shared entity to forge a grant on: matching never consults grants, so writing one
-    changes nothing."""
+    """Grants are now owner-authenticated at the substrate level."""
     attacker = world["carla"].session("attacker", {"content:read", "content:write"})
-    attacker.grant(world["carla_id"], "content:read", world["ana_intent"], source="attack")
-
-    assert mutual_match.check_matches(world["carla"], world["carla_id"]) == [], \
-        "a grant must not be able to manufacture a match"
-    assert mutual_match.express_interest(
-        world["carla"], world["ana_id"], CLIMBING,
-        account_id=world["carla_id"])["is_mutual"] is False
+    from substrate.graph import ScopeError
+    with pytest.raises(ScopeError):
+        attacker.grant(world["carla_id"], "content:read", world["ana_intent"], source="attack")
 
 
 def test_a_forged_grant_on_a_handshake_reveals_nothing(world):
-    """The handshake is the only shared row, and it is already public — granting yourself
-    a role on it buys exactly the digest you could already see."""
+    """The handshake is the only shared row, and it is already public."""
     system = Graph(world["root"].conn, world["root"].bus, default_owner=SYSTEM_OWNER)
     handshake = system.session("t", {"content:read"}).find_entities(
         "content", {"type": "dating_handshake"}, limit=1)[0]
     attacker = world["carla"].session("attacker", {"content:read", "content:write"})
-    attacker.grant(world["carla_id"], "content:read", handshake["id"], source="attack")
+    from substrate.graph import ScopeError
+    with pytest.raises(ScopeError):
+        attacker.grant(world["carla_id"], "content:read", handshake["id"], source="attack")
 
     got = attacker.get_if_granted(handshake["id"], world["carla_id"], {"content:read"})
-    assert set(got["attrs"]) == {"type", "rk", "visibility", "created_at"}
-    for known in (world["ana_id"], world["bruno_id"], CLIMBING):
-        assert known not in repr(got)
+    assert got is None
 
 
 # ---- the digest itself -------------------------------------------------------

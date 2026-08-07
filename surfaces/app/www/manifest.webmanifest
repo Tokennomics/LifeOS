@@ -1,7 +1,7 @@
 {
-  "name": "LifeOS",
-  "short_name": "LifeOS",
-  "description": "One context graph. Many agents. Your life, planned and captured.",
+  "name": "ConnectOS",
+  "short_name": "ConnectOS",
+  "description": "Next-Gen Social Network & Personal Progress Operating System.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

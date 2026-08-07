@@ -15,11 +15,15 @@ def send_message(
     sender_id: str,
     recipient_id: str,
     body: str,
-    linked_entity_id: str | None = None
+    linked_entity_id: str | None = None,
+    caller_id: str | None = None
 ) -> dict:
     """Sends a message, saving it as a content entity in the graph."""
     if not sender_id.strip() or not recipient_id.strip() or not body.strip():
         raise ValueError("sender_id, recipient_id, and body are required")
+
+    if caller_id and sender_id != caller_id:
+        raise ValueError("access denied: cannot send message as another user")
 
     session = graph.session(MODULE, SCOPES)
     
@@ -49,25 +53,40 @@ def send_message(
     }
 
 
-def get_messages(graph: Graph, recipient_id: str) -> list[dict]:
+def get_messages(graph: Graph, recipient_id: str, caller_id: str | None = None) -> list[dict]:
     """Retrieves all chat messages sent to or by a recipient."""
-    session = graph.session(MODULE, SCOPES)
-    
-    entities = session.find_entities("content", limit=500)
-    messages = []
+    if caller_id and recipient_id != caller_id:
+        raise ValueError("access denied: cannot view another user's messages")
 
-    for ent in entities:
-        attrs = ent.get("attrs", {})
-        if attrs.get("type") == "chat_message":
-            if attrs.get("recipient_id") == recipient_id or attrs.get("sender_id") == recipient_id:
-                messages.append({
-                    "message_id": ent["id"],
-                    "sender_id": attrs.get("sender_id"),
-                    "recipient_id": attrs.get("recipient_id"),
-                    "body": attrs.get("body"),
-                    "timestamp": attrs.get("timestamp")
-                })
+    session = graph.session(MODULE, SCOPES)
+    conn = session.graph.conn
+    cur = conn.cursor()
+
+    if session.graph.dialect == "sqlite":
+        cur.execute(
+            "SELECT id, attrs, created_at FROM entities WHERE kind='content' AND json_extract(attrs, '$.type')='chat_message' AND (json_extract(attrs, '$.sender_id')=? OR json_extract(attrs, '$.recipient_id')=?)",
+            (recipient_id, recipient_id)
+        )
+    else:
+        cur.execute(
+            "SELECT id, attrs, created_at FROM entities WHERE kind='content' AND attrs->>'type'='chat_message' AND (attrs->>'sender_id'=? OR attrs->>'recipient_id'=?)",
+            (recipient_id, recipient_id)
+        )
+
+    messages = []
+    for row in cur.fetchall():
+        import json
+        r_id, r_attrs_raw, r_created_at = row
+        attrs = json.loads(r_attrs_raw) if isinstance(r_attrs_raw, str) else r_attrs_raw
+        messages.append({
+            "message_id": r_id,
+            "sender_id": attrs.get("sender_id"),
+            "recipient_id": attrs.get("recipient_id"),
+            "body": attrs.get("body"),
+            "timestamp": attrs.get("timestamp")
+        })
 
     # Sort chronologically
-    messages.sort(key=lambda x: x.get("timestamp", ""))
+    messages.sort(key=lambda x: x.get("timestamp") or "")
     return messages
+

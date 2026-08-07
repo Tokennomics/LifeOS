@@ -320,3 +320,36 @@ dialog .row button.primary { background: var(--spark); color: var(--spark-ink); 
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after { animation: none !important; transition: none !important; }
 }
+
+/* Glassmorphism & Modern Micro-Animations */
+.card {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card:hover {
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+}
+
+button.primary {
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+
+button.primary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+button.primary:active {
+  transform: translateY(1px);
+}
+
+.pill {
+  transition: all 0.15s ease;
+}
+
+.pill:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.1);
+}

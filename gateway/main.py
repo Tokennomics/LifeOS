@@ -8,7 +8,7 @@ The PWA lives at /app/ (surfaces/app/www). All endpoints work without any API ke
 import datetime
 import json
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -332,6 +332,232 @@ def create_app(cfg: dict | None = None) -> FastAPI:
             e["attrs"] = json.loads(e["attrs"]) if isinstance(e["attrs"], str) else e["attrs"]
         return {"exported_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "entities": entities, "edges": edges, "observations": rows("observations")}
+
+    # ---- Crew Invite Landing Page ----------------------------------------
+
+    EXPIRED_HTML = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Invalid Invite - LifeOS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #0a0a0c 0%, #121218 100%);
+            color: #e2e8f0;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 24px;
+            padding: 40px;
+            text-align: center;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            animation: fadeIn 0.6s ease-out;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        h1 {
+            color: #ef4444;
+            font-size: 28px;
+            margin-bottom: 16px;
+            font-weight: 700;
+        }
+        p {
+            color: #94a3b8;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+        .btn {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.08);
+            color: #f8fafc;
+            text-decoration: none;
+            padding: 14px 28px;
+            border-radius: 12px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.15);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Invite Link Expired</h1>
+        <p>This invite link is either invalid, revoked, or has reached its maximum usage limit. Ask the crew administrator for a new invite link.</p>
+        <a href="/app/" class="btn">Go to LifeOS</a>
+    </div>
+</body>
+</html>
+"""
+
+    INVITE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Crew Invitation - LifeOS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #09090b 0%, #151522 100%);
+            color: #f4f4f5;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+            position: relative;
+        }}
+        .bg-glow {{
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, rgba(0,0,0,0) 70%);
+            top: 20%;
+            left: 30%;
+            z-index: 0;
+            filter: blur(40px);
+        }}
+        .bg-glow-2 {{
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(236, 72, 153, 0.1) 0%, rgba(0,0,0,0) 70%);
+            bottom: 10%;
+            right: 20%;
+            z-index: 0;
+            filter: blur(50px);
+        }}
+        .card {{
+            position: relative;
+            background: rgba(30, 30, 40, 0.45);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 32px;
+            padding: 48px;
+            text-align: center;
+            max-width: 450px;
+            width: 90%;
+            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.4);
+            z-index: 10;
+            animation: cardEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }}
+        @keyframes cardEntrance {{
+            from {{ opacity: 0; transform: translateY(30px) scale(0.96); }}
+            to {{ opacity: 1; transform: translateY(0) scale(1); }}
+        }}
+        .logo {{
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 4px;
+            color: #a1a1aa;
+            margin-bottom: 32px;
+            font-weight: 700;
+        }}
+        .logo span {{
+            background: linear-gradient(90deg, #6366f1, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        h1 {{
+            font-size: 26px;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #ffffff;
+        }}
+        .crew-name {{
+            font-size: 36px;
+            font-weight: 700;
+            margin: 16px 0 24px 0;
+            background: linear-gradient(90deg, #818cf8, #f472b6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+        p {{
+            color: #a1a1aa;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 40px;
+        }}
+        .btn {{
+            display: block;
+            background: linear-gradient(90deg, #4f46e5 0%, #db2777 100%);
+            color: #ffffff;
+            text-decoration: none;
+            padding: 18px;
+            border-radius: 16px;
+            font-weight: 700;
+            font-size: 18px;
+            box-shadow: 0 10px 25px rgba(79, 70, 229, 0.35);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }}
+        .btn:hover {{
+            transform: translateY(-3px);
+            box-shadow: 0 15px 35px rgba(79, 70, 229, 0.5);
+            border-color: rgba(255, 255, 255, 0.2);
+        }}
+        .btn:active {{
+            transform: translateY(-1px);
+        }}
+    </style>
+</head>
+<body>
+    <div class="bg-glow"></div>
+    <div class="bg-glow-2"></div>
+    <div class="card">
+        <div class="logo">Life<span>OS</span></div>
+        <h1>You've been invited to</h1>
+        <div class="crew-name">{crew_name}</div>
+        <p>Connect with members, share memories, plan itineraries, and coordinate outing slots with ease.</p>
+        <a href="/app/?invite_token={token}" class="btn">Join Crew</a>
+    </div>
+</body>
+</html>
+"""
+
+    @app.get("/invite/{token}", include_in_schema=False)
+    def render_invite_landing(token: str):
+        from modules.crews import invites
+        from substrate.graph import Graph
+        from substrate import SYSTEM_OWNER
+        
+        sys_graph = Graph(graph.conn, bus, default_owner=SYSTEM_OWNER)
+        session = sys_graph.session(invites.MODULE, invites.SCOPES)
+        invite = invites._resolve(session, token)
+        
+        if invite is None or not invites._is_active(invite["attrs"]):
+            return Response(content=EXPIRED_HTML, media_type="text/html")
+            
+        crew_name = invite["attrs"].get("crew_name", "a private crew")
+        html_content = INVITE_HTML.format(crew_name=crew_name, token=token)
+        return Response(content=html_content, media_type="text/html")
 
     # ---- the app itself --------------------------------------------------
 

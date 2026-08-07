@@ -148,17 +148,13 @@ def test_leaving_the_crew_ends_the_invitation_to_plan(world):
 
 
 def test_a_forged_participant_grant_buys_nothing(world, graph):
-    """A grant row needs only `content:write`, so the grant is how a member REACHES the
-    session — the crew is the authority on whether they belong on it."""
+    """A grant row needs only `content:write`. Now owner-authenticated at the substrate level."""
     dave, dave_id = _acct(graph, "dave")
     coord = _open(world)["coordination_id"]
-    dave.session("forge", {"content:write"}).grant(
-        dave_id, coordinator.PARTICIPANT, coord, source="forge")
-
-    with pytest.raises(ValueError, match="not a member"):
-        coordinator.respond_group(dave, coord, dave_id, {"slots": {SAT: 1}})
-    with pytest.raises(ValueError, match="not a member"):
-        coordinator.approve_group(dave, coord, dave_id, 0)
+    from substrate.graph import ScopeError
+    with pytest.raises(ScopeError):
+        dave.session("forge", {"content:write"}).grant(
+            dave_id, coordinator.PARTICIPANT, coord, source="forge")
 
 
 def test_a_departed_members_availability_stops_counting(world):

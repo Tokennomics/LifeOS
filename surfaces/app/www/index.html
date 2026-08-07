@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>LifeOS</title>
+  <title>ConnectOS</title>
   <meta name="theme-color" content="#0F1420">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="LifeOS">
+  <meta name="apple-mobile-web-app-title" content="ConnectOS">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -15,8 +15,9 @@
 </head>
 <body>
   <header>
-    <div class="brand"><span class="dot"></span> LifeOS</div>
+    <div class="brand"><span class="dot"></span> ConnectOS</div>
     <div class="header-right">
+      <button id="cmd-k-btn" class="pill" style="font-size:11px; padding:4px 10px; border-color:var(--spark)40;" title="Keyboard Shortcuts (Ctrl+K)">Ctrl+K ⚡</button>
       <span id="mode-badge" class="badge">…</span>
       <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙</button>
     </div>
@@ -46,12 +47,48 @@
       <button id="set-export">Export my graph</button>
       <button id="set-close">Close</button>
     </div>
-    <p class="hint">Your data lives on your own gateway. Export is always available — the graph is yours.</p>
+    <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
+    <h2 style="font-size:16px; margin-bottom:4px;">🌐 1-Tap Social SSO & Cloud Sync</h2>
+    <p class="hint" style="margin-bottom:10px;">Sign in with your preferred account to sync your LifeOS graph seamlessly across all your phones, tablets & laptops.</p>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;">
+      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="google">🌐 Continue with Google</button>
+      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="apple">🍎 Continue with Apple</button>
+      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="meta">♾️ Continue with Meta</button>
+      <div class="row2">
+        <input class="field" id="sso-email" placeholder="Email / Phone #">
+        <button class="primary" id="sso-magic" style="width:auto; padding:0 16px;">Magic Link ✉️</button>
+      </div>
+    </div>
+
+    <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
+    <h2 style="font-size:16px; margin-bottom:4px;">🔑 Passkey & Device Login</h2>
+    <p class="hint" style="margin-bottom:10px;">Local-First Zero-Login by default. Pair additional devices using Biometric Passkey (Fingerprint / FaceID) or 1-Tap Bearer Token.</p>
+    <div class="row">
+      <button id="set-passkey" class="ghost" style="width:100%;">Sign in with Passkey (FaceID / Fingerprint) 🔑</button>
+    </div>
+    <p class="hint" style="margin-top:8px;">Your data lives on your own gateway. Export is always available — the graph is yours.</p>
+  </dialog>
+
+  <dialog id="cmd-palette" style="background:var(--surface-1); border:1px solid var(--spark); border-radius:16px; padding:20px; max-width:480px; width:90%; color:var(--text);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h2 style="margin:0; font-size:18px;">⚡ Command Palette Shortcuts</h2>
+      <button id="cmd-close" class="pill" style="width:auto; padding:4px 10px;">✕</button>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:8px; font-size:14px;">
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>Go to Today</span><code>T</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>Go to People / Crews</span><code>P</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>Go to Map & Hotspots</span><code>M</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>🎙️ VoiceOS Mic Capture</span><code>V</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>🛡️ Start 45m Focus Shield</span><code>F</code></div>
+      <div style="display:flex; justify-content:space-between; border-bottom:1px solid var(--line-soft); padding:6px 0;"><span>🧘 2-Min Mindfulness Reset</span><code>B</code></div>
+    </div>
   </dialog>
 
   <div id="toast" hidden></div>
 
   <script src="sync_queue.js"></script>
+  <script src="travel-coach.js"></script>
+  <script src="travel-stats.js"></script>
   <script src="app.js"></script>
   <script src="dashboard.js"></script>
 </body>

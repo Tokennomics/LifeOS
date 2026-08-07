@@ -259,3 +259,142 @@ def test_cors_origins_can_be_narrowed(cfg):
                                          "cors_origins": ["https://lifeos.example"]}})
     origins = [m for m in app.user_middleware if "CORS" in str(m)]
     assert origins and "https://lifeos.example" in str(origins[0])
+
+
+# =============================================================================
+# Round two (2026-08-07), after `main` gained 80 commits of new modules.
+# Found by sweeping every POST body field that names an identity, rather than
+# reading thirteen modules by hand.
+# =============================================================================
+
+@pytest.fixture
+def operator(cfg):
+    """A caller holding the static gateway token — the instance operator."""
+    app_cfg = {**cfg, "gateway": {**cfg["gateway"], "auth_token": "owner-key"}}
+    client = TestClient(create_app(app_cfg))
+    for name in ("ana", "mallory"):
+        client.post("/v1/auth/register", json={"handle": name, "password": PW})
+    tokens = {n: client.post("/v1/auth/login",
+                             json={"handle": n, "password": PW}).json()["token"]
+              for n in ("ana", "mallory")}
+    head = {n: {"Authorization": f"Bearer {t}"} for n, t in tokens.items()}
+    head["operator"] = {"Authorization": "Bearer owner-key"}
+    ids = {n: client.get("/v1/auth/me", headers=head[n]).json()["account_id"]
+           for n in ("ana", "mallory")}
+    return {"c": client, "h": head, "id": ids}
+
+
+def test_the_reported_person_cannot_read_the_report_about_himself(operator, monkeypatch):
+    """The worst of the second pass, and worse in kind than the crew takeover: a
+    physical-safety feature failing open. Mallory could read Ana's account of being
+    followed home — including that it was Ana who filed it — and then dismiss it."""
+    monkeypatch.setenv("LIFEOS_SIGNING_KEY", "b7Qv2xLp9NrK4mYtZs8WfCg3JhDn6VaE")
+    monkeypatch.setenv("LIFEOS_DATING_ENABLED", "1")
+    c, h, ids = operator["c"], operator["h"], operator["id"]
+
+    filed = c.post("/v1/dating/report", headers=h["ana"], json={
+        "subject_account_id": ids["mallory"], "reason": "he followed me home from the bar"})
+    assert filed.status_code == 200
+
+    seen = c.get("/v1/dating/reports", headers=h["mallory"])
+    assert seen.status_code == 403
+    assert "followed me home" not in seen.text
+
+    queue = c.get("/v1/dating/reports", headers=h["operator"]).json()["reports"]
+    assert len(queue) == 1 and queue[0]["reason"] == "he followed me home from the bar"
+
+
+def test_the_reported_person_cannot_dismiss_the_report(operator, monkeypatch):
+    monkeypatch.setenv("LIFEOS_SIGNING_KEY", "b7Qv2xLp9NrK4mYtZs8WfCg3JhDn6VaE")
+    monkeypatch.setenv("LIFEOS_DATING_ENABLED", "1")
+    c, h, ids = operator["c"], operator["h"], operator["id"]
+    c.post("/v1/dating/report", headers=h["ana"],
+           json={"subject_account_id": ids["mallory"], "reason": "assault"})
+    report_id = c.get("/v1/dating/reports", headers=h["operator"]).json()["reports"][0]["id"]
+
+    killed = c.post(f"/v1/dating/reports/{report_id}/resolve", headers=h["mallory"],
+                    json={"action": "dismissed"})
+    assert killed.status_code == 403
+    assert len(c.get("/v1/dating/reports", headers=h["operator"]).json()["reports"]) == 1
+
+
+def test_the_reporter_cannot_read_the_queue_either(operator, monkeypatch):
+    """Not a punishment — "who else has complained about this person" is not hers to read."""
+    monkeypatch.setenv("LIFEOS_SIGNING_KEY", "b7Qv2xLp9NrK4mYtZs8WfCg3JhDn6VaE")
+    monkeypatch.setenv("LIFEOS_DATING_ENABLED", "1")
+    c, h, ids = operator["c"], operator["h"], operator["id"]
+    c.post("/v1/dating/report", headers=h["ana"],
+           json={"subject_account_id": ids["mallory"], "reason": "x"})
+    assert c.get("/v1/dating/reports", headers=h["ana"]).status_code == 403
+
+
+def test_the_crew_moderation_queue_is_operator_only(operator):
+    c, h = operator["c"], operator["h"]
+    assert c.get("/v1/crews/reports/open", headers=h["mallory"]).status_code == 403
+    assert c.post("/v1/crews/report/resolve", headers=h["mallory"],
+                  json={"report_id": "x", "action": "dismissed"}).status_code == 403
+    assert c.get("/v1/crews/reports/open", headers=h["operator"]).status_code == 200
+
+
+def test_a_named_moderator_account_can_service_the_queue(operator, monkeypatch):
+    """A solo operator on a phone will not want to carry the static token around."""
+    monkeypatch.setenv("LIFEOS_MODERATOR_ACCOUNTS", operator["id"]["ana"])
+    c, h = operator["c"], operator["h"]
+    assert c.get("/v1/crews/reports/open", headers=h["ana"]).status_code == 200
+    assert c.get("/v1/crews/reports/open", headers=h["mallory"]).status_code == 403
+
+
+def test_you_cannot_vote_as_another_member(world):
+    """Ballot stuffing: `member_id` came off the body, so one account could cast every
+    member's vote in a crew's venue poll."""
+    r = world["c"].post("/v1/venues/vote", headers=world["h"]["mallory"],
+                        json={"poll_id": "p", "place_id": "sushi",
+                              "member_id": world["id"]["ana"]})
+    assert r.status_code == 403
+
+
+def test_you_cannot_forge_an_audit_log_entry_as_someone_else(world):
+    """The audit log is what you read after an incident. Anyone could write false entries
+    attributed to anyone."""
+    r = world["c"].post("/v1/security/audit-log", headers=world["h"]["mallory"],
+                        json={"event_type": "login_failure", "actor_id": world["id"]["ana"],
+                              "details": {}})
+    assert r.status_code == 403
+
+
+def test_you_cannot_register_a_resource_owned_by_someone_else(world):
+    r = world["c"].post("/v1/miniapp/resources", headers=world["h"]["mallory"],
+                        json={"owner_id": world["id"]["ana"], "name": "drill"})
+    assert r.status_code == 403
+
+
+def test_every_identity_field_in_the_whole_api_is_pinned(world):
+    """The sweep that found the three above, kept as a test so a NEW endpoint that takes an
+    identity from the body fails here rather than in production."""
+    c, h, ids = world["c"], world["h"], world["id"]
+    identity = {"user_id", "account_id", "sender_id", "member_id", "owner_id", "reporter_id",
+                "host_id", "admin_id", "by", "actor_id", "author_id", "requester_id",
+                "creator_id", "participant_id"}
+    spec = c.app.openapi()
+    defs = spec.get("components", {}).get("schemas", {})
+
+    def sample(prop):
+        return {"number": 1.0, "integer": 1, "boolean": True,
+                "array": [], "object": {}}.get(prop.get("type"), "x")
+
+    accepted = []
+    for path, ops in spec["paths"].items():
+        op = ops.get("post")
+        if not op or "requestBody" not in op:
+            continue
+        schema = op["requestBody"].get("content", {}).get("application/json", {}).get("schema", {})
+        model = defs.get(schema["$ref"].split("/")[-1], {}) if "$ref" in schema else schema
+        props = model.get("properties", {})
+        fields = [p for p in props if p in identity]
+        if not fields:
+            continue
+        body = {k: sample(v) for k, v in props.items()}
+        body.update({f: ids["ana"] for f in fields})
+        if c.post(path, headers=h["mallory"], json=body).status_code == 200:
+            accepted.append((path, fields))
+    assert accepted == [], f"these accepted another account's id: {accepted}"

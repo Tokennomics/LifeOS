@@ -135,7 +135,7 @@ def redeem(graph: Graph, token: str, person_id: str, source: str = MODULE) -> di
         # Already in — idempotent, and it must not burn one of the link's uses.
         return {**_crew_result(crew_session, crew_id, a, person_id), "joined": False, "already": True}
 
-    crews._set_state(crew_session, crew_id, person_id, crews.MEMBER, source)
+    crews._set_state(session, crew_id, person_id, crews.MEMBER, source)
     session.update_entity(invite["id"], {"uses": a.get("uses", 0) + 1}, source=source)
     return {**_crew_result(crew_session, crew_id, a, person_id), "joined": True, "already": False}
 

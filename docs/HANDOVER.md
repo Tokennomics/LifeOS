@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#15 are merged; #16 (feeds + security audit) is open.** `python -m pytest` → **774 passing**.
+explicit permission). **PRs #1–#15 are merged; #16 (feeds + security audit, two rounds) is open.** `python -m pytest` → **821 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -270,6 +270,35 @@ across accounts.** `chat.send_message` writes into the *sender's* owner slice an
 `get_messages` reads owner-scoped, so only the sender ever sees the message — the same shape
 as the dating bug. Inert, not leaky. Fix it the way dating was fixed (a shared home plus
 grants, or a blinded rendezvous), **not** by reaching for `find_public`.
+
+### Round two (2026-08-07), after `main` gained 80 more Antigravity commits
+
+Found by **sweeping every POST body field that names an identity** rather than reading
+thirteen new modules — that sweep is kept as a test (`test_every_identity_field_in_the_whole_api_is_pinned`),
+so a new endpoint taking an identity from the body now fails in CI instead of in production.
+
+- **CRITICAL — the moderation queue was readable and resolvable by anyone, including the
+  person reported.** Mallory could read Ana's account of being followed home from a bar,
+  see that Ana filed it, and then dismiss it — queue to zero, reporter never told. This was
+  **my** code from the G3 work, and it is worse in kind than the crew takeover because it is
+  a physical-safety feature failing open. Moderation is now `_operator` only: the static
+  gateway token, or an account listed in `LIFEOS_MODERATOR_ACCOUNTS`. **The reporter cannot
+  read the queue either** — "who else has complained about this person" is not hers.
+- **HIGH — ballot stuffing.** `/v1/venues/vote` took `member_id` from the body, so one
+  account could cast every member's vote in a crew's venue poll.
+- **HIGH — forgeable audit log.** `/v1/security/audit-log` took `actor_id` from the body.
+  The audit log is what you read *after* an incident; anyone could write false entries
+  attributed to anyone.
+- **MED — `/v1/miniapp/resources`** registered a resource owned by someone else.
+
+**Also: `main` did not parse on Python 3.11**, which is what CI pins — an f-string in
+`modules_api.py` contained a backslash (legal only from 3.12). The gateway would not have
+started. Fixed, and every `.py` in the repo is now checked to parse under 3.11.
+
+**Good news from this round:** the "grants are not owner-authenticated" gotcha that stood in
+this file for weeks **has been closed at the substrate** — forging a grant now raises
+`ScopeError`. And `modules/comms` gained its own caller check plus working cross-account
+delivery, so the DM bug is fixed too.
 
 ## Gotchas — read these before touching anything
 
