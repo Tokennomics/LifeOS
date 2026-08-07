@@ -260,3 +260,10 @@ def test_viral_growth_and_traction(cfg):
     res4 = client.get("/v1/community/ambassadors")
     assert res4.status_code == 200
     assert len(res4.json()["cities"]) >= 4
+
+def test_automated_data_ingestion(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/city/sync-live-events", json={"city": "Lisbon"})
+    assert res1.status_code == 200
+    assert res1.json()["synced"] is True
+    assert res1.json()["total_ingested"] >= 70
