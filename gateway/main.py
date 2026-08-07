@@ -28,6 +28,9 @@ from substrate.migrate import migrate
 
 APP_DIR = ROOT / "surfaces" / "app" / "www"
 
+#: Generous for a note or an ICS import, nowhere near enough to fill a disk with.
+MAX_BODY_BYTES = 1_000_000
+
 
 class TextIn(BaseModel):
     text: str
@@ -131,6 +134,20 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         allow_origins=cfg.get("gateway", {}).get("cors_origins") or ["*"],
         allow_methods=["*"], allow_headers=["*"],
     )
+    # One cap for every endpoint, rather than a length check per field. A signed-up user
+    # could otherwise store an unbounded blob per request and fill the disk — which on a
+    # small hosted box takes down everyone's instance, not just their own. Found by probing
+    # with a 2MB capture, which was accepted and stored whole.
+    max_body = int(cfg.get("gateway", {}).get("max_body_bytes") or MAX_BODY_BYTES)
+
+    @app.middleware("http")
+    async def _limit_body(request: Request, call_next):
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > max_body:
+            return JSONResponse(status_code=413,
+                                content={"detail": f"body larger than {max_body} bytes"})
+        return await call_next(request)
+
     app.state.cfg = cfg
     app.state.rate_limiter = rate_limiter.RateLimiter()
     app.state.graph = graph
@@ -209,6 +226,18 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         return accounts.logout(graph, token)
 
     # ---- Ways in: password, Google, Apple, email, phone -------------------
+
+    @app.get("/v1/auth/providers")
+    def auth_providers():
+        """Which sign-in methods this deployment offers.
+
+        **Unauthenticated on purpose, and it was briefly not.** It lived on the authed
+        router, which meant a client had to already be signed in to discover how to sign
+        in — the sign-in screen could not render. Found by walking the product as a new
+        user, not by a test. Configuration only: never a client id.
+        """
+        from modules.auth import oidc
+        return {"providers": oidc.status(), "password": True}
 
     @app.post("/v1/auth/oidc")
     def auth_oidc(request: Request, body: OidcSignInIn):

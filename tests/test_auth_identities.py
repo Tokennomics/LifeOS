@@ -229,7 +229,8 @@ def test_you_cannot_unlink_your_only_way_in(graph):
     with pytest.raises(ValueError, match="only way in"):
         identities.unlink(graph, made["account_id"], "google", "only-sub")
 
-    identities.link(graph, made["account_id"], "email", "ana@example.com")
+    # verified=True because this test is about unlinking, not about proving the address.
+    identities.link(graph, made["account_id"], "email", "ana@example.com", verified=True)
     assert identities.unlink(graph, made["account_id"], "google", "only-sub")["unlinked"]
     assert [i["kind"] for i in identities.for_account(graph, made["account_id"])] == ["email"]
 
@@ -304,3 +305,50 @@ def test_listing_and_linking_through_the_api(client, keypair, monkeypatch):
 
     listed = client.get("/v1/auth/identities", headers=head).json()["identities"]
     assert [i["kind"] for i in listed] == ["google"]
+
+
+# ---- round three: found by probing my own code ------------------------------
+
+def test_an_email_identity_cannot_be_linked_by_simply_typing_it(graph):
+    """Pre-positioned takeover. Nothing verifies that you own an address you type, so an
+    attacker could link victim@example.com to their OWN account today — and on the day an
+    email sign-in ships, the victim would authenticate with their real address and land
+    inside the attacker's account. Found by probing, not by a test."""
+    accounts.register(graph, "mallory", PW)
+    mallory = accounts.resolve(graph, accounts.login(graph, "mallory", PW)["token"])
+    with pytest.raises(ValueError, match="proof of control"):
+        identities.link(graph, mallory["account_id"], "email", "victim@example.com")
+    with pytest.raises(ValueError, match="proof of control"):
+        identities.link(graph, mallory["account_id"], "phone", "+351912345678")
+    assert identities.find(graph, "email", "victim@example.com") is None
+
+
+def test_the_link_endpoint_refuses_an_unverified_email(client):
+    client.post("/v1/auth/register", json={"handle": "mallory", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "mallory", "password": PW}).json()["token"]
+    r = client.post("/v1/auth/identities", headers={"Authorization": f"Bearer {token}"},
+                    json={"provider": "email", "subject": "victim@example.com"})
+    assert r.status_code == 400 and "proof of control" in r.json()["detail"]
+
+
+def test_a_provider_identity_is_exempt_because_its_subject_was_signed(graph):
+    """Google and Apple `sub` values arrive inside a signature we verified, so they are
+    proof rather than a claim."""
+    accounts.register(graph, "ana", PW)
+    ana = accounts.resolve(graph, accounts.login(graph, "ana", PW)["token"])
+    assert identities.link(graph, ana["account_id"], "google", "verified-sub")["linked"]
+
+
+def test_a_verified_email_still_links(graph):
+    """The gate is on unproven claims, not on email as a concept — an OTP flow passes
+    verified=True and this keeps working."""
+    accounts.register(graph, "ana", PW)
+    ana = accounts.resolve(graph, accounts.login(graph, "ana", PW)["token"])
+    assert identities.link(graph, ana["account_id"], "email", "ana@example.com",
+                           verified=True)["linked"]
+
+
+def test_signing_in_with_a_verified_email_still_creates_an_account(graph):
+    made = identities.sign_in(graph, "email", "ana@example.com")
+    assert made["created"] is True and made["handle"] == "ana"

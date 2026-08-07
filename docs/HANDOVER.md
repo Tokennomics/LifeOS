@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **865 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **874 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -368,6 +368,38 @@ recoverable, and the alternative is not.
 are linkable, but there is no one-time-code sender — that needs an SMTP/SMS provider, which
 is the first thing here to need a real secret and a bill. `password reset` is the same
 missing piece and should be built with it.
+
+## Round three (2026-08-07) — walking the product, and probing my own code
+
+**43-step end-to-end journey**, signup to erasure, through real HTTP. It found two things
+the 865-test suite did not, both at seams rather than inside modules:
+
+- **`/v1/auth/providers` needed a token** — it sat on the authed router, so a client had to
+  be signed in to discover how to sign in. The sign-in screen could not render.
+- **`/v1/crews/join` returned "unknown crew"** for a crew listed in the directory a moment
+  earlier. `crews.join` (local: an owner adding someone from their own graph) and
+  `crews.request_join` (cross-account) are both correct — the trap was that the
+  obvious-sounding endpoint was the wrong one, with a misleading error. `join` now falls
+  through to `request_join` for a crew outside the caller's slice; that grants nothing, it
+  is the same narrow write already reachable at `/v1/crews/request`.
+
+**Round-three security probe** (GETs, resource limits, and the erasure/identity code I wrote
+myself — rounds 1-2 only swept POST bodies):
+
+- **MED — no request body cap.** A 2MB capture was accepted and stored whole; a signed-up
+  user could fill the disk, which on a small hosted box takes down everyone's instance.
+  One middleware, `MAX_BODY_BYTES`, 413 past it.
+- **HIGH — a pre-positioned takeover in my own identity code.** Linking an `email` identity
+  proved nothing about owning the address, so an attacker could link `victim@example.com`
+  to their own account **today** — and on the day an email sign-in ships, the victim would
+  authenticate with their real address and land inside the attacker's account. `link()` now
+  refuses `email`/`phone` without `verified=True`, which nothing in the API can set yet.
+  Google and Apple are exempt: their `sub` arrives inside a signature we verified.
+
+Clean afterwards: no IDOR through 11 templated GET paths or any GET query param, erasure
+cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
+errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
+answer without a token.
 
 ## Gotchas — read these before touching anything
 

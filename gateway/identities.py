@@ -74,15 +74,31 @@ def for_account(graph: Graph, account_id: str) -> list[dict]:
     return out
 
 
+#: Kinds whose subject is only ever established by proof — a provider signature, or a code
+#: that was actually delivered. `link()` refuses them unless the caller says it has that.
+NEEDS_PROOF = ("email", "phone")
+
+
 def link(graph: Graph, account_id: str, kind: str, subject: str,
-         source: str = MODULE) -> dict:
+         source: str = MODULE, verified: bool = False) -> dict:
     """Connect a way in to an account that is already yours.
 
     Refuses if the identity belongs to someone else — silently re-pointing it would hand
     one person's sign-in to another's account, which is the takeover this module exists to
     prevent, arriving through the front door.
+
+    **`email` and `phone` need `verified=True`, and nothing in the API can set it yet.**
+    Typing an address is a claim, not proof of control. Without this check an attacker
+    could link `victim@example.com` to their OWN account today, and on the day an email
+    sign-in ships the victim would authenticate with their real address and land inside
+    the attacker's account — a takeover pre-positioned months before the feature exists.
+    Google and Apple are exempt because their `sub` arrives inside a signature we verified.
     """
     kind, subject = _norm(kind, subject)
+    if kind in NEEDS_PROOF and not verified:
+        raise ValueError(
+            f"a {kind} identity has to be verified before it can be linked — "
+            f"typing it is a claim, not proof of control")
     existing = find(graph, kind, subject)
     if existing:
         if existing["account_id"] == account_id:
@@ -135,7 +151,10 @@ def sign_in(graph: Graph, kind: str, subject: str, *, handle_hint: str = "",
         handle = accounts.available_handle(graph, handle_hint or _handle_from(kind, subject))
         account = accounts.register_external(graph, handle, source=source)
         account_id = account["account_id"]
-        link(graph, account_id, kind, subject, source=source)
+        # `verified=True` because sign_in's contract is that the CALLER already proved
+        # this identity — a provider signature, or a code that was actually delivered. The
+        # gate on `link` exists to stop a *typed* claim, which is a different door.
+        link(graph, account_id, kind, subject, source=source, verified=True)
         created = True
 
     session = accounts.mint_session(graph, account_id, ttl_hours=ttl_hours, source=source)
