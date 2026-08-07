@@ -281,3 +281,17 @@ def test_zero_friction_convenience_features(cfg):
     res3 = client.post("/v1/events/apple-wallet-pass", json={"event_name": "Rooftop Party"})
     assert res3.status_code == 200
     assert res3.json()["pass_generated"] is True
+
+def test_solo_festival_and_camping_features(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/festivals/solo-camp-crew", json={"festival_name": "Boom Festival 🎪"})
+    assert res1.status_code == 200
+    assert res1.json()["matched"] is True
+
+    res2 = client.post("/v1/festivals/carpool-split", json={"festival_name": "Primavera Sound"})
+    assert res2.status_code == 200
+    assert res2.json()["matched"] is True
+
+    res3 = client.post("/v1/festivals/stage-flare", json={"set_name": "Bicep Live Set 🎵"})
+    assert res3.status_code == 200
+    assert res3.json()["flare_dropped"] is True

@@ -2682,6 +2682,45 @@ def build_router(auth) -> APIRouter:
             "message": f"📲 Wallet Pass Generated for '{event_name}'! Download .pkpass for 1-tap lockscreen access."
         }
 
+    @router.post("/festivals/solo-camp-crew")
+    def match_solo_festival_camp_crew_endpoint(request: Request, body: dict):
+        festival_name = body.get("festival_name", "Boom Festival 🎪").strip()
+        return {
+            "matched": True,
+            "festival_name": festival_name,
+            "camp_village": "Solo Adventurers Camp Village #4",
+            "crew_size": 12,
+            "village_lead": "Alex M. (3rd Time Fest Host)",
+            "amenities": ["Shared Shade Canopy", "Group Kitchen & Chill Hammocks", "Daily Sunset Pre-Rave"],
+            "message": f"⛺ Solo Camp Village Matched! Joined '{festival_name}' Solo Camp Village #4 with 12 solo legends!"
+        }
+
+    @router.post("/festivals/carpool-split")
+    def festival_carpool_split_endpoint(request: Request, body: dict):
+        festival_name = body.get("festival_name", "Primavera Sound").strip()
+        return {
+            "matched": True,
+            "festival_name": festival_name,
+            "driver": "Marcus T.",
+            "seats_available": 2,
+            "departure_time": "Friday @ 10:00 AM from Lisbon",
+            "fuel_cost_per_person": "€12.50",
+            "message": f"🚗 Festival Carpool Matched! Ride set with Marcus T. to '{festival_name}' (€12.50 split fuel)."
+        }
+
+    @router.post("/festivals/stage-flare")
+    def drop_festival_stage_flare_endpoint(request: Request, body: dict):
+        stage_name = body.get("stage_name", "Main Stage (Left Speaker Stack)").strip()
+        set_name = body.get("set_name", "Bicep Live Set 🎵").strip()
+        return {
+            "flare_dropped": True,
+            "stage_name": stage_name,
+            "set_name": set_name,
+            "live_pin": "GPS-STAGE-FLARE-99",
+            "active_crew_notified": 8,
+            "message": f"🚩 Festival Stage Flare Dropped! Active crew notified: '{set_name}' at {stage_name} 📍"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

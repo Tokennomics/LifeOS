@@ -552,6 +552,20 @@ function todayView() {
     <div id="convenience-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Solo Festival & Camp Village Matcher ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(244,63,94,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(244,63,94,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⛺ Solo Festival & Camp Village Matcher</h2>
+      <span class="badge good" style="font-weight:bold;">Solo Fest Crew</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Going solo to a festival? Connect with other solo legends to camp, carpool, and dance together!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f43f5e, #a855f7);" data-act="join-solo-camp-village">Join Solo Camp Village ⛺</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="drop-stage-flare">Drop Stage Flare (Bicep Set 🎵) 🚩</button>
+    </div>
+    <div id="solo-fest-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3203,6 +3217,33 @@ function wire(root) {
       </div>
     `;
   }, "Wallet Pass Exported! 📲"));
+
+  on("[data-act=join-solo-camp-village]", () => act(async () => {
+    const res = await api("/v1/festivals/solo-camp-crew", { festival_name: "Boom Festival 🎪" });
+    const out = $("#solo-fest-output");
+    if (!out) return;
+    const amenities = res.amenities || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f43f5e;">
+        <div style="font-size:14px; font-weight:700; color:#f43f5e; margin-bottom:4px;">⛺ Joined ${esc(res.camp_village)}!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Festival: <strong>${esc(res.festival_name)}</strong> · ${res.crew_size} Solo Legends · Lead: ${esc(res.village_lead)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Village Perks: ${amenities.join(" · ")}</div>
+      </div>
+    `;
+  }, "Joined Solo Festival Camp Village #4! ⛺"));
+
+  on("[data-act=drop-stage-flare]", () => act(async () => {
+    const res = await api("/v1/festivals/stage-flare", { stage_name: "Main Stage (Left Speaker Stack)", set_name: "Bicep Live Set 🎵" });
+    const out = $("#solo-fest-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🚩 Festival Stage Flare Dropped (${res.active_crew_notified} Crew Notified)!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Set: <strong>${esc(res.set_name)}</strong> @ <strong>${esc(res.stage_name)}</strong></div>
+        <div style="font-size:11px; color:var(--spark);">Live Map Pin: ${esc(res.live_pin)}</div>
+      </div>
+    `;
+  }, "Festival Stage Flare Dropped! 🚩"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
