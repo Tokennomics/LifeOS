@@ -202,3 +202,14 @@ def test_transparent_algo_and_revenue_share(cfg):
     res4 = client.get("/v1/economics/revenue-share")
     assert res4.status_code == 200
     assert res4.json()["earnings_to_date"] == 145.00
+
+def test_monetization_perks_and_subscriptions(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.get("/v1/monetization/sponsored-perks")
+    assert res1.status_code == 200
+    assert len(res1.json()["perks"]) >= 2
+
+    res2 = client.post("/v1/billing/subscriptions", json={"plan": "EXPLORER_PRO"})
+    assert res2.status_code == 200
+    assert res2.json()["subscribed"] is True
+    assert res2.json()["price_eur"] == 9.99

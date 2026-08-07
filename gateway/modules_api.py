@@ -2473,6 +2473,49 @@ def build_router(auth) -> APIRouter:
             "message": "💎 Community Revenue Share: €145.00 earned from host venue cashbacks!"
         }
 
+    @router.get("/monetization/sponsored-perks")
+    def get_sponsored_venue_perks_endpoint(request: Request):
+        return {
+            "perks": [
+                {
+                    "id": "ad-perk-1",
+                    "venue": "Fabrica Coffee Roasters",
+                    "title": "☕ Free Batch Brew Upgrade for ConnectOS Members",
+                    "badge": "Native Venue Perk",
+                    "code": "PERK-FABRICA-FREE",
+                    "privacy_policy": "Zero tracking, zero cookies. Contextual local sponsor."
+                },
+                {
+                    "id": "ad-perk-2",
+                    "venue": "Miradouro Rooftop Bar",
+                    "title": "🍷 15% Off Sunset Tapas Platter for Verified Outing Crews",
+                    "badge": "Native Venue Perk",
+                    "code": "PERK-ROOFTOP-15",
+                    "privacy_policy": "Zero tracking, zero cookies. Contextual local sponsor."
+                }
+            ],
+            "message": "🎟️ Contextual Sponsored Venue Perks Active: Zero tracking, 100% value for members!"
+        }
+
+    @router.post("/billing/subscriptions")
+    def manage_subscriptions_endpoint(request: Request, body: dict):
+        plan = body.get("plan", "EXPLORER_PRO").strip()
+        price_eur = 9.99 if plan == "EXPLORER_PRO" else 0.00
+        return {
+            "subscribed": True,
+            "current_plan": plan,
+            "price_eur": price_eur,
+            "interval": "monthly",
+            "perks_unlocked": [
+                "Unlimited Nomad Passport City Teleporting",
+                "1-Tap VIP Guestlist Fast-Pass Codes",
+                "Autonomous Squad Outing Agent",
+                "2x Social Karma Multiplier"
+            ],
+            "checkout_url": f"https://stripe.com/checkout/connectos-{plan.lower()}",
+            "message": f"💳 Subscribed to ConnectOS {plan} (€{price_eur:.2f}/mo)! All premium perks unlocked."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

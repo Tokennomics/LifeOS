@@ -464,6 +464,27 @@ function todayView() {
     <div id="algo-revenue-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- ConnectOS Monetization & Subscriptions ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(234,179,8,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💳 ConnectOS Pro & Native Venue Perks</h2>
+      <span class="badge good" style="font-weight:bold;">Non-Intrusive Ads & Pro Tier</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Zero tracking ads — only native venue discounts & €9.99/mo Explorer Pro membership!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px;">
+      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;">
+        <strong>☕ Fabrica Coffee Roasters</strong>
+        <div style="color:var(--spark); font-weight:700; margin-top:2px;">Free Batch Brew Upgrade</div>
+      </div>
+      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;">
+        <strong>🍷 Miradouro Rooftop Bar</strong>
+        <div style="color:var(--growth); font-weight:700; margin-top:2px;">15% Off Crew Tapas Platter</div>
+      </div>
+    </div>
+    <button class="primary" style="background:linear-gradient(135deg, #eab308, #6366f1);" data-act="upgrade-explorer-pro">Upgrade to Explorer Pro (€9.99/mo) 💳</button>
+    <div id="sub-monetization-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -2981,6 +3002,21 @@ function wire(root) {
       </div>
     `;
   }, "Growth Habit Stacked! 🌱"));
+
+  on("[data-act=upgrade-explorer-pro]", () => act(async () => {
+    const res = await api("/v1/billing/subscriptions", { plan: "EXPLORER_PRO" });
+    const out = $("#sub-monetization-output");
+    if (!out) return;
+    const perks = res.perks_unlocked || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">💳 ConnectOS ${esc(res.current_plan)} Subscribed!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Membership: <strong>€${res.price_eur.toFixed(2)}/mo</strong> · All Perks Active</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Perks: ${perks.join(" · ")}</div>
+        <div style="font-size:11px; color:var(--spark);">Checkout Stripe Link: ${esc(res.checkout_url)}</div>
+      </div>
+    `;
+  }, "Explorer Pro Subscription Active (€9.99/mo)! 💳"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
