@@ -566,6 +566,20 @@ function todayView() {
     <div id="solo-fest-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Airport Layover & Gym Spotter Synergy ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(14,165,233,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(14,165,233,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>✈️ Airport Layover & Gym Spotter Matcher</h2>
+      <span class="badge good" style="font-weight:bold;">Solo Travelers & Fitness</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Match airport layover coffee buddies, climbing gym spotters, or neighborhood dog park walks!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy (LIS Airport) ✈️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Bouldering Spotter 🏋️</button>
+    </div>
+    <div id="layover-gym-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3244,6 +3258,32 @@ function wire(root) {
       </div>
     `;
   }, "Festival Stage Flare Dropped! 🚩"));
+
+  on("[data-act=match-layover-buddy]", () => act(async () => {
+    const res = await api("/v1/travel/layover-buddy", { airport_code: "LIS (Lisbon Airport Terminal 1)", layover_mins: 120 });
+    const out = $("#layover-gym-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0ea5e9;">
+        <div style="font-size:14px; font-weight:700; color:#0ea5e9; margin-bottom:4px;">✈️ Layover Buddy Found (${esc(res.airport)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Buddy: <strong>${esc(res.buddy_name)}</strong> · ${res.layover_mins} Mins Layover</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Meeting Spot: ${esc(res.suggested_spot)}</div>
+      </div>
+    `;
+  }, "Airport Layover Coffee Buddy Matched! ✈️"));
+
+  on("[data-act=match-gym-spotter]", () => act(async () => {
+    const res = await api("/v1/sports/gym-spotter", { activity: "Bouldering & Lead Climbing", gym: "Vertical Wall Lisbon" });
+    const out = $("#layover-gym-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏋️ Bouldering Spotter Matched (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Spotter: <strong>${esc(res.spotter_name)}</strong> @ ${esc(res.gym_name)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Activity: ${esc(res.activity)}</div>
+      </div>
+    `;
+  }, "Bouldering Spotter Matched! 🏋️"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

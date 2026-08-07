@@ -2721,6 +2721,43 @@ def build_router(auth) -> APIRouter:
             "message": f"🚩 Festival Stage Flare Dropped! Active crew notified: '{set_name}' at {stage_name} 📍"
         }
 
+    @router.post("/travel/layover-buddy")
+    def airport_layover_buddy_endpoint(request: Request, body: dict):
+        airport = body.get("airport_code", "LIS (Lisbon Airport Terminal 1)").strip()
+        layover_mins = body.get("layover_mins", 120)
+        return {
+            "matched": True,
+            "airport": airport,
+            "layover_mins": layover_mins,
+            "buddy_name": "Elena R. (Digital Nomad)",
+            "suggested_spot": "TAP Premium Lounge / Specialty Coffee Stand",
+            "message": f"✈️ Layover Buddy Found at {airport}! Connecting with Elena R. for a 2-hour coffee meet before flight."
+        }
+
+    @router.post("/sports/gym-spotter")
+    def gym_spotter_synergy_endpoint(request: Request, body: dict):
+        activity = body.get("activity", "Bouldering & Lead Climbing").strip()
+        gym_name = body.get("gym", "Vertical Wall Lisbon").strip()
+        return {
+            "matched": True,
+            "activity": activity,
+            "gym_name": gym_name,
+            "spotter_name": "Alex M.",
+            "match_score": 96,
+            "message": f"🏋️ Spotter Matched! Connected with Alex M. for {activity} @ {gym_name} (96% Match Score)."
+        }
+
+    @router.post("/pets/dog-walk-crew")
+    def dog_park_walk_crew_endpoint(request: Request, body: dict):
+        park_name = body.get("park", "Jardim da Estrela Dog Park").strip()
+        return {
+            "matched": True,
+            "park": park_name,
+            "crew_dogs_count": 6,
+            "meeting_time": "Today @ 5:30 PM",
+            "message": f"🐶 Dog Pack Walk Matched! 6 local dogs & owners meeting at {park_name} today @ 5:30 PM!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()
