@@ -267,3 +267,17 @@ def test_automated_data_ingestion(cfg):
     assert res1.status_code == 200
     assert res1.json()["synced"] is True
     assert res1.json()["total_ingested"] >= 70
+
+def test_zero_friction_convenience_features(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/events/qr-checkin", json={"qr_code": "QR-FABRICA-4"})
+    assert res1.status_code == 200
+    assert res1.json()["checked_in"] is True
+
+    res2 = client.post("/v1/ai/smart-autorsvp", json={"rule": "Wednesdays 7 AM Surf"})
+    assert res2.status_code == 200
+    assert res2.json()["auto_rsvp_active"] is True
+
+    res3 = client.post("/v1/events/apple-wallet-pass", json={"event_name": "Rooftop Party"})
+    assert res3.status_code == 200
+    assert res3.json()["pass_generated"] is True

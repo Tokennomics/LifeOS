@@ -538,6 +538,20 @@ function todayView() {
     <div id="auto-ingestion-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Zero-Friction Convenience Controls ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⚡ Zero-Friction Convenience Controls</h2>
+      <span class="badge good" style="font-weight:bold;">1-Tap & Zero Click</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Magic QR check-in, AI zero-click Auto-RSVP, and Apple/Google Wallet pass export!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981);" data-act="magic-qr-checkin">Magic QR Check-In ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="export-wallet-pass">Export Wallet Pass 📲</button>
+    </div>
+    <div id="convenience-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3163,6 +3177,32 @@ function wire(root) {
       </div>
     `;
   }, "Automated Venue & Event Data Ingested! 🌐"));
+
+  on("[data-act=magic-qr-checkin]", () => act(async () => {
+    const res = await api("/v1/events/qr-checkin", { qr_code: "QR-FABRICA-TABLE-4" });
+    const out = $("#convenience-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">⚡ Magic QR Check-In Complete!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · Squad Joined: <strong>${esc(res.active_squad_joined)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Proof-of-Presence Minted: ${esc(res.pop_badge_minted)}</div>
+      </div>
+    `;
+  }, "Magic QR Check-In Complete! ⚡"));
+
+  on("[data-act=export-wallet-pass]", () => act(async () => {
+    const res = await api("/v1/events/apple-wallet-pass", { event_name: "Miradouro Sunset Rooftop Meet" });
+    const out = $("#convenience-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📲 Apple & Google Wallet Pass Generated:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Event: <strong>${esc(res.event_name)}</strong> · Code: <strong>${esc(res.pass_code)}</strong></div>
+        <div style="font-size:11px; color:var(--spark);">Download Link: ${esc(res.pkpass_url)}</div>
+      </div>
+    `;
+  }, "Wallet Pass Exported! 📲"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
