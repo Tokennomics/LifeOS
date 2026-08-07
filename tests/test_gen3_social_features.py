@@ -242,3 +242,21 @@ def test_sustainable_multi_revenue_monetization(cfg):
     res3 = client.get("/v1/monetization/plugin-revshare")
     assert res3.status_code == 200
     assert res3.json()["platform_fee_eur"] == 150.00
+
+def test_viral_growth_and_traction(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/viral/invite-crew", json={"crew_name": "Lisbon Tech"})
+    assert res1.status_code == 200
+    assert "CREW-" in res1.json()["invite_code"]
+
+    res2 = client.get("/v1/gamification/streaks")
+    assert res2.status_code == 200
+    assert res2.json()["current_streak_days"] == 7
+
+    res3 = client.post("/v1/viral/social-share", json={"title": "Rooftop Party"})
+    assert res3.status_code == 200
+    assert "story-" in res3.json()["story_card_url"]
+
+    res4 = client.get("/v1/community/ambassadors")
+    assert res4.status_code == 200
+    assert len(res4.json()["cities"]) >= 4

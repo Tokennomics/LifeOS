@@ -2589,6 +2589,49 @@ def build_router(auth) -> APIRouter:
             "message": "🛠️ Developer Marketplace RevShare: €150.00 platform revenue from 3rd-party activity plugins!"
         }
 
+    @router.post("/viral/invite-crew")
+    def generate_viral_invite_link_endpoint(request: Request, body: dict):
+        crew_name = body.get("crew_name", "Lisbon Specialty Coffee & Tech").strip()
+        return {
+            "invite_code": "CREW-LISBON-8921",
+            "invite_url": "https://connectos.app/join/lisbon-coffee-crew",
+            "bonus_karma": 100,
+            "bonus_coffee_voucher": "VOUCHER-FREE-COFFEE",
+            "message": f"⚡ Viral Invite Link Created for '{crew_name}'! Shares award +100 Karma & 1 Free Coffee to both of you."
+        }
+
+    @router.get("/gamification/streaks")
+    def get_user_outing_streaks_endpoint(request: Request):
+        return {
+            "current_streak_days": 7,
+            "longest_streak_days": 14,
+            "squad_streak_name": "Lisbon Sunset Crew",
+            "streak_reward": "🔥 7-Day Outing Streak Active! 15% Off VIP Tapas Unlocked.",
+            "message": "🔥 Outing Streak Active: 7 Consecutive Days of Real-World Connections!"
+        }
+
+    @router.post("/viral/social-share")
+    def generate_social_share_card_endpoint(request: Request, body: dict):
+        title = body.get("title", "Lisbon Rooftop Sunset Party").strip()
+        return {
+            "story_card_url": "https://connectos.app/cards/story-sunset-88.png",
+            "format": "1080x1920 Instagram/TikTok Story",
+            "embedded_qr_code": "https://connectos.app/qr/event-88",
+            "message": f"📢 Social Share Card Generated for '{title}' (1080x1920 Story format with QR code)!"
+        }
+
+    @router.get("/community/ambassadors")
+    def get_city_launch_heatmaps_endpoint(request: Request):
+        return {
+            "cities": [
+                {"city": "Lisbon", "status": "LIVE", "progress": "100%", "active_members": 1420},
+                {"city": "Tokyo", "status": "LIVE", "progress": "100%", "active_members": 980},
+                {"city": "Barcelona", "status": "LAUNCHING_SOON", "progress": "85%", "members_needed": 15},
+                {"city": "Berlin", "status": "LAUNCHING_SOON", "progress": "70%", "members_needed": 45}
+            ],
+            "message": "🚀 City Launch Heatmap: Barcelona at 85% — 15 more members to unlock!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

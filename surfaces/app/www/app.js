@@ -513,6 +513,20 @@ function todayView() {
     <div id="monetization-breakdown-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Viral Growth & Referral Engine ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⚡ Viral Growth & Referral Engine</h2>
+      <span class="badge good" style="font-weight:bold;">+100 Karma & Free Coffee</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Share 1-tap invite links to earn free coffee vouchers & generate Instagram/TikTok story cards!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-invite-link">Create Crew Invite Link ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="gen-story-card">Generate Story Card (1080x1920) 📢</button>
+    </div>
+    <div id="viral-growth-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3098,6 +3112,32 @@ function wire(root) {
       </div>
     `;
   }, "Venue Commission Breakdown Loaded! 📊"));
+
+  on("[data-act=gen-invite-link]", () => act(async () => {
+    const res = await api("/v1/viral/invite-crew", { crew_name: "Lisbon Specialty Coffee & Tech" });
+    const out = $("#viral-growth-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">⚡ Crew Invite Link Generated!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Link: <strong>${esc(res.invite_url)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: +${res.bonus_karma} Karma Points & Free Coffee Voucher for both of you!</div>
+      </div>
+    `;
+  }, "Crew Viral Invite Link Generated! ⚡"));
+
+  on("[data-act=gen-story-card]", () => act(async () => {
+    const res = await api("/v1/viral/social-share", { title: "Lisbon Sunset Rooftop Outing" });
+    const out = $("#viral-growth-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">📢 Instagram/TikTok Story Card Generated:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Format: ${esc(res.format)} · URL: <strong>${esc(res.story_card_url)}</strong></div>
+        <div style="font-size:12px; color:var(--spark);">Embedded QR Code: ${esc(res.embedded_qr_code)}</div>
+      </div>
+    `;
+  }, "Social Share Story Card Generated! 📢"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
