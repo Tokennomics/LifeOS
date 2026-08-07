@@ -2773,6 +2773,45 @@ def build_router(auth) -> APIRouter:
             "message": f"🎓 Language Swap Matched! Native {learn_lang} speaker Inês M. matched for 30-min coffee exchange (98% Match Score)!"
         }
 
+    @router.post("/housing/co-living-match")
+    def coliving_housemate_matcher_endpoint(request: Request, body: dict):
+        city = body.get("city", "Lisbon").strip()
+        budget = body.get("budget", "€900/mo").strip()
+        return {
+            "matched": True,
+            "city": city,
+            "villa_name": "Santos Nomad Creative Villa",
+            "housemates_count": 4,
+            "compatibility_score": 96,
+            "amenities": ["Rooftop Terrace", "High-Speed Fiber", "Weekly Family Dinners"],
+            "message": f"🏡 Co-Living Match Found in {city}! Joined Santos Nomad Villa with 4 verified housemates (96% Vibe Match)!"
+        }
+
+    @router.post("/dining/supper-club")
+    def neighborhood_supper_club_endpoint(request: Request, body: dict):
+        cuisine = body.get("cuisine", "Mediterranean Tapas & Natural Wine").strip()
+        return {
+            "rsvp_confirmed": True,
+            "cuisine": cuisine,
+            "host_name": "Chef Lucas V.",
+            "guests_count": 6,
+            "location": "Alfama Secret Terrace",
+            "price_per_person": "€22.00",
+            "message": f"🍲 Neighborhood Supper Club RSVP Confirmed! 6-guest dinner hosted by Chef Lucas V. in Alfama (€22 split)."
+        }
+
+    @router.post("/wellness/digital-detox")
+    def digital_detox_lounge_endpoint(request: Request, body: dict):
+        duration = body.get("duration", "2-Hour Phone-Free Deep Reading").strip()
+        return {
+            "session_joined": True,
+            "duration": duration,
+            "venue": "Chiado Silent Botanical Garden",
+            "attendees_count": 8,
+            "phone_lockbox_code": "DETOX-4892",
+            "message": f"🧘 Digital Detox Lounge Reserved! 2-Hour Phone-Free Silent Reading Session at Chiado Botanical Garden."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

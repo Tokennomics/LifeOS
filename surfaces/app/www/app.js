@@ -581,6 +581,21 @@ function todayView() {
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Co-Living, Supper Club & Digital Detox ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🏡 Co-Living, Supper Club & Digital Detox</h2>
+      <span class="badge good" style="font-weight:bold;">Deep Human Connection</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Match nomad villas, host 6-person home supper clubs, or reserve phone-free deep work lounges!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #6366f1);" data-act="match-coliving">Nomad Villa Match 🏡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="rsvp-supper-club">Supper Club 🍲</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="reserve-digital-detox">Digital Detox 🧘</button>
+    </div>
+    <div id="human-needs-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3298,6 +3313,46 @@ function wire(root) {
       </div>
     `;
   }, "Language Swap Coffee Partner Matched! 🎓"));
+
+  on("[data-act=match-coliving]", () => act(async () => {
+    const res = await api("/v1/housing/co-living-match", { city: "Lisbon", budget: "€900/mo" });
+    const out = $("#human-needs-output");
+    if (!out) return;
+    const amenities = res.amenities || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🏡 Co-Living Villa Matched (${res.compatibility_score}% Vibe Match):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Villa: <strong>${esc(res.villa_name)}</strong> · ${res.housemates_count} Housemates</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Amenities: ${amenities.join(" · ")}</div>
+      </div>
+    `;
+  }, "Co-Living Housemate Matched! 🏡"));
+
+  on("[data-act=rsvp-supper-club]", () => act(async () => {
+    const res = await api("/v1/dining/supper-club", { cuisine: "Mediterranean Tapas & Natural Wine" });
+    const out = $("#human-needs-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍲 Supper Club RSVP Confirmed (${esc(res.price_per_person)} Split):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Host: <strong>${esc(res.host_name)}</strong> · ${res.guests_count} Guests @ ${esc(res.location)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Menu: ${esc(res.cuisine)}</div>
+      </div>
+    `;
+  }, "Supper Club RSVP Confirmed! 🍲"));
+
+  on("[data-act=reserve-digital-detox]", () => act(async () => {
+    const res = await api("/v1/wellness/digital-detox", { duration: "2-Hour Phone-Free Deep Reading" });
+    const out = $("#human-needs-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Digital Detox Lounge Reserved:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · ${res.attendees_count} Attendees</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Lockbox PIN: ${esc(res.phone_lockbox_code)} (${esc(res.duration)})</div>
+      </div>
+    `;
+  }, "Digital Detox Lounge Reserved! 🧘"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

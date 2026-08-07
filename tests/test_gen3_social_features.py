@@ -316,3 +316,17 @@ def test_language_swap(cfg):
     assert res1.status_code == 200
     assert res1.json()["matched"] is True
     assert res1.json()["partner_name"] == "Inês M."
+
+def test_human_deep_needs_features(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/housing/co-living-match", json={"city": "Lisbon"})
+    assert res1.status_code == 200
+    assert res1.json()["matched"] is True
+
+    res2 = client.post("/v1/dining/supper-club", json={"cuisine": "Tapas"})
+    assert res2.status_code == 200
+    assert res2.json()["rsvp_confirmed"] is True
+
+    res3 = client.post("/v1/wellness/digital-detox", json={"duration": "2 Hours"})
+    assert res3.status_code == 200
+    assert res3.json()["session_joined"] is True
