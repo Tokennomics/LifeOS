@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#15 are merged; #16 (feeds + security audit, two rounds) is open.** `python -m pytest` → **821 passing**.
+explicit permission). **PRs #1–#16 are merged.** `python -m pytest` → **838 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -299,6 +299,36 @@ started. Fixed, and every `.py` in the repo is now checked to parse under 3.11.
 this file for weeks **has been closed at the substrate** — forging a grant now raises
 `ScopeError`. And `modules/comms` gained its own caller check plus working cross-account
 delivery, so the DM bug is fixed too.
+
+## Erasure — `DELETE`-my-account, and the four categories it has to tell apart
+
+Export shipped with Law 2; erasure did not, which made "the graph is the user's" half true —
+you could take a copy of everything and remove none of it. `POST /v1/auth/account/erase`
+closes that, and `substrate/graph.py` gained the first delete path it has ever had
+(`delete_entity`, `purge_owner` — additive, and deletes go through the substrate for the
+same reason writes do: edges and provenance live in tables with no foreign keys).
+
+**The design is entirely in the four categories, which are not treated alike:**
+
+1. **Yours alone** — captures, goals, feeds. Deleted via `purge_owner`.
+2. **Yours but SYSTEM-owned** — the dating age declaration, rendezvous handshakes, block
+   rows. Deleted too. Handshakes are found by *recomputing the digests this account could
+   have produced*, because the row names nobody by design.
+3. **Shared** — crew and coordination grants are revoked, so you vanish from every roster.
+   **The crew survives**: it is other people's too.
+4. **Abuse reports — pseudonymised, never deleted.** If erasing an account wiped the record
+   of what that account did, deletion becomes a feature for the wrong person. Art. 17(3)(e)
+   permits retention for legal claims, so the report text stays and the ids in it become a
+   one-way `erased:<digest>` marker — stable enough that two reports about the same erased
+   account still line up, useless for identifying anyone.
+
+**Guards:** the password is required *again* even though the caller holds a valid token (a
+borrowed phone must not be able to erase a life), and the handle must be typed into
+`confirm`. `GET /v1/auth/account/erase-preview` shows what would go, first.
+
+**Stated rather than hidden:** database snapshots taken before an erasure still hold the
+data until they rotate out. Art. 17 is "without undue delay", not "instantly, everywhere" —
+`RETENTION_NOTE` says so and it is returned in the receipt.
 
 ## Gotchas — read these before touching anything
 

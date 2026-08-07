@@ -47,6 +47,11 @@ class CredentialsIn(BaseModel):
     password: str
 
 
+class ErasureIn(BaseModel):
+    password: str
+    confirm: str = ""
+
+
 def _g(request: Request) -> Graph:
     """The caller's own slice of the graph (config owner when there are no accounts)."""
     return caller_graph(request)
@@ -189,6 +194,41 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     def auth_logout(request: Request, authorization: str = Header(default="")):
         token = authorization[len("Bearer "):].strip() if authorization.startswith("Bearer ") else ""
         return accounts.logout(graph, token)
+
+    # ---- Your data is yours: see it, take it, delete it -------------------
+
+    @app.get("/v1/auth/account/erase-preview", dependencies=[Depends(auth)])
+    def erase_preview(request: Request):
+        """What deleting would remove. Shown before the button, never after."""
+        from modules.privacy import erasure
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        return erasure.preview(graph, caller["account_id"], caller["owner_id"])
+
+    @app.post("/v1/auth/account/erase", dependencies=[Depends(auth)])
+    def erase_account(request: Request, body: ErasureIn):
+        """Delete this account and everything belonging to it. Irreversible.
+
+        The password is required again even though the caller already holds a valid token:
+        a stolen or borrowed phone should not be able to erase someone's life, and this is
+        the one action with no undo. `confirm` must be the literal handle, which is the
+        oldest and best guard against a mis-tap.
+        """
+        from modules.privacy import erasure
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        rate_limiter.enforce(request, "auth:erase", max_requests=5, window_seconds=3600)
+        try:
+            accounts.login(graph, caller["handle"], body.password, ttl_hours=1)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="password does not match")
+        if body.confirm.strip() != caller["handle"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"type your handle ({caller['handle']}) in `confirm` to erase")
+        return erasure.erase_account(graph, caller["account_id"], caller["owner_id"])
 
     @app.post("/v1/auth/logout-everywhere", dependencies=[Depends(auth)])
     def auth_logout_all(request: Request):

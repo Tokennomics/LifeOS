@@ -284,6 +284,73 @@ class GraphSession:
         return removed
 
 
+    # ---- erasure ---------------------------------------------------------
+    #
+    # There was no delete path here at all, which made "the graph is the user's" only half
+    # true: they could export everything and remove nothing. GDPR Art. 17 is not the only
+    # reason — a system you cannot leave is not one you can honestly ask people to join.
+    #
+    # Deletes go through the substrate for the same reason writes do: an entity's edges and
+    # provenance rows live in other tables with no foreign keys, so deleting the row
+    # elsewhere would leave dangling edges and an observation trail pointing at a ghost.
+
+    def delete_entity(self, entity_id: str, *, source: str) -> dict:
+        """Remove one entity you own, plus every edge touching it and its provenance.
+
+        Owner-scoped like every other write: an id outside your slice reads as missing, so
+        this cannot be used to delete someone else's row by guessing.
+        """
+        self._need("content", "write")
+        row = self._fetch_entity(entity_id)
+        if row is None:
+            raise GraphError(f"entity not found: {entity_id}")
+        self._need(row["kind"], "write")
+        g = self.graph
+        edges = g._execute(
+            f"DELETE FROM edges WHERE src = {g.ph} OR dst = {g.ph}", (entity_id, entity_id))
+        edge_count = edges.rowcount if edges.rowcount and edges.rowcount > 0 else 0
+        obs = g._execute(f"DELETE FROM observations WHERE entity_id = {g.ph}", (entity_id,))
+        obs_count = obs.rowcount if obs.rowcount and obs.rowcount > 0 else 0
+        g._execute(f"DELETE FROM grants WHERE space = {g.ph}", (entity_id,))
+        g._execute(f"DELETE FROM entities WHERE id = {g.ph}", (entity_id,))
+        g.conn.commit()
+        g.bus.publish("observation.created",
+                      {"target": "entity", "id": entity_id, "kind": row["kind"],
+                       "module": self.module, "deleted": True})
+        return {"entity_id": entity_id, "edges": edge_count, "observations": obs_count}
+
+    def purge_owner(self, owner_id: str, *, source: str) -> dict:
+        """Delete EVERY entity belonging to one owner, with their edges and provenance.
+
+        The erasure primitive. It deliberately takes an `owner_id` rather than working from
+        the session's own scope, because the caller doing the erasing is the accounts layer
+        acting on a system session — the account being erased must not have to be logged in
+        for its data to go, or "delete my account" would stop working the moment a session
+        expired.
+
+        No provenance row is written for the deletions: recording "we erased Ana's data at
+        14:03" against Ana's own id would leave exactly the trace the erasure was for.
+        """
+        self._need("content", "write")
+        g = self.graph
+        ids = [r["id"] for r in g._execute(
+            f"SELECT id FROM entities WHERE owner_id = {g.ph}", (owner_id,)).fetchall()]
+        if not ids:
+            return {"entities": 0, "edges": 0, "observations": 0, "grants": 0}
+
+        marks = ", ".join([g.ph] * len(ids))
+        edges = g._execute(
+            f"DELETE FROM edges WHERE src IN ({marks}) OR dst IN ({marks})", (*ids, *ids))
+        obs = g._execute(f"DELETE FROM observations WHERE entity_id IN ({marks})", tuple(ids))
+        grants = g._execute(f"DELETE FROM grants WHERE space IN ({marks})", tuple(ids))
+        g._execute(f"DELETE FROM entities WHERE owner_id = {g.ph}", (owner_id,))
+        g.conn.commit()
+
+        def count(cur):
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        return {"entities": len(ids), "edges": count(edges),
+                "observations": count(obs), "grants": count(grants)}
+
     def grants_for(self, space: str) -> list[dict]:
         self._need("content", "read")
         g = self.graph
