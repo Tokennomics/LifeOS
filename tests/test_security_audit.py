@@ -434,3 +434,31 @@ def test_joining_a_crew_you_found_in_the_directory_works(world):
     assert c.post("/v1/crews/join", headers=h["mallory"],
                   json={"crew_id": crew}).status_code == 200
     assert c.get(f"/v1/crews/{crew}", headers=h["ana"]).json()["member_count"] == 2
+
+
+# ---- the deploy would not have worked at all ---------------------------------
+
+@pytest.mark.parametrize("env,expected_host", [
+    ({}, "127.0.0.1"),                              # a laptop stays off the café wifi
+    ({"PORT": "10000"}, "0.0.0.0"),                 # a PaaS sets PORT; loopback is unreachable
+    ({"PORT": "10000", "LIFEOS_HOST": "127.0.0.1"}, "127.0.0.1"),   # explicit wins
+])
+def test_the_launcher_binds_somewhere_reachable(monkeypatch, env, expected_host):
+    """It bound 127.0.0.1 unconditionally. In a container the process starts, the logs look
+    healthy, and nothing outside can reach it — the whole deploy silently does nothing."""
+    from scripts import launch
+    for key in ("PORT", "LIFEOS_PORT", "LIFEOS_HOST"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    host, port = launch.resolve_bind()
+    assert host == expected_host
+    assert port == int(env.get("PORT", 8000))
+
+
+def test_a_junk_port_falls_back_rather_than_crashing(monkeypatch):
+    from scripts import launch
+    monkeypatch.setenv("PORT", "not-a-number")
+    monkeypatch.delenv("LIFEOS_HOST", raising=False)
+    host, port = launch.resolve_bind()
+    assert port == 8000 and host == "0.0.0.0"

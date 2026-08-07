@@ -7,6 +7,7 @@ The PWA lives at /app/ (surfaces/app/www). All endpoints work without any API ke
 
 import datetime
 import json
+import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -116,6 +117,35 @@ def _label(kind: str, attrs: dict) -> str:
     return attrs.get("title") or attrs.get("name") or attrs.get("type") or ""
 
 
+SEED_CITY_VAR = "LIFEOS_SEED_CITY"
+
+
+def _seed_on_boot(graph: Graph) -> dict:
+    """Load a committed city pack the first time this instance starts.
+
+    An empty app is the thing that loses a new user in the first ten seconds, and asking
+    someone to paste twenty venue websites before they can see a weekend is not an onboarding
+    flow. `LIFEOS_SEED_CITY=lisbon` loads `seeds/lisbon.json` once.
+
+    Deliberately quiet and deliberately non-fatal: it subscribes to feeds and does NOT fetch
+    them (a boot that waits on twenty venue servers is a boot that fails a health check), and
+    any error is swallowed — a bad pack must never stop the gateway from starting. Re-running
+    is a no-op because `add_feed` is idempotent on the URL.
+    """
+    city = str(os.environ.get(SEED_CITY_VAR, "")).strip()
+    if not city:
+        return {"seeded": False}
+    try:
+        from modules.feeds import seeds
+        result = seeds.apply(graph, city, sync=False, resolve=False)
+        print(f"[seed] {city}: {len(result['added'])} feeds added, "
+              f"{len(result['already_had'])} already there, {len(result['failed'])} failed")
+        return {"seeded": True, **result}
+    except Exception as exc:                    # never block a boot on seed data
+        print(f"[seed] {city}: skipped ({type(exc).__name__}: {exc})")
+        return {"seeded": False, "error": str(exc)}
+
+
 def create_app(cfg: dict | None = None) -> FastAPI:
     cfg = cfg or load_config()
     conn = migrate(cfg)  # idempotent — ensures schema exists
@@ -163,6 +193,8 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         no 500s, and no way to probe for other people's entities."""
         missing = "not found" in str(exc)
         return JSONResponse(status_code=404 if missing else 400, content={"detail": str(exc)})
+
+    _seed_on_boot(graph)
 
     auth = make_auth_dependency(cfg.get("gateway", {}).get("auth_token", ""))
     app.include_router(build_router(auth))  # reconnect/convoy/memento/steward/vitals/ledger/calibre/hearth

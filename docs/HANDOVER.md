@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **874 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **883 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,27 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## Hosting — see `docs/HOSTING.md`
+
+**Render if you are on a phone** (a browser, `render.yaml`, ~$7/mo + disk), **Hetzner if you
+have a terminal** (~€4/mo, `deploy/vps/`). Friends get one URL — `/app/` — and nothing to
+configure: the PWA is served by the gateway and talks to its own origin.
+
+Three things found while writing this, all of which would have bitten on first deploy:
+
+- **`scripts/launch.py` bound `127.0.0.1` unconditionally** — which is the Dockerfile's
+  `CMD`. In a container the process starts, the logs look healthy, and nothing outside can
+  reach it. It now honours `PORT` and flips to `0.0.0.0` when `PORT` is set (how every PaaS
+  says "you are in a container"); an explicit `LIFEOS_HOST` still wins.
+- **CI pinned Python 3.11 while the Dockerfile shipped 3.13** — CI was not testing what
+  deploys. Now a matrix over both.
+- **The disk is not optional on Render.** One SQLite file; no disk means every deploy resets
+  to empty, and the free tier has no disks *and* sleeps, which also breaks ACME renewal.
+
+`LIFEOS_SEED_CITY=lisbon` loads a committed pack on boot — subscribe only, never fetch (a
+boot that waits on twenty venue servers fails its health check), and a bad pack is swallowed
+rather than blocking startup.
 
 ## Gotchas — read these before touching anything
 
