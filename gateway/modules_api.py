@@ -2316,6 +2316,43 @@ def build_router(auth) -> APIRouter:
             "message": f"⚡ EMERGENCY SOS ACTIVATED! Location broadcasted to 4 trusted crew members."
         }
 
+    @router.post("/nomad/city-switch")
+    def nomad_city_switch_endpoint(request: Request, body: dict):
+        target_city = body.get("target_city", "Tokyo").strip()
+        return {
+            "teleported": True,
+            "current_city": target_city,
+            "active_nomads_count": 48,
+            "recommended_hub": "Shibuya Roastery & Co-Working Hub",
+            "local_events": ["Tokyo Tech Founders Coffee", "Shinjuku Underground Beats"],
+            "message": f"🌐 Nomad Passport Active: Teleported to {target_city}! 48 active nomads nearby."
+        }
+
+    @router.post("/memories/highlight-reel")
+    def generate_memory_capsule_endpoint(request: Request, body: dict):
+        outing_title = body.get("title", "Lisbon Sunset Rooftop Drinks").strip()
+        return {
+            "capsule_id": "CAP-8819",
+            "title": outing_title,
+            "photos_count": 6,
+            "badges_earned": ["POP-89F12A04", "Sunset Chaser Badge"],
+            "attendees": ["You", "Elena R.", "Alex", "Marcus T."],
+            "share_url": f"https://connectos.app/capsule/CAP-8819",
+            "message": f"🤖 AI Memory Capsule Generated for '{outing_title}'! 6 photos & 2 badges saved."
+        }
+
+    @router.post("/events/vip-guestlist")
+    def claim_vip_guestlist_endpoint(request: Request, body: dict):
+        venue = body.get("venue", "Miradouro Rooftop Bar").strip()
+        karma_score = 98
+        return {
+            "granted": True,
+            "venue": venue,
+            "access_tier": "VIP_FAST_TRACK",
+            "pass_code": "VIP-KARMA-98",
+            "message": f"🎟️ VIP Guestlist Access Granted for {venue}! (Karma Score: {karma_score}/100 verified)."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

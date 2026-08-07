@@ -142,3 +142,17 @@ def test_karma_audio_itinerary_and_sos(cfg):
     res4 = client.post("/v1/safety/emergency-sos", json={"location": "Miradouro"})
     assert res4.status_code == 200
     assert res4.json()["sos_active"] is True
+
+def test_nomad_memory_and_vip(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/nomad/city-switch", json={"target_city": "Tokyo"})
+    assert res1.status_code == 200
+    assert res1.json()["teleported"] is True
+
+    res2 = client.post("/v1/memories/highlight-reel", json={"title": "Rooftop Party"})
+    assert res2.status_code == 200
+    assert "CAP-" in res2.json()["capsule_id"]
+
+    res3 = client.post("/v1/events/vip-guestlist", json={"venue": "Miradouro"})
+    assert res3.status_code == 200
+    assert res3.json()["granted"] is True

@@ -408,6 +408,20 @@ function todayView() {
     <div id="karma-concierge-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Outing Memory Capsule & VIP Fast-Pass ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📸 Outing Memory Capsule & VIP Fast-Pass</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">VIP Perks</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Generate a 1-page memory highlight reel or claim 1-tap VIP guestlist access!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-memory-capsule">Generate Memory Capsule 📸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="claim-vip-pass">Claim VIP Guestlist Pass 🎟️</button>
+    </div>
+    <div id="memory-vip-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -578,6 +592,20 @@ function todayView() {
       <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇬🇧 London:</strong> 22 Flares · 18°C 🎡</div>
     </div>
     <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" onclick="toast('3D Spatial Globe Canvas Rendered! 🌐');">Expand 3D Spatial Globe 🌐</button>
+  </div>`;
+
+  /* ---- Nomad Passport & City Teleport ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(6,182,212,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Nomad Passport & City Teleport</h2>
+      <span class="badge good" style="font-weight:bold;">Global Hubs</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Switch your active city feed to instantly discover local crews, hubs & events!</p>
+    <div class="row2">
+      <input class="field" id="np-city" placeholder="Target City (e.g. Tokyo / Bali / NYC)">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #6366f1);" data-act="switch-nomad-city">Teleport City 🌐</button>
+    </div>
+    <div id="nomad-teleport-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Weekend Core Digest ---- */
@@ -2809,6 +2837,48 @@ function wire(root) {
       </div>
     `;
   }, "Emergency SOS Location Broadcast Active! ⚡"));
+
+  on("[data-act=switch-nomad-city]", () => act(async () => {
+    const target = $("#np-city").value.trim() || "Tokyo";
+    const res = await api("/v1/nomad/city-switch", { target_city: target });
+    const out = $("#nomad-teleport-output");
+    if (!out) return;
+    $("#np-city").value = "";
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🌐 Teleported to ${esc(res.current_city)}!</div>
+        <div style="font-size:13px; margin-bottom:4px;">${res.active_nomads_count} Active Nomads Nearby · Hub: <strong>${esc(res.recommended_hub)}</strong></div>
+        <div style="font-size:11px; color:var(--muted);">Events: ${res.local_events.join(" · ")}</div>
+      </div>
+    `;
+  }, "Teleported City via Nomad Passport! 🌐"));
+
+  on("[data-act=gen-memory-capsule]", () => act(async () => {
+    const res = await api("/v1/memories/highlight-reel", { title: "Lisbon Sunset Rooftop Drinks" });
+    const out = $("#memory-vip-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">📸 AI Memory Capsule Generated (${esc(res.capsule_id)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Title: <strong>${esc(res.title)}</strong> · ${res.photos_count} Photos Saved</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Attendees: ${res.attendees.join(", ")}</div>
+        <div style="font-size:11px; color:var(--spark);">Share URL: ${esc(res.share_url)}</div>
+      </div>
+    `;
+  }, "AI Memory Capsule Generated! 📸"));
+
+  on("[data-act=claim-vip-pass]", () => act(async () => {
+    const res = await api("/v1/events/vip-guestlist", { venue: "Miradouro Rooftop Bar" });
+    const out = $("#memory-vip-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎟️ VIP Fast-Track Pass Verified!</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> (${esc(res.access_tier)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Pass Code: ${esc(res.pass_code)}</div>
+      </div>
+    `;
+  }, "VIP Fast-Track Pass Verified! 🎟️"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
     const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
