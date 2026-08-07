@@ -927,7 +927,27 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/crews/join")
     def crews_join(request: Request, body: CrewJoinIn):
-        return guard(lambda: crews.join(_graph(request), body.crew_id, _actor(request, body.person_id)))
+        """Join a crew — yours or someone else's.
+
+        `crews.join` is the LOCAL operation (an owner adding someone from their own graph
+        to their own crew) and `crews.request_join` is the cross-account one. Both are
+        correct; the trap was at this seam. A user who found a crew in the public directory
+        and posted here got "unknown crew" — for a crew plainly listed a moment earlier —
+        because the local path is owner-scoped. Found by walking the product as a new user.
+
+        So this now falls through to the cross-account path when the crew is not in the
+        caller's own slice. That grants nothing extra: `request_join` is the same narrow
+        write any caller could already reach at /v1/crews/request, and it still honours the
+        crew's admission policy.
+        """
+        subject = _actor(request, body.person_id)
+        graph = _graph(request)
+        try:
+            return crews.join(graph, body.crew_id, subject)
+        except ValueError as exc:
+            if "unknown crew" not in str(exc):
+                raise HTTPException(status_code=400, detail=str(exc))
+            return guard(lambda: crews.request_join(graph, body.crew_id, subject))
 
     @router.post("/crews/invite")
     def crews_invite(request: Request, body: CrewActIn):
@@ -1745,11 +1765,6 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: sso_auth.link_identity_provider(
             _graph(request), _actor(request, body.account_id), body.provider,
             body.provider_user_id))
-
-    @router.get("/auth/providers")
-    def get_sso_providers_endpoint():
-        from modules.accounts import sso_auth
-        return sso_auth.get_supported_providers()
 
     # ---- Billing & Payments Gateway -------------------------------------
 

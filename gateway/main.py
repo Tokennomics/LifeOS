@@ -28,6 +28,9 @@ from substrate.migrate import migrate
 
 APP_DIR = ROOT / "surfaces" / "app" / "www"
 
+#: Generous for a note or an ICS import, nowhere near enough to fill a disk with.
+MAX_BODY_BYTES = 1_000_000
+
 
 class TextIn(BaseModel):
     text: str
@@ -45,6 +48,24 @@ class FocusIn(BaseModel):
 class CredentialsIn(BaseModel):
     handle: str
     password: str
+
+
+class ErasureIn(BaseModel):
+    password: str
+    confirm: str = ""
+
+
+class OidcSignInIn(BaseModel):
+    provider: str
+    id_token: str
+    nonce: str = ""
+
+
+class LinkIdentityIn(BaseModel):
+    provider: str
+    subject: str = ""
+    id_token: str = ""
+    nonce: str = ""
 
 
 def _g(request: Request) -> Graph:
@@ -113,6 +134,20 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         allow_origins=cfg.get("gateway", {}).get("cors_origins") or ["*"],
         allow_methods=["*"], allow_headers=["*"],
     )
+    # One cap for every endpoint, rather than a length check per field. A signed-up user
+    # could otherwise store an unbounded blob per request and fill the disk — which on a
+    # small hosted box takes down everyone's instance, not just their own. Found by probing
+    # with a 2MB capture, which was accepted and stored whole.
+    max_body = int(cfg.get("gateway", {}).get("max_body_bytes") or MAX_BODY_BYTES)
+
+    @app.middleware("http")
+    async def _limit_body(request: Request, call_next):
+        declared = request.headers.get("content-length")
+        if declared and declared.isdigit() and int(declared) > max_body:
+            return JSONResponse(status_code=413,
+                                content={"detail": f"body larger than {max_body} bytes"})
+        return await call_next(request)
+
     app.state.cfg = cfg
     app.state.rate_limiter = rate_limiter.RateLimiter()
     app.state.graph = graph
@@ -189,6 +224,113 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     def auth_logout(request: Request, authorization: str = Header(default="")):
         token = authorization[len("Bearer "):].strip() if authorization.startswith("Bearer ") else ""
         return accounts.logout(graph, token)
+
+    # ---- Ways in: password, Google, Apple, email, phone -------------------
+
+    @app.get("/v1/auth/providers")
+    def auth_providers():
+        """Which sign-in methods this deployment offers.
+
+        **Unauthenticated on purpose, and it was briefly not.** It lived on the authed
+        router, which meant a client had to already be signed in to discover how to sign
+        in — the sign-in screen could not render. Found by walking the product as a new
+        user, not by a test. Configuration only: never a client id.
+        """
+        from modules.auth import oidc
+        return {"providers": oidc.status(), "password": True}
+
+    @app.post("/v1/auth/oidc")
+    def auth_oidc(request: Request, body: OidcSignInIn):
+        """Sign in with an ID token from Google or Apple.
+
+        A new identity makes a NEW account, even when the email matches an existing one —
+        auto-linking by email is the classic takeover and `gateway/identities.py` says why
+        at length. To connect a second way in, use /v1/auth/identities while signed in.
+        """
+        from modules.auth import oidc
+        from gateway import identities
+        rate_limiter.enforce(request, "auth:oidc", max_requests=20, window_seconds=300)
+        try:
+            proof = oidc.verify_id_token(body.provider, body.id_token, nonce=body.nonce or None)
+        except oidc.TokenRejected as exc:
+            raise HTTPException(status_code=401, detail=str(exc))
+        return identities.sign_in(graph, proof["provider"], proof["subject"],
+                                  handle_hint=proof["email"].split("@")[0] if proof["email"] else "")
+
+    @app.get("/v1/auth/identities", dependencies=[Depends(auth)])
+    def auth_identities(request: Request):
+        from gateway import identities
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        return {"identities": identities.for_account(graph, caller["account_id"])}
+
+    @app.post("/v1/auth/identities", dependencies=[Depends(auth)])
+    def auth_link_identity(request: Request, body: LinkIdentityIn):
+        """Connect another way in to the account you are signed in to — the only moment
+        both sides are known, which is why linking happens here and nowhere else."""
+        from modules.auth import oidc
+        from gateway import identities
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        subject = body.subject
+        if body.id_token:
+            try:
+                subject = oidc.verify_id_token(body.provider, body.id_token,
+                                               nonce=body.nonce or None)["subject"]
+            except oidc.TokenRejected as exc:
+                raise HTTPException(status_code=401, detail=str(exc))
+        try:
+            return identities.link(graph, caller["account_id"], body.provider, subject)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.delete("/v1/auth/identities", dependencies=[Depends(auth)])
+    def auth_unlink_identity(request: Request, body: LinkIdentityIn):
+        from gateway import identities
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        try:
+            return identities.unlink(graph, caller["account_id"], body.provider, body.subject)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    # ---- Your data is yours: see it, take it, delete it -------------------
+
+    @app.get("/v1/auth/account/erase-preview", dependencies=[Depends(auth)])
+    def erase_preview(request: Request):
+        """What deleting would remove. Shown before the button, never after."""
+        from modules.privacy import erasure
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        return erasure.preview(graph, caller["account_id"], caller["owner_id"])
+
+    @app.post("/v1/auth/account/erase", dependencies=[Depends(auth)])
+    def erase_account(request: Request, body: ErasureIn):
+        """Delete this account and everything belonging to it. Irreversible.
+
+        The password is required again even though the caller already holds a valid token:
+        a stolen or borrowed phone should not be able to erase someone's life, and this is
+        the one action with no undo. `confirm` must be the literal handle, which is the
+        oldest and best guard against a mis-tap.
+        """
+        from modules.privacy import erasure
+        caller = getattr(request.state, "caller", None)
+        if not caller:
+            raise HTTPException(status_code=400, detail="sign in with an account first")
+        rate_limiter.enforce(request, "auth:erase", max_requests=5, window_seconds=3600)
+        try:
+            accounts.login(graph, caller["handle"], body.password, ttl_hours=1)
+        except ValueError:
+            raise HTTPException(status_code=401, detail="password does not match")
+        if body.confirm.strip() != caller["handle"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"type your handle ({caller['handle']}) in `confirm` to erase")
+        return erasure.erase_account(graph, caller["account_id"], caller["owner_id"])
 
     @app.post("/v1/auth/logout-everywhere", dependencies=[Depends(auth)])
     def auth_logout_all(request: Request):

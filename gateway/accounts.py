@@ -85,30 +85,83 @@ def register(graph: Graph, handle: str, password: str, source: str = MODULE) -> 
     return {"account_id": account_id, "handle": handle, "owner_id": owner_id}
 
 
+def available_handle(graph: Graph, wanted: str) -> str:
+    """`wanted`, or the nearest free variant. Handles are shown in crew rosters, so a
+    collision has to resolve to something a person can live with rather than a UUID."""
+    session = _sys(graph)
+    base = _norm_handle(wanted) or "friend"
+    if not _find_account(session, base):
+        return base
+    for n in range(2, 1000):
+        candidate = f"{base}{n}"[:80]
+        if not _find_account(session, candidate):
+            return candidate
+    return f"{base}-{secrets.token_hex(4)}"[:80]
+
+
+def register_external(graph: Graph, handle: str, source: str = MODULE) -> dict:
+    """An account with NO password, reachable only through a linked identity.
+
+    Sign-in with Apple or a phone code should not silently invent a password nobody knows,
+    so `password_hash` is empty and `_verify_password` refuses empty hashes outright — an
+    account created this way cannot be entered with a blank password, which is the obvious
+    way for this to go wrong.
+    """
+    handle = _norm_handle(handle)
+    if not handle:
+        raise ValueError("a handle is required")
+    session = _sys(graph)
+    if _find_account(session, handle):
+        raise ValueError("that handle is taken")
+    owner_id = new_id()
+    account_id = session.create_entity("content", {
+        "type": "account", "handle": handle, "owner_id": owner_id,
+        "salt": "", "password_hash": "", "iterations": ITERATIONS,
+        "passwordless": True, "created_at": now_iso(),
+    }, source=source)
+    return {"account_id": account_id, "handle": handle, "owner_id": owner_id}
+
+
+def _verify_password(attrs: dict, password: str) -> bool:
+    stored = attrs.get("password_hash", "")
+    if not stored:
+        return False        # a passwordless account is never entered with a password
+    return hmac.compare_digest(stored, _hash_password(password or "", attrs.get("salt", "00")))
+
+
+def mint_session(graph: Graph, account_id: str, ttl_hours: int | None = None,
+                 source: str = MODULE) -> dict:
+    """Issue a session for an account whose identity has ALREADY been proven.
+
+    Split out of `login` so the provider and one-time-code flows do not have to fake a
+    password to get a token. The caller owns the proof; this owns the token.
+    """
+    session = _sys(graph)
+    account = session.get_entity(account_id)
+    if account is None or account["attrs"].get("type") != "account":
+        raise ValueError("unknown account")
+    a = account["attrs"]
+    token = secrets.token_urlsafe(TOKEN_BYTES)
+    expires = (datetime.datetime.now(datetime.timezone.utc)
+               + datetime.timedelta(hours=max(1, ttl_hours or DEFAULT_TTL_HOURS))).isoformat()
+    session_id = session.create_entity("content", {
+        "type": "auth_session", "token_hash": _hash_token(token),
+        "account_id": account_id, "owner_id": a.get("owner_id"), "handle": a.get("handle"),
+        "created_at": now_iso(), "expires_at": expires, "revoked": False,
+    }, source=source)
+    return {"token": token, "session_id": session_id, "handle": a.get("handle"),
+            "owner_id": a.get("owner_id"), "expires_at": expires}
+
+
 def login(graph: Graph, handle: str, password: str, ttl_hours: int = DEFAULT_TTL_HOURS,
           source: str = MODULE) -> dict:
     """Verify credentials and mint a session token. The token is returned ONCE."""
     session = _sys(graph)
     account = _find_account(session, _norm_handle(handle))
     # Same failure for unknown handle and wrong password — no enumeration.
-    if account is None:
+    if account is None or not _verify_password(account["attrs"], password):
         raise ValueError("invalid handle or password")
-    a = account["attrs"]
-    expected = a.get("password_hash", "")
-    actual = _hash_password(password or "", a.get("salt", "00"))
-    if not hmac.compare_digest(expected, actual):
-        raise ValueError("invalid handle or password")
-
-    token = secrets.token_urlsafe(TOKEN_BYTES)
-    expires = (datetime.datetime.now(datetime.timezone.utc)
-               + datetime.timedelta(hours=max(1, ttl_hours))).isoformat()
-    session_id = session.create_entity("content", {
-        "type": "auth_session", "token_hash": _hash_token(token),
-        "account_id": account["id"], "owner_id": a.get("owner_id"), "handle": a.get("handle"),
-        "created_at": now_iso(), "expires_at": expires, "revoked": False,
-    }, source=source)
-    return {"token": token, "session_id": session_id, "handle": a.get("handle"),
-            "owner_id": a.get("owner_id"), "expires_at": expires}
+    return mint_session(graph, account["id"], ttl_hours=ttl_hours, source=source)
 
 
 def resolve(graph: Graph, token: str) -> dict | None:

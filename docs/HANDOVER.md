@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#15 are merged; #16 (feeds + security audit, two rounds) is open.** `python -m pytest` → **821 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **874 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -299,6 +299,107 @@ started. Fixed, and every `.py` in the repo is now checked to parse under 3.11.
 this file for weeks **has been closed at the substrate** — forging a grant now raises
 `ScopeError`. And `modules/comms` gained its own caller check plus working cross-account
 delivery, so the DM bug is fixed too.
+
+## Erasure — `DELETE`-my-account, and the four categories it has to tell apart
+
+Export shipped with Law 2; erasure did not, which made "the graph is the user's" half true —
+you could take a copy of everything and remove none of it. `POST /v1/auth/account/erase`
+closes that, and `substrate/graph.py` gained the first delete path it has ever had
+(`delete_entity`, `purge_owner` — additive, and deletes go through the substrate for the
+same reason writes do: edges and provenance live in tables with no foreign keys).
+
+**The design is entirely in the four categories, which are not treated alike:**
+
+1. **Yours alone** — captures, goals, feeds. Deleted via `purge_owner`.
+2. **Yours but SYSTEM-owned** — the dating age declaration, rendezvous handshakes, block
+   rows. Deleted too. Handshakes are found by *recomputing the digests this account could
+   have produced*, because the row names nobody by design.
+3. **Shared** — crew and coordination grants are revoked, so you vanish from every roster.
+   **The crew survives**: it is other people's too.
+4. **Abuse reports — pseudonymised, never deleted.** If erasing an account wiped the record
+   of what that account did, deletion becomes a feature for the wrong person. Art. 17(3)(e)
+   permits retention for legal claims, so the report text stays and the ids in it become a
+   one-way `erased:<digest>` marker — stable enough that two reports about the same erased
+   account still line up, useless for identifying anyone.
+
+**Guards:** the password is required *again* even though the caller holds a valid token (a
+borrowed phone must not be able to erase a life), and the handle must be typed into
+`confirm`. `GET /v1/auth/account/erase-preview` shows what would go, first.
+
+**Stated rather than hidden:** database snapshots taken before an erasure still hold the
+data until they rotate out. Art. 17 is "without undue delay", not "instantly, everywhere" —
+`RETENTION_NOTE` says so and it is returned in the receipt.
+
+## Ways in — one account, several identities
+
+An account is now separable from the way you prove you own it: `password`, `google`,
+`apple`, `email`, `phone` are all `auth_identity` rows pointing at one account, so signing
+in on a new phone reaches the same graph.
+
+**The one rule, and it is the whole security of this: identities are NEVER auto-linked by
+email.** "You already have an account with this address, let me connect them" is the obvious
+convenience and the classic takeover — register the victim's address at a provider with weak
+verification, sign in, inherit the account. So an unrecognised identity creates a **new**
+account even when the email matches, and connecting a second way in is an explicit act
+**while already signed in** (`POST /v1/auth/identities`). The cost is a user who signs up by
+email then taps "Sign in with Google" gets a second empty account; that is confusing but
+recoverable, and the alternative is not.
+
+- **`modules/auth/rs256.py` verifies RS256 by hand, deliberately.** `cryptography` (which
+  PyJWT needs) does not load in the dev sandbox, so the choice was a dependency plus
+  *untested* signature verification, or a tested implementation with none. This repo has
+  been bitten three times by controls that were real on paper — that would have been the
+  fourth. It is defensible for this one primitive: verification uses only public values, so
+  there is no timing channel and no key to leak, and the historic flaw (Bleichenbacher '06)
+  comes from *parsing* the PKCS#1 block leniently — this rebuilds the whole expected block
+  and compares it, so there is nothing to be lenient about. There is a test for that exact
+  forgery shape. To swap in a library verifier later, keep `verify_rs256`'s signature.
+- **`alg` is never read from the token.** The header is attacker-controlled; honouring it is
+  how `alg: none` works. RS256 is assumed because that is what both providers issue.
+- **`aud` is checked.** Skipping it turns "sign in with Google" into "sign in as anyone" —
+  any other app's token would be accepted.
+- **`email_verified` is load-bearing.** An unverified email is something the user typed; it
+  is dropped and only the opaque `sub` is used.
+- Unlinking your **last** identity is refused. Passwordless accounts have an empty
+  `password_hash` and `_verify_password` refuses empty hashes outright, so they cannot be
+  entered with a blank password.
+
+**Not built yet: email and phone delivery.** The `email` and `phone` identity kinds work and
+are linkable, but there is no one-time-code sender — that needs an SMTP/SMS provider, which
+is the first thing here to need a real secret and a bill. `password reset` is the same
+missing piece and should be built with it.
+
+## Round three (2026-08-07) — walking the product, and probing my own code
+
+**43-step end-to-end journey**, signup to erasure, through real HTTP. It found two things
+the 865-test suite did not, both at seams rather than inside modules:
+
+- **`/v1/auth/providers` needed a token** — it sat on the authed router, so a client had to
+  be signed in to discover how to sign in. The sign-in screen could not render.
+- **`/v1/crews/join` returned "unknown crew"** for a crew listed in the directory a moment
+  earlier. `crews.join` (local: an owner adding someone from their own graph) and
+  `crews.request_join` (cross-account) are both correct — the trap was that the
+  obvious-sounding endpoint was the wrong one, with a misleading error. `join` now falls
+  through to `request_join` for a crew outside the caller's slice; that grants nothing, it
+  is the same narrow write already reachable at `/v1/crews/request`.
+
+**Round-three security probe** (GETs, resource limits, and the erasure/identity code I wrote
+myself — rounds 1-2 only swept POST bodies):
+
+- **MED — no request body cap.** A 2MB capture was accepted and stored whole; a signed-up
+  user could fill the disk, which on a small hosted box takes down everyone's instance.
+  One middleware, `MAX_BODY_BYTES`, 413 past it.
+- **HIGH — a pre-positioned takeover in my own identity code.** Linking an `email` identity
+  proved nothing about owning the address, so an attacker could link `victim@example.com`
+  to their own account **today** — and on the day an email sign-in ships, the victim would
+  authenticate with their real address and land inside the attacker's account. `link()` now
+  refuses `email`/`phone` without `verified=True`, which nothing in the API can set yet.
+  Google and Apple are exempt: their `sub` arrives inside a signature we verified.
+
+Clean afterwards: no IDOR through 11 templated GET paths or any GET query param, erasure
+cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
+errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
+answer without a token.
 
 ## Gotchas — read these before touching anything
 

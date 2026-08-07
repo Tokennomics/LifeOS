@@ -398,3 +398,39 @@ def test_every_identity_field_in_the_whole_api_is_pinned(world):
         if c.post(path, headers=h["mallory"], json=body).status_code == 200:
             accepted.append((path, fields))
     assert accepted == [], f"these accepted another account's id: {accepted}"
+
+
+def test_a_single_request_cannot_store_an_unbounded_blob(world):
+    """A signed-up user could store megabytes per request and fill the disk — which on a
+    small hosted box takes down everyone's instance, not just their own."""
+    from gateway.main import MAX_BODY_BYTES
+    r = world["c"].post("/v1/capture", headers=world["h"]["mallory"],
+                        json={"text": "A" * (MAX_BODY_BYTES + 1000)})
+    assert r.status_code == 413
+    stored = world["c"].get("/v1/export", headers=world["h"]["mallory"]).json()["entities"]
+    assert max((len(repr(e)) for e in stored), default=0) < MAX_BODY_BYTES
+
+
+def test_an_ordinary_note_is_unaffected(world):
+    assert world["c"].post("/v1/capture", headers=world["h"]["mallory"],
+                           json={"text": "climb twice this week"}).status_code == 200
+
+
+def test_the_sign_in_screen_can_render_before_anyone_signs_in(world):
+    """This lived on the authed router, so a client had to already be signed in to discover
+    how to sign in. Found by walking the product as a new user."""
+    r = world["c"].get("/v1/auth/providers")
+    assert r.status_code == 200 and r.json()["password"] is True
+
+
+def test_joining_a_crew_you_found_in_the_directory_works(world):
+    """`crews.join` is local and `crews.request_join` is cross-account; both are correct,
+    but /v1/crews/join was the obvious endpoint and returned "unknown crew" for a crew
+    listed in the directory a moment earlier."""
+    c, h, ids = world["c"], world["h"], world["id"]
+    crew = c.post("/v1/crews", headers=h["ana"], json={
+        "name": "Lisbon Climbers", "city": "Lisbon", "visibility": "public",
+        "admission": "open"}).json()["id"]
+    assert c.post("/v1/crews/join", headers=h["mallory"],
+                  json={"crew_id": crew}).status_code == 200
+    assert c.get(f"/v1/crews/{crew}", headers=h["ana"]).json()["member_count"] == 2
