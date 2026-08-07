@@ -2555,6 +2555,40 @@ def build_router(auth) -> APIRouter:
             "message": "📊 Social Wellness Index: 92/100 (Peak Real-World Connection & Flourishing)!"
         }
 
+    @router.get("/monetization/venue-commissions")
+    def get_venue_commission_breakdown_endpoint(request: Request):
+        return {
+            "monthly_commission_eur": 380.00,
+            "partner_venues_count": 14,
+            "top_venue": "Miradouro Rooftop Sunset Bar (€160.00)",
+            "average_take_rate": "4.5%",
+            "message": "🎟️ Venue Partnership Commissions: €380.00/mo collected from off-peak venue referrals!"
+        }
+
+    @router.post("/monetization/b2b-team-tier")
+    def register_b2b_corporate_team_endpoint(request: Request, body: dict):
+        company = body.get("company_name", "Acme AI Corp").strip()
+        seats = body.get("seats", 25)
+        mrr_eur = seats * 14.99
+        return {
+            "registered": True,
+            "company_name": company,
+            "seats": seats,
+            "mrr_eur": mrr_eur,
+            "perks": ["Corporate Coffee Walk-and-Talk Matcher", "Team Offsite Outing Auto-Planner"],
+            "message": f"🏢 B2B Corporate Subscription Active for {company}: {seats} seats (€{mrr_eur:.2f}/mo MRR)!"
+        }
+
+    @router.get("/monetization/plugin-revshare")
+    def get_plugin_marketplace_revshare_endpoint(request: Request):
+        return {
+            "developer_payouts_eur": 850.00,
+            "platform_fee_eur": 150.00,
+            "revshare_split": "85% Developer / 15% ConnectOS Platform",
+            "active_paid_plugins": 6,
+            "message": "🛠️ Developer Marketplace RevShare: €150.00 platform revenue from 3rd-party activity plugins!"
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

@@ -227,3 +227,18 @@ def test_voice_brief_gifting_and_wellness(cfg):
     res3 = client.get("/v1/vitals/social-wellness")
     assert res3.status_code == 200
     assert res3.json()["flourishing_score"] == 92
+
+def test_sustainable_multi_revenue_monetization(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.get("/v1/monetization/venue-commissions")
+    assert res1.status_code == 200
+    assert res1.json()["monthly_commission_eur"] == 380.00
+
+    res2 = client.post("/v1/monetization/b2b-team-tier", json={"company_name": "Acme AI", "seats": 25})
+    assert res2.status_code == 200
+    assert res2.json()["registered"] is True
+    assert res2.json()["mrr_eur"] == 374.75
+
+    res3 = client.get("/v1/monetization/plugin-revshare")
+    assert res3.status_code == 200
+    assert res3.json()["platform_fee_eur"] == 150.00

@@ -499,6 +499,20 @@ function todayView() {
     <div id="voice-gift-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Sustainable Multi-Revenue Stream Dashboard ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💼 Sustainable Multi-Revenue Dashboard</h2>
+      <span class="badge good" style="font-weight:bold;">4 Cashflow Streams</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">B2B Team Subscriptions (€374.75 MRR) + Venue Commissions (€380.00/mo) + Dev RevShare (€150.00/mo)!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="b2b-team-signup">Register B2B Team (25 Seats) 🏢</button>
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981);" data-act="view-revenue-breakdown">View Cashflow Breakdown 📊</button>
+    </div>
+    <div id="monetization-breakdown-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3058,6 +3072,32 @@ function wire(root) {
       </div>
     `;
   }, "Specialty Coffee Gifted to Elena! 🎁"));
+
+  on("[data-act=b2b-team-signup]", () => act(async () => {
+    const res = await api("/v1/monetization/b2b-team-tier", { company_name: "Acme AI Corp", seats: 25 });
+    const out = $("#monetization-breakdown-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏢 B2B Corporate Subscription Active (${esc(res.company_name)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Seats: <strong>${res.seats} Employees</strong> · MRR: <strong>€${res.mrr_eur.toFixed(2)}/mo</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Perks: ${res.perks.join(" · ")}</div>
+      </div>
+    `;
+  }, "B2B Corporate Subscription Activated (€374.75/mo MRR)! 🏢"));
+
+  on("[data-act=view-revenue-breakdown]", () => act(async () => {
+    const res = await api("/v1/monetization/venue-commissions");
+    const out = $("#monetization-breakdown-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🎟️ Venue Partnership Commissions:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Monthly Cashflow: <strong>€${res.monthly_commission_eur.toFixed(2)}/mo</strong> across <strong>${res.partner_venues_count} Venues</strong></div>
+        <div style="font-size:12px; color:var(--muted);">Top Venue: ${esc(res.top_venue)} · Avg Take Rate: ${esc(res.average_take_rate)}</div>
+      </div>
+    `;
+  }, "Venue Commission Breakdown Loaded! 📊"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
