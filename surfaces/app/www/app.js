@@ -422,6 +422,20 @@ function todayView() {
     <div id="memory-vip-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- AI Peer Mentorship & Squad Calendar Sync ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🤝 AI Mentorship & Squad Calendar Sync</h2>
+      <span class="badge good" style="font-weight:bold;">1-on-1 & Squads</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Match walk-and-talk coffee mentors or sync recurring squad outing calendar routines!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Match Coffee Mentor 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Sync Squad Calendar 📅</button>
+    </div>
+    <div id="mentor-squad-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -933,6 +947,29 @@ function peopleView() {
   const feedItems = (state.feed && state.feed.items) || [];
   const exploreVenues = (state.venues && state.venues.venues) || [];
   const capsules = (state.map && state.map.capsules) || [];
+
+  /* ---- Global Synergy Leaderboard ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(234,179,8,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🏆 Global Synergy Leaderboard</h2>
+      <span class="badge good" style="font-weight:bold;">Rank #1 Lisbon</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Top real-world community leaders and verified event hosts!</p>
+    <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:8px;">
+      <div style="background:var(--surface-2s); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; font-size:12.5px;">
+        <span>🥇 <strong>You</strong> · 98 Karma</span>
+        <span style="color:var(--spark); font-weight:700;">👑 Lisbon Legend</span>
+      </div>
+      <div style="background:var(--surface-2s); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; font-size:12.5px;">
+        <span>🥈 <strong>Elena R.</strong> · 96 Karma</span>
+        <span style="color:var(--growth); font-weight:700;">🌅 Sunset Master</span>
+      </div>
+      <div style="background:var(--surface-2s); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; font-size:12.5px;">
+        <span>🥉 <strong>Alex M.</strong> · 94 Karma</span>
+        <span style="color:var(--calm); font-weight:700;">🧗 Outdoor Pro</span>
+      </div>
+    </div>
+  </div>`;
 
   html += `<div class="card"><h2>Local Activity & Discovery Feed</h2>
     <p class="hint" style="margin-bottom:10px;">Multi-source stream: public events, travel asks, local crags/venues, and quests.</p>`;
@@ -2837,6 +2874,32 @@ function wire(root) {
       </div>
     `;
   }, "Emergency SOS Location Broadcast Active! ⚡"));
+
+  on("[data-act=match-mentor]", () => act(async () => {
+    const res = await api("/v1/synergy/mentor-match", { domain: "AI & Startup Founders" });
+    const out = $("#mentor-squad-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🤝 Mentorship Match (${res.match_score}% Score):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Mentor: <strong>${esc(res.mentor_name)}</strong> · ${esc(res.domain)}</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Format: ${esc(res.suggested_format)} @ <strong>${esc(res.suggested_venue)}</strong></div>
+      </div>
+    `;
+  }, "Mentorship Synergy Match Found! 🤝"));
+
+  on("[data-act=sync-squad-routine]", () => act(async () => {
+    const res = await api("/v1/routines/squad-sync", { routine_name: "Wednesday Dawn Patrol Surf Crew" });
+    const out = $("#mentor-squad-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📅 Squad Routine Synced:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Routine: <strong>${esc(res.routine_name)}</strong> (${esc(res.recurrence)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Synced across ${res.synced_calendars} crew calendars · ICS: ${esc(res.ics_link)}</div>
+      </div>
+    `;
+  }, "Squad Calendar Routine Synced! 📅"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

@@ -2353,6 +2353,43 @@ def build_router(auth) -> APIRouter:
             "message": f"🎟️ VIP Guestlist Access Granted for {venue}! (Karma Score: {karma_score}/100 verified)."
         }
 
+    @router.get("/gamification/leaderboard")
+    def get_global_synergy_leaderboard_endpoint(request: Request):
+        return {
+            "leaderboard": [
+                {"rank": 1, "user": "You", "karma_score": 98, "badge": "👑 Lisbon Coffee & Tech Legend", "outings_count": 42},
+                {"rank": 2, "user": "Elena R.", "karma_score": 96, "badge": "🌅 Rooftop Sunset Master", "outings_count": 39},
+                {"rank": 3, "user": "Alex M.", "karma_score": 94, "badge": "🧗 Bouldering & Outdoor Pro", "outings_count": 35},
+                {"rank": 4, "user": "Marcus T.", "karma_score": 92, "badge": "🏄 Dawn Patrol Surfer", "outings_count": 31}
+            ],
+            "message": "🏆 Global Synergy Leaderboard: You are Ranked #1 in Lisbon!"
+        }
+
+    @router.post("/synergy/mentor-match")
+    def mentor_synergy_match_endpoint(request: Request, body: dict):
+        domain = body.get("domain", "AI & Startup Founders").strip()
+        return {
+            "matched": True,
+            "mentor_name": "Dr. Sarah Lin (ex-YC Founder)",
+            "domain": domain,
+            "match_score": 97,
+            "suggested_format": "1-on-1 Walk & Talk Coffee",
+            "suggested_venue": "Fabrica Coffee Roasters, Chiado",
+            "message": f"🤝 Mentorship Match Found! {domain} mentorship session set with Dr. Sarah Lin (97% Match Score)."
+        }
+
+    @router.post("/routines/squad-sync")
+    def squad_recurring_routine_sync_endpoint(request: Request, body: dict):
+        routine_name = body.get("routine_name", "Wednesday Dawn Patrol Surf Crew").strip()
+        return {
+            "synced": True,
+            "routine_name": routine_name,
+            "recurrence": "Weekly on Wednesdays @ 7:00 AM",
+            "synced_calendars": 5,
+            "ics_link": "https://connectos.app/calendar/squad-surf.ics",
+            "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()

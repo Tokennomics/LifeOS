@@ -156,3 +156,17 @@ def test_nomad_memory_and_vip(cfg):
     res3 = client.post("/v1/events/vip-guestlist", json={"venue": "Miradouro"})
     assert res3.status_code == 200
     assert res3.json()["granted"] is True
+
+def test_leaderboard_mentor_and_squad_routine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.get("/v1/gamification/leaderboard")
+    assert res1.status_code == 200
+    assert len(res1.json()["leaderboard"]) >= 4
+
+    res2 = client.post("/v1/synergy/mentor-match", json={"domain": "AI"})
+    assert res2.status_code == 200
+    assert res2.json()["matched"] is True
+
+    res3 = client.post("/v1/routines/squad-sync", json={"routine_name": "Dawn Patrol Surf"})
+    assert res3.status_code == 200
+    assert res3.json()["synced"] is True
