@@ -358,3 +358,17 @@ def test_group_collab_and_micro_grants(cfg):
     res3 = client.post("/v1/community/micro-grants", json={"project": "Rescue Stand"})
     assert res3.status_code == 200
     assert res3.json()["grant_voted"] is True
+
+def test_popup_jam_film_and_eco_clean(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/creatives/pop-up-jam", json={"instrument": "Guitar"})
+    assert res1.status_code == 200
+    assert res1.json()["jam_matched"] is True
+
+    res2 = client.post("/v1/memories/analog-film-swap", json={"outing_id": "OUTING-8821"})
+    assert res2.status_code == 200
+    assert res2.json()["film_roll_synced"] is True
+
+    res3 = client.post("/v1/impact/eco-clean-crew", json={"beach": "Carcavelos"})
+    assert res3.status_code == 200
+    assert res3.json()["eco_session_joined"] is True

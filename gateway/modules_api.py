@@ -2895,6 +2895,44 @@ def build_router(auth) -> APIRouter:
             "message": f"🏆 Community Grant Vote Cast! '{project}' funded with €1,450 from community pool!"
         }
 
+    @router.post("/creatives/pop-up-jam")
+    def spontaneous_pop_up_jam_endpoint(request: Request, body: dict):
+        instrument = body.get("instrument", "Acoustic Guitar").strip()
+        location = body.get("location", "Miradouro de Santa Catarina").strip()
+        return {
+            "jam_matched": True,
+            "instrument": instrument,
+            "location": location,
+            "session_time": "Today @ 7:30 PM (Sunset)",
+            "jam_members": ["Elena (Vocals)", "Marcus (Saxophone)", "You (Acoustic Guitar)"],
+            "message": f"⚡ Sunset Pop-Up Jam Matched! 3 musicians jamming at {location} today @ 7:30 PM!"
+        }
+
+    @router.post("/memories/analog-film-swap")
+    def analog_film_photo_swap_endpoint(request: Request, body: dict):
+        outing_id = body.get("outing_id", "OUTING-8821").strip()
+        return {
+            "film_roll_synced": True,
+            "outing_id": outing_id,
+            "film_stock": "Kodak Portra 400 & Fujifilm Superia",
+            "photos_scanned": 12,
+            "shared_album_url": "https://connectos.app/film/outing-8821.roll",
+            "message": f"📸 Analog 35mm Film Roll Synced! 12 vintage scans unlocked for Outing {outing_id}."
+        }
+
+    @router.post("/impact/eco-clean-crew")
+    def eco_clean_ocean_mountain_endpoint(request: Request, body: dict):
+        beach = body.get("beach", "Carcavelos Surf Beach").strip()
+        return {
+            "eco_session_joined": True,
+            "location": beach,
+            "crew_size": 14,
+            "duration": "20-Min Pre-Surf Beach Clean",
+            "karma_awarded": "+100 Social Impact Karma",
+            "reward_coffee_voucher": "Free Specialty Batch Brew @ Fabrica",
+            "message": f"🌊 Eco-Clean Squad Confirmed! Joined 14 legends at {beach} (+100 Karma & Free Coffee voucher)!"
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

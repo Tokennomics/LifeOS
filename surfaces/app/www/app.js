@@ -626,6 +626,21 @@ function todayView() {
     <div id="collab-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Sunset Jam, Analog Film Swap & Eco-Clean ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(240,169,74,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⚡ Sunset Jam, Film Swap & Eco Squad</h2>
+      <span class="badge good" style="font-weight:bold;">Culture & Impact</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Match spontaneous viewpoint sunset music jams, swap 35mm film rolls, and join beach cleanups!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f0a94a);" data-act="join-popup-jam">Sunset Jam (7:30 PM) ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="swap-film-roll">35mm Film Swap 📸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="join-eco-clean">Eco-Clean Squad 🌊</button>
+    </div>
+    <div id="culture-impact-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3461,6 +3476,46 @@ function wire(root) {
       </div>
     `;
   }, "Community Grant Vote Cast! 🏆"));
+
+  on("[data-act=join-popup-jam]", () => act(async () => {
+    const res = await api("/v1/creatives/pop-up-jam", { instrument: "Acoustic Guitar", location: "Miradouro de Santa Catarina" });
+    const out = $("#culture-impact-output");
+    if (!out) return;
+    const members = res.jam_members || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">⚡ Sunset Pop-Up Jam Matched (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Spot: <strong>${esc(res.location)}</strong> · Playing: ${esc(res.instrument)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Musicians: ${members.join(" · ")}</div>
+      </div>
+    `;
+  }, "Sunset Pop-Up Jam Matched! ⚡"));
+
+  on("[data-act=swap-film-roll]", () => act(async () => {
+    const res = await api("/v1/memories/analog-film-swap", { outing_id: "OUTING-8821" });
+    const out = $("#culture-impact-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">📸 Analog 35mm Film Roll Synced (${res.photos_scanned} Scans):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Film: <strong>${esc(res.film_stock)}</strong> · Outing: ${esc(res.outing_id)}</div>
+        <div style="font-size:11px; color:var(--spark);">Album Link: ${esc(res.shared_album_url)}</div>
+      </div>
+    `;
+  }, "Analog 35mm Film Roll Synced! 📸"));
+
+  on("[data-act=join-eco-clean]", () => act(async () => {
+    const res = await api("/v1/impact/eco-clean-crew", { beach: "Carcavelos Surf Beach" });
+    const out = $("#culture-impact-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌊 Eco-Clean Squad Confirmed (${res.crew_size} Legends):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · ${esc(res.duration)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: ${esc(res.karma_awarded)} & ${esc(res.reward_coffee_voucher)}</div>
+      </div>
+    `;
+  }, "Eco-Clean Squad Confirmed! 🌊"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
