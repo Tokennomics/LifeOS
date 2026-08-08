@@ -212,6 +212,32 @@ function render() {
 function todayView() {
   const t = state.today;
   let html = "";
+
+  /* ---- Universal Command Palette & Quick-Nav Horizon Bar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.4); padding:16px; margin-bottom:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:20px;">🔍</span>
+        <h2 style="margin:0; font-size:18px; color:var(--text);">Spotlight Quick-Nav & Feature Palette</h2>
+      </div>
+      <span class="badge" style="font-family:monospace; font-size:11px; padding:3px 8px; border:1px solid var(--spark); color:var(--spark);">⌘K / Ctrl+K</span>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <input class="field" id="global-feature-search" placeholder="Type to instantly jump to any feature... (e.g. Coffee, Dating, Surf, Festival, Co-Living, Jukebox)" style="flex:1; border-radius:10px; font-size:14px; padding:10px 14px; background:rgba(0,0,0,0.25);">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981); white-space:nowrap; padding:10px 16px;" data-act="clear-feature-search">Clear ✕</button>
+    </div>
+    <div style="display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch;">
+      <button class="pill active" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-all">All Verticals 🌐</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-coffee">☕ Coffee & Nomad</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-dating">🍷 Dating & Drinks</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-sports">🏄 Surf & Sports</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-festivals">⛺ Festivals & Camp</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-housing">🏡 Co-Living & Dine</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-economy">🔄 Barter & Borrow</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-impact">🌊 Eco & Grants</button>
+    </div>
+  </div>`;
+
   if (!state.visions || !state.visions.length) {
     html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
       <h2>Welcome to LifeOS — Voice & Text Intake</h2>
@@ -3531,6 +3557,67 @@ function wire(root) {
       </div>
     `;
   }, "Teleported City via Nomad Passport! 🌐"));
+
+  /* ---- Universal Feature Spotlight & Command Palette (⌘K) ---- */
+  const searchInput = $("#global-feature-search");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      document.querySelectorAll(".card").forEach((card) => {
+        if (!q) {
+          card.style.display = "";
+          return;
+        }
+        const text = card.textContent.toLowerCase();
+        if (text.includes(q) || card.querySelector("#global-feature-search")) {
+          card.style.display = "";
+        } else {
+          card.style.display = "none";
+        }
+      });
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      const el = $("#global-feature-search");
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  });
+
+  on("[data-act=clear-feature-search]", () => {
+    const el = $("#global-feature-search");
+    if (el) {
+      el.value = "";
+      el.dispatchEvent(new Event("input"));
+    }
+  });
+
+  const filterPills = [
+    { act: "filter-feature-all", query: "" },
+    { act: "filter-feature-coffee", query: "coffee" },
+    { act: "filter-feature-dating", query: "dating" },
+    { act: "filter-feature-sports", query: "sports" },
+    { act: "filter-feature-festivals", query: "festival" },
+    { act: "filter-feature-housing", query: "co-living" },
+    { act: "filter-feature-economy", query: "barter" },
+    { act: "filter-feature-impact", query: "eco" },
+  ];
+
+  filterPills.forEach(({ act: actName, query }) => {
+    on(`[data-act=${actName}]`, () => {
+      const el = $("#global-feature-search");
+      if (el) {
+        el.value = query;
+        el.dispatchEvent(new Event("input"));
+        toast(query ? `Filtered by ${query} 🔍` : "Showing all features 🌐");
+      }
+    });
+  });
 
   on("[data-act=gen-memory-capsule]", () => act(async () => {
     const res = await api("/v1/memories/highlight-reel", { title: "Lisbon Sunset Rooftop Drinks" });
