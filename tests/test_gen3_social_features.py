@@ -414,3 +414,17 @@ def test_comedy_market_and_sunset_sailing(cfg):
     res3 = client.post("/v1/outdoors/sunset-sailing", json={"harbor": "Belem"})
     assert res3.status_code == 200
     assert res3.json()["sailing_charter_confirmed"] is True
+
+def test_reading_cold_plunge_and_art_crawl(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/culture/silent-reading", json={"loft": "Alfama Loft"})
+    assert res1.status_code == 200
+    assert res1.json()["reading_session_booked"] is True
+
+    res2 = client.post("/v1/wellness/cold-plunge", json={"beach": "Cais do Ginjal"})
+    assert res2.status_code == 200
+    assert res2.json()["plunge_crew_joined"] is True
+
+    res3 = client.post("/v1/creatives/art-crawl", json={"district": "Santos"})
+    assert res3.status_code == 200
+    assert res3.json()["crawl_confirmed"] is True

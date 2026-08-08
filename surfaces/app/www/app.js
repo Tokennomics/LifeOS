@@ -673,6 +673,21 @@ function todayView() {
     <div id="adventure-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Silent Reading, Cold Plunge & Art Crawl ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(139,92,246,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📚 Vinyl Reading, Cold Plunge & Art Crawl</h2>
+      <span class="badge good" style="font-weight:bold;">Culture & Flow</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Phone-free vinyl book lofts, 7 AM sunrise ocean cold plunges, and local gallery wine walks!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="join-silent-reading">Vinyl Reading Lounge 📚</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="join-cold-plunge">Sunrise Cold Plunge ☕</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="join-art-crawl">Gallery Art Crawl 🎨</button>
+    </div>
+    <div id="flow-culture-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3743,6 +3758,46 @@ function wire(root) {
       </div>
     `;
   }, "Sunset Catamaran Co-Share Confirmed! ⛵"));
+
+  on("[data-act=join-silent-reading]", () => act(async () => {
+    const res = await api("/v1/culture/silent-reading", { loft: "Alfama Loft Vinyl & Book Lounge" });
+    const out = $("#flow-culture-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">📚 Silent Reading Lounge Confirmed (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Loft: <strong>${esc(res.loft)}</strong> · Playing: ${esc(res.vinyl_record_playing)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Includes: ${esc(res.complimentary_tea)} · ${res.attendees_count} Readers</div>
+      </div>
+    `;
+  }, "Silent Reading Lounge Confirmed! 📚"));
+
+  on("[data-act=join-cold-plunge]", () => act(async () => {
+    const res = await api("/v1/wellness/cold-plunge", { beach: "Cais do Ginjal / Carcavelos" });
+    const out = $("#flow-culture-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">☕ Sunrise Cold Plunge Squad Confirmed (${res.crew_size} Legends):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Meeting: <strong>${esc(res.meeting_time)}</strong> · Water: ${esc(res.water_temp)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Reward: ${esc(res.post_plunge_reward)}</div>
+      </div>
+    `;
+  }, "Sunrise Cold Plunge Squad Confirmed! ☕"));
+
+  on("[data-act=join-art-crawl]", () => act(async () => {
+    const res = await api("/v1/creatives/art-crawl", { district: "Santos Art & Design District" });
+    const out = $("#flow-culture-output");
+    if (!out) return;
+    const artists = res.featured_artists || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎨 Art Gallery Crawl Confirmed (${res.stops_count} Curated Studios):</div>
+        <div style="font-size:13px; margin-bottom:4px;">District: <strong>${esc(res.district)}</strong> (${esc(res.tour_time)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Artists: ${artists.join(", ")} · ${esc(res.wine_pairing)}</div>
+      </div>
+    `;
+  }, "Art Gallery Crawl Confirmed! 🎨"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

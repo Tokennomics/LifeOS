@@ -3054,6 +3054,45 @@ def build_router(auth) -> APIRouter:
             "message": f"⛵ Sunset Catamaran Co-Share Confirmed! 6 spots booked from {harbor} today @ 6:30 PM (€30 split)."
         }
 
+    @router.post("/culture/silent-reading")
+    def silent_reading_vinyl_lounge_endpoint(request: Request, body: dict):
+        loft = body.get("loft", "Alfama Loft Vinyl & Book Lounge").strip()
+        return {
+            "reading_session_booked": True,
+            "loft": loft,
+            "session_time": "Today @ 4:00 PM (2 Hours)",
+            "vinyl_record_playing": "Bill Evans Trio - Sunday at the Village Vanguard (Original Vinyl)",
+            "attendees_count": 12,
+            "complimentary_tea": "Herbal Japanese Genmaicha",
+            "message": f"📚 Silent Reading Lounge Confirmed! 12 readers & vinyl records active at {loft} today @ 4 PM."
+        }
+
+    @router.post("/wellness/cold-plunge")
+    def sunrise_cold_plunge_squad_endpoint(request: Request, body: dict):
+        beach = body.get("beach", "Cais do Ginjal / Carcavelos").strip()
+        return {
+            "plunge_crew_joined": True,
+            "location": beach,
+            "meeting_time": "Tomorrow @ 7:00 AM (Sunrise)",
+            "water_temp": "15°C (Invigorating)",
+            "crew_size": 16,
+            "post_plunge_reward": "Hot Chocolate & Batch Brew @ Fabrica Coffee",
+            "message": f"☕ Sunrise Cold Plunge Squad Confirmed! 16 legends meeting at {beach} tomorrow @ 7 AM!"
+        }
+
+    @router.post("/creatives/art-crawl")
+    def art_gallery_crawl_hop_endpoint(request: Request, body: dict):
+        district = body.get("district", "Santos Art & Design District").strip()
+        return {
+            "crawl_confirmed": True,
+            "district": district,
+            "stops_count": 4,
+            "tour_time": "Today @ 6:00 PM",
+            "featured_artists": ["Marta B. (Ceramics)", "Tomas P. (Oil Canvas)", "Inês C. (Sculpture)"],
+            "wine_pairing": "Complimentary Douro Natural Wine",
+            "message": f"🎨 Art Gallery Crawl Confirmed! 4 curated studios with wine tasting in {district} today @ 6 PM."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
