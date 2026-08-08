@@ -353,3 +353,27 @@ button.primary:active {
   transform: translateY(-1px);
   filter: brightness(1.1);
 }
+
+body.theme-cyber {
+  --night: #05070e;
+  --surface-1: #0b1120;
+  --surface-2s: #0f172a;
+  --spark: #06b6d4;
+  --text: #f8fafc;
+}
+
+body.theme-sunset {
+  --night: #180d14;
+  --surface-1: #24141e;
+  --surface-2s: #311b29;
+  --spark: #f43f5e;
+  --text: #fff1f2;
+}
+
+body.theme-solar {
+  --night: #0f172a;
+  --surface-1: #1e293b;
+  --surface-2s: #334155;
+  --spark: #10b981;
+  --text: #f1f5f9;
+}

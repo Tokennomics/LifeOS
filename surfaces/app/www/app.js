@@ -236,6 +236,16 @@ function todayView() {
       <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-economy">🔄 Barter & Borrow</button>
       <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-impact">🌊 Eco & Grants</button>
     </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08);">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <span style="font-size:12px; color:var(--muted);">🌓 Theme:</span>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-cyber">Cyber 🌌</button>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-sunset">Sunset 🌅</button>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-solar">Solar ☀️</button>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-default">OLED 🖤</button>
+      </div>
+      <button class="ghost" style="font-size:11px; padding:3px 8px; width:auto;" data-act="test-audio-chime">🔊 Test Haptic Chime</button>
+    </div>
   </div>`;
 
   if (!state.visions || !state.visions.length) {
@@ -3612,6 +3622,55 @@ function wire(root) {
       </div>
     `;
   }, "Teleported City via Nomad Passport! 🌐"));
+
+  /* ---- Web Audio Haptic Chimes & Theme Engine ---- */
+  function playChime(freq = 520, type = "sine") {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+    } catch (_) {}
+  }
+
+  on("[data-act=test-audio-chime]", () => {
+    playChime(640, "triangle");
+    toast("🔊 Haptic Audio Chime Played!");
+  });
+
+  on("[data-act=theme-cyber]", () => {
+    document.body.className = "theme-cyber";
+    playChime(520);
+    toast("🌓 Cyber Dark Theme Activated! 🌌");
+  });
+
+  on("[data-act=theme-sunset]", () => {
+    document.body.className = "theme-sunset";
+    playChime(580);
+    toast("🌅 Sunset Amber Theme Activated! 🌅");
+  });
+
+  on("[data-act=theme-solar]", () => {
+    document.body.className = "theme-solar";
+    playChime(660);
+    toast("☀️ Solar Theme Activated! ☀️");
+  });
+
+  on("[data-act=theme-default]", () => {
+    document.body.className = "";
+    playChime(440);
+    toast("🖤 OLED Pure Dark Theme Restored!");
+  });
 
   /* ---- Universal Feature Spotlight & Command Palette (⌘K) ---- */
   const searchInput = $("#global-feature-search");
