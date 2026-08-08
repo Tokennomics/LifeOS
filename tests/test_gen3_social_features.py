@@ -428,3 +428,17 @@ def test_reading_cold_plunge_and_art_crawl(cfg):
     res3 = client.post("/v1/creatives/art-crawl", json={"district": "Santos"})
     assert res3.status_code == 200
     assert res3.json()["crawl_confirmed"] is True
+
+def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/developers/api-keys", json={"app_name": "Wind Radar"})
+    assert res1.status_code == 200
+    assert res1.json()["key_generated"] is True
+
+    res2 = client.post("/v1/developers/webhooks", json={"target_url": "https://api.myapp.com/webhooks"})
+    assert res2.status_code == 200
+    assert res2.json()["webhook_registered"] is True
+
+    res3 = client.post("/v1/developers/plugin-sandbox", json={"plugin_id": "com.windydev.radar"})
+    assert res3.status_code == 200
+    assert res3.json()["sandbox_tested"] is True

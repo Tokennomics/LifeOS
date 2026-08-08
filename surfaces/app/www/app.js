@@ -399,9 +399,15 @@ function todayView() {
         <button class="ghost" style="font-size:10px; padding:2px 8px; margin-top:4px;" onclick="toast('Park Chess Plugin Installed! ♟️');">Install Plugin ⚡</button>
       </div>
     </div>
-    <div class="row2"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
+    <div class="row2" style="margin-bottom:8px;"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
     <input class="field" id="dp-cat" placeholder="Category (e.g. Water Sports)">
-    <button class="primary" data-act="register-dev-plugin">Publish Developer Plugin 🚀</button></div>
+    <button class="primary" data-act="register-dev-plugin">Publish Plugin 🚀</button></div>
+    <div style="display:flex; gap:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #06b6d4); font-size:12px; padding:6px 12px;" data-act="gen-dev-apikey">Provision API Key 🔌</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981); font-size:12px; padding:6px 12px;" data-act="sub-dev-webhook">Register Webhook ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899); font-size:12px; padding:6px 12px;" data-act="test-dev-sandbox">Plugin Sandbox Test 🛠️</button>
+    </div>
+    <div id="developer-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- AI Social Battery & Real-World Balance Shield ---- */
@@ -3798,6 +3804,47 @@ function wire(root) {
       </div>
     `;
   }, "Art Gallery Crawl Confirmed! 🎨"));
+
+  on("[data-act=gen-dev-apikey]", () => act(async () => {
+    const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
+    const out = $("#developer-output");
+    if (!out) return;
+    const scopes = res.scopes || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔌 Developer API Key Provisioned (${esc(res.environment)}):</div>
+        <div style="font-family:monospace; font-size:12px; background:rgba(0,0,0,0.3); padding:6px; border-radius:6px; margin-bottom:4px; color:var(--growth);">${esc(res.api_key)}</div>
+        <div style="font-size:12px; color:var(--muted);">Rate Limit: ${esc(res.rate_limit)} · Scopes: ${scopes.join(", ")}</div>
+      </div>
+    `;
+  }, "Developer API Key Provisioned! 🔌"));
+
+  on("[data-act=sub-dev-webhook]", () => act(async () => {
+    const res = await api("/v1/developers/webhooks", { target_url: "https://api.myapp.com/webhooks/connectos" });
+    const out = $("#developer-output");
+    if (!out) return;
+    const events = res.subscribed_events || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⚡ Webhook Active (${events.length} Events):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Target: <strong>${esc(res.target_url)}</strong></div>
+        <div style="font-size:11px; color:var(--spark);">Signing Secret: ${esc(res.signing_secret)} (${esc(res.signature_header)})</div>
+      </div>
+    `;
+  }, "Webhook Subscribed! ⚡"));
+
+  on("[data-act=test-dev-sandbox]", () => act(async () => {
+    const res = await api("/v1/developers/plugin-sandbox", { plugin_id: "com.windydev.kitesurf-radar" });
+    const out = $("#developer-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🛠️ Plugin Sandbox Verified (${esc(res.store_status)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Plugin: <strong>${esc(res.plugin_id)}</strong> (${esc(res.sdk_version)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Rev-Share: ${esc(res.monetization_tier)}</div>
+      </div>
+    `;
+  }, "Plugin Sandbox Tested & Published! 🛠️"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

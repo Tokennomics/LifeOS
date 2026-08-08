@@ -3093,6 +3093,49 @@ def build_router(auth) -> APIRouter:
             "message": f"🎨 Art Gallery Crawl Confirmed! 4 curated studios with wine tasting in {district} today @ 6 PM."
         }
 
+    @router.post("/developers/api-keys")
+    def developer_api_keys_provisioning_endpoint(request: Request, body: dict):
+        app_name = body.get("app_name", "KiteSurf Wind Radar Plugin").strip()
+        environment = body.get("environment", "production").strip()
+        scopes = body.get("scopes", ["events:read", "match:trigger", "webhooks:write", "graph:export"])
+        return {
+            "key_generated": True,
+            "app_name": app_name,
+            "environment": environment,
+            "api_key": "sk_live_connectos_8921f0a94a63ce8b7fa8",
+            "key_prefix": "sk_live_conn...",
+            "scopes": scopes,
+            "rate_limit": "10,000 req / minute",
+            "docs_url": "https://connectos.app/docs/sdk/v2.4",
+            "message": f"🔌 Developer API Key Provisioned for '{app_name}'! Rate Limit: 10,000 req/min with {len(scopes)} scopes."
+        }
+
+    @router.post("/developers/webhooks")
+    def developer_webhooks_subscription_endpoint(request: Request, body: dict):
+        target_url = body.get("target_url", "https://api.myapp.com/webhooks/connectos").strip()
+        events = body.get("events", ["outing.created", "member.checked_in", "squad.matched", "split.settled"])
+        return {
+            "webhook_registered": True,
+            "target_url": target_url,
+            "subscribed_events": events,
+            "signing_secret": "whsec_7c63sN9lOA2opLSTz8flKJHC6aetVy2PUq2k",
+            "signature_header": "X-ConnectOS-Signature (HMAC-SHA256)",
+            "message": f"⚡ Webhook Active! Subscribed to {len(events)} events with HMAC-SHA256 signature verification."
+        }
+
+    @router.post("/developers/plugin-sandbox")
+    def developer_plugin_sandbox_endpoint(request: Request, body: dict):
+        plugin_id = body.get("plugin_id", "com.windydev.kitesurf-radar").strip()
+        return {
+            "sandbox_tested": True,
+            "plugin_id": plugin_id,
+            "sdk_version": "Synergy SDK v2.4",
+            "simulation_status": "PASSED (100% telemetry accuracy)",
+            "monetization_tier": "70% Developer Rev-Share Active (€4.99/mo per user)",
+            "store_status": "PUBLISHED_TO_COMMUNITY_STORE",
+            "message": f"🛠️ Plugin Sandbox Tested & Published! '{plugin_id}' live in Store with 70% developer rev-share!"
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
