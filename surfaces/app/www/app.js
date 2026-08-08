@@ -658,6 +658,21 @@ function todayView() {
     <div id="ai-butler-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Secret Comedy, Market Cookoff & Sunset Sailing ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(6,182,212,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎭 Speakeasy Comedy, Cook-Off & Sailing</h2>
+      <span class="badge good" style="font-weight:bold;">Adventures</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Intimate 25-person cellar comedy, Sunday farmers market cook-offs, and sunset catamaran charters!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="join-secret-comedy">Secret Comedy (9 PM) 🎭</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #10b981);" data-act="join-market-cookoff">Market Cook-Off 🍳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="join-sunset-sailing">Sunset Catamaran (€30) ⛵</button>
+    </div>
+    <div id="adventure-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3688,6 +3703,46 @@ function wire(root) {
       </div>
     `;
   }, "Nomad House Swap Confirmed! 🌍"));
+
+  on("[data-act=join-secret-comedy]", () => act(async () => {
+    const res = await api("/v1/culture/secret-comedy", { venue: "Alfama Cellar Speakeasy" });
+    const out = $("#adventure-output");
+    if (!out) return;
+    const lineup = res.lineup || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎭 Secret Comedy Speakeasy Confirmed (${esc(res.show_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> (${esc(res.capacity)})</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Passcode: ${esc(res.secret_passcode)} · Lineup: ${lineup.join(", ")}</div>
+      </div>
+    `;
+  }, "Secret Comedy Speakeasy Confirmed! 🎭"));
+
+  on("[data-act=join-market-cookoff]", () => act(async () => {
+    const res = await api("/v1/dining/market-cookoff", { market: "Mercado da Ribeira Organic Market" });
+    const out = $("#adventure-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍳 Farmers Market Cook-Off Confirmed (${res.crew_size} Food Lovers):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Meeting: <strong>${esc(res.meeting_time)}</strong> · Menu: ${esc(res.menu_vibe)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Split Cost: ${esc(res.split_cost)} (Fresh Organic Produce)</div>
+      </div>
+    `;
+  }, "Farmers Market Cook-Off Confirmed! 🍳"));
+
+  on("[data-act=join-sunset-sailing]", () => act(async () => {
+    const res = await api("/v1/outdoors/sunset-sailing", { harbor: "Belém Marina (Lisbon)" });
+    const out = $("#adventure-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⛵ Sunset Catamaran Co-Share Confirmed (${res.passengers} Passengers):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Vessel: <strong>${esc(res.vessel)}</strong> · Departure: ${esc(res.departure)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Skipper Split: ${esc(res.skipper_split)} from ${esc(res.harbor)}</div>
+      </div>
+    `;
+  }, "Sunset Catamaran Co-Share Confirmed! ⛵"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

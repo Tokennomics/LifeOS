@@ -400,3 +400,17 @@ def test_ai_butler_magic_split_and_house_swap(cfg):
     res3 = client.post("/v1/housing/nomad-house-swap", json={"home_city": "Lisbon", "destination_city": "Tokyo"})
     assert res3.status_code == 200
     assert res3.json()["swap_confirmed"] is True
+
+def test_comedy_market_and_sunset_sailing(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/culture/secret-comedy", json={"venue": "Alfama Cellar"})
+    assert res1.status_code == 200
+    assert res1.json()["comedy_booked"] is True
+
+    res2 = client.post("/v1/dining/market-cookoff", json={"market": "Mercado da Ribeira"})
+    assert res2.status_code == 200
+    assert res2.json()["cookoff_crew_joined"] is True
+
+    res3 = client.post("/v1/outdoors/sunset-sailing", json={"harbor": "Belem"})
+    assert res3.status_code == 200
+    assert res3.json()["sailing_charter_confirmed"] is True

@@ -3015,6 +3015,45 @@ def build_router(auth) -> APIRouter:
             "message": f"🌍 House Swap Confirmed! Swapped {home_city} for {destination_city} (€1,850 saved at €0 cost)!"
         }
 
+    @router.post("/culture/secret-comedy")
+    def secret_comedy_speakeasy_endpoint(request: Request, body: dict):
+        venue = body.get("venue", "Alfama Cellar Speakeasy").strip()
+        return {
+            "comedy_booked": True,
+            "venue": venue,
+            "show_time": "Tonight @ 9:00 PM",
+            "capacity": "Intimate 25-Seat Cellar",
+            "lineup": ["Sammy R. (Stand-Up)", "Claire T. (Improv)", "Lucas M. (Host)"],
+            "secret_passcode": "SPEAKEASY-7741",
+            "message": f"🎭 Secret Comedy Speakeasy Confirmed! Secret Passcode 'SPEAKEASY-7741' unlocked for {venue} tonight @ 9 PM."
+        }
+
+    @router.post("/dining/market-cookoff")
+    def farmers_market_cookoff_endpoint(request: Request, body: dict):
+        market = body.get("market", "Mercado da Ribeira Organic Farmers Market").strip()
+        return {
+            "cookoff_crew_joined": True,
+            "market_name": market,
+            "crew_size": 8,
+            "meeting_time": "Sunday @ 10:00 AM",
+            "menu_vibe": "Communal Shakshuka & Fresh Sourdough Brunch",
+            "split_cost": "€6.50 / person",
+            "message": f"🍳 Market & Cook-Off Crew Confirmed! 8 food lovers meeting {market} Sunday @ 10 AM (€6.50 split)!"
+        }
+
+    @router.post("/outdoors/sunset-sailing")
+    def sunset_sailing_catamaran_endpoint(request: Request, body: dict):
+        harbor = body.get("harbor", "Belém Marina (Lisbon)").strip()
+        return {
+            "sailing_charter_confirmed": True,
+            "harbor": harbor,
+            "vessel": "40ft Lagoon Catamaran",
+            "departure": "Today @ 6:30 PM (Golden Hour)",
+            "passengers": 6,
+            "skipper_split": "€30.00 / person (€180 total)",
+            "message": f"⛵ Sunset Catamaran Co-Share Confirmed! 6 spots booked from {harbor} today @ 6:30 PM (€30 split)."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
