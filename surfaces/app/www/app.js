@@ -611,6 +611,21 @@ function todayView() {
     <div id="circular-economy-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Live Group Nav, Squad Jukebox & Community Fund ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(99,102,241,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🗺️ Group Nav, Squad Jukebox & Grants</h2>
+      <span class="badge good" style="font-weight:bold;">Live Collaboration</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Turn-by-turn group routing, blended venue music jukebox, and neighborhood impact micro-grants!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="start-group-nav">Start Group Nav 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="sync-squad-jukebox">Squad Jukebox 🎶</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="vote-micro-grant">Community Grant (€1,450) 🏆</button>
+    </div>
+    <div id="collab-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3407,6 +3422,45 @@ function wire(root) {
       </div>
     `;
   }, "Time Token Earned! 🌱"));
+
+  on("[data-act=start-group-nav]", () => act(async () => {
+    const res = await api("/v1/routing/group-nav", { route_name: "Alfama Sunset Viewpoints Walk" });
+    const out = $("#collab-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🗺️ Group Navigation Active (${res.group_members_on_route} Members Synced):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Route: <strong>${esc(res.route_name)}</strong> · ${res.waypoints_count} Waypoints</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Next Turn: ${esc(res.next_turn)}</div>
+      </div>
+    `;
+  }, "Group Turn-by-Turn Navigation Started! 🗺️"));
+
+  on("[data-act=sync-squad-jukebox]", () => act(async () => {
+    const res = await api("/v1/music/squad-jukebox", { venue: "Fabrica Coffee Baixa" });
+    const out = $("#collab-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎶 Squad Jukebox Synced (${esc(res.venue)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Now Playing: <strong>${esc(res.now_playing)}</strong></div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Playlist: ${esc(res.blended_playlist)} (${res.tracks_queued} tracks queued)</div>
+      </div>
+    `;
+  }, "Squad Jukebox Synced! 🎶"));
+
+  on("[data-act=vote-micro-grant]", () => act(async () => {
+    const res = await api("/v1/community/micro-grants", { project: "Neighborhood Surfboard Rescue Stand @ Carcavelos" });
+    const out = $("#collab-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏆 Community Grant Vote Cast (${esc(res.grant_status)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Project: <strong>${esc(res.project_name)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Fund Pool: ${esc(res.community_fund_pool)} · ${res.votes_count} Votes</div>
+      </div>
+    `;
+  }, "Community Grant Vote Cast! 🏆"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

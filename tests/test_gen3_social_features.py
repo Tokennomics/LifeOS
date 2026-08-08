@@ -344,3 +344,17 @@ def test_circular_economy_features(cfg):
     res3 = client.post("/v1/economy/time-bank", json={"service": "Bicycle repair", "hours": 1})
     assert res3.status_code == 200
     assert res3.json()["tokens_earned"] == 1
+
+def test_group_collab_and_micro_grants(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/routing/group-nav", json={"route_name": "Sunset Walk"})
+    assert res1.status_code == 200
+    assert res1.json()["navigation_active"] is True
+
+    res2 = client.post("/v1/music/squad-jukebox", json={"venue": "Fabrica Coffee"})
+    assert res2.status_code == 200
+    assert res2.json()["jukebox_synced"] is True
+
+    res3 = client.post("/v1/community/micro-grants", json={"project": "Rescue Stand"})
+    assert res3.status_code == 200
+    assert res3.json()["grant_voted"] is True

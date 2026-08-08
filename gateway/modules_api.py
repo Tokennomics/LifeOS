@@ -2858,6 +2858,43 @@ def build_router(auth) -> APIRouter:
             "message": "⚡ 1-Tap QR Check-In Complete! Checked into Fabrica Coffee Roasters, joined active squad & PoP badge minted!"
         }
 
+    @router.post("/routing/group-nav")
+    def live_group_routing_nav_endpoint(request: Request, body: dict):
+        route_name = body.get("route_name", "Alfama Sunset Viewpoints Walk").strip()
+        return {
+            "navigation_active": True,
+            "route_name": route_name,
+            "waypoints_count": 4,
+            "group_members_on_route": 6,
+            "live_sync_interval": "1.5s",
+            "next_turn": "Turn left at Miradouro de Santa Luzia in 80m",
+            "message": f"🗺️ Live Group Navigation Active! 6 members synced on '{route_name}'."
+        }
+
+    @router.post("/music/squad-jukebox")
+    def crowdsourced_squad_jukebox_endpoint(request: Request, body: dict):
+        venue = body.get("venue", "Fabrica Coffee Baixa").strip()
+        return {
+            "jukebox_synced": True,
+            "venue": venue,
+            "blended_playlist": "Lisbon Chill Tech & Deep House Blend",
+            "tracks_queued": 18,
+            "now_playing": "Bicep - Glue (Ambient Mix)",
+            "message": f"🎶 Squad Jukebox Synced! Blended music profile active for {venue}."
+        }
+
+    @router.post("/community/micro-grants")
+    def community_micro_grants_endpoint(request: Request, body: dict):
+        project = body.get("project", "Neighborhood Surfboard Rescue Stand @ Carcavelos").strip()
+        return {
+            "grant_voted": True,
+            "project_name": project,
+            "community_fund_pool": "€1,450.00",
+            "votes_count": 48,
+            "grant_status": "FUNDED_AND_APPROVED",
+            "message": f"🏆 Community Grant Vote Cast! '{project}' funded with €1,450 from community pool!"
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
