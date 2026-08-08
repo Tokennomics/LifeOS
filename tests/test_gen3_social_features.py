@@ -372,3 +372,17 @@ def test_popup_jam_film_and_eco_clean(cfg):
     res3 = client.post("/v1/impact/eco-clean-crew", json={"beach": "Carcavelos"})
     assert res3.status_code == 200
     assert res3.json()["eco_session_joined"] is True
+
+def test_global_bridge_beacon_and_residency(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/culture/global-bridge", json={"city_a": "Lisbon", "city_b": "Tokyo"})
+    assert res1.status_code == 200
+    assert res1.json()["bridge_active"] is True
+
+    res2 = client.post("/v1/safety/squad-beacon", json={"location": "Cais do Sodre"})
+    assert res2.status_code == 200
+    assert res2.json()["beacon_triggered"] is True
+
+    res3 = client.post("/v1/culture/creator-residency", json={"creator_name": "Lucas V."})
+    assert res3.status_code == 200
+    assert res3.json()["grant_awarded"] is True

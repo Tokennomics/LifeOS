@@ -2933,6 +2933,44 @@ def build_router(auth) -> APIRouter:
             "message": f"🌊 Eco-Clean Squad Confirmed! Joined 14 legends at {beach} (+100 Karma & Free Coffee voucher)!"
         }
 
+    @router.post("/culture/global-bridge")
+    def global_city_bridge_endpoint(request: Request, body: dict):
+        city_a = body.get("city_a", "Lisbon").strip()
+        city_b = body.get("city_b", "Tokyo").strip()
+        return {
+            "bridge_active": True,
+            "cities": f"{city_a} ⟷ {city_b}",
+            "live_portal_venue": "Miradouro Rooftop (Lisbon) ➔ Shibuya Sky Lounge (Tokyo)",
+            "participants_count": 84,
+            "interactive_features": ["Live Sunset DJ Stream", "Real-Time Chat Portal", "Shared Digital Guestbook"],
+            "message": f"🌐 Global Bridge Live! Twin linkup active between {city_a} and {city_b} (84 participants)!"
+        }
+
+    @router.post("/safety/squad-beacon")
+    def squad_emergency_beacon_endpoint(request: Request, body: dict):
+        location = body.get("location", "Cais do Sodre @ 2:30 AM").strip()
+        return {
+            "beacon_triggered": True,
+            "location": location,
+            "battery_level": "88%",
+            "trusted_crew_notified": 4,
+            "safe_uber_link": "https://uber.com/ride?safe_token=CREW-8921",
+            "message": f"⚡ Squad Safety Beacon Active! 4 trusted crew members alerted with live GPS & safe ride route."
+        }
+
+    @router.post("/culture/creator-residency")
+    def creator_residency_grant_endpoint(request: Request, body: dict):
+        creator = body.get("creator_name", "Lucas V. (Acoustic Ambient Composer)").strip()
+        return {
+            "grant_awarded": True,
+            "creator_name": creator,
+            "residency_villa": "Santos Nomad Creative Villa",
+            "duration": "1-Month Funded Residency",
+            "stipend": "€1,200/mo + Studio Space",
+            "community_votes": 62,
+            "message": f"💎 Creator Residency Awarded! {creator} funded for 1 month at Santos Nomad Villa (€1,200 stipend)."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

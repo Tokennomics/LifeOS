@@ -652,6 +652,21 @@ function todayView() {
     <div id="collab-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Global City Bridge & Squad Beacon ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(6,182,212,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Global City Bridge & Safety Beacon</h2>
+      <span class="badge good" style="font-weight:bold;">Global & Secure</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live multi-city portal linkups, 1-tap trusted safety escort beacons, and artist residencies!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #6366f1);" data-act="trigger-global-bridge">Global City Bridge (LIS ⟷ TYO) 🌐</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ef4444, #f59e0b);" data-act="trigger-squad-beacon">Squad S.O.S. Beacon ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="award-creator-grant">Creator Grant 💎</button>
+    </div>
+    <div id="global-safety-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Sunset Jam, Analog Film Swap & Eco-Clean ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(240,169,74,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3542,6 +3557,46 @@ function wire(root) {
       </div>
     `;
   }, "Eco-Clean Squad Confirmed! 🌊"));
+
+  on("[data-act=trigger-global-bridge]", () => act(async () => {
+    const res = await api("/v1/culture/global-bridge", { city_a: "Lisbon", city_b: "Tokyo" });
+    const out = $("#global-safety-output");
+    if (!out) return;
+    const features = res.interactive_features || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🌐 Global Twin City Bridge Live (${esc(res.cities)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue Portal: <strong>${esc(res.live_portal_venue)}</strong> · ${res.participants_count} Live Members</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Features: ${features.join(" · ")}</div>
+      </div>
+    `;
+  }, "Global Twin City Bridge Activated! 🌐"));
+
+  on("[data-act=trigger-squad-beacon]", () => act(async () => {
+    const res = await api("/v1/safety/squad-beacon", { location: "Cais do Sodre @ 2:30 AM" });
+    const out = $("#global-safety-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ef4444;">
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">⚡ Squad Safety Beacon Active (${res.trusted_crew_notified} Crew Notified):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · Battery: <strong>${esc(res.battery_level)}</strong></div>
+        <div style="font-size:11px; color:var(--growth);">Safe Ride Link: ${esc(res.safe_uber_link)}</div>
+      </div>
+    `;
+  }, "Squad Emergency Beacon Triggered! ⚡"));
+
+  on("[data-act=award-creator-grant]", () => act(async () => {
+    const res = await api("/v1/culture/creator-residency", { creator_name: "Lucas V. (Acoustic Ambient Composer)" });
+    const out = $("#global-safety-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">💎 Creator Residency Awarded (${esc(res.duration)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Artist: <strong>${esc(res.creator_name)}</strong> · ${esc(res.residency_villa)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Stipend: ${esc(res.stipend)} · ${res.community_votes} Community Votes</div>
+      </div>
+    `;
+  }, "Creator Residency Awarded! 💎"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
