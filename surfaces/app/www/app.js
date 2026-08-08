@@ -207,6 +207,32 @@ function render() {
       initLeafletMap();
     }, 50);
   }
+
+  /* ---- Sticky Glassmorphic Mobile Dock ---- */
+  let dock = $("#mobile-dock");
+  if (!dock) {
+    dock = document.createElement("nav");
+    dock.id = "mobile-dock";
+    dock.className = "mobile-dock";
+    document.body.appendChild(dock);
+  }
+  dock.innerHTML = `
+    <button class="dock-btn ${state.tab === "today" ? "active" : ""}" data-dock="today">☀️ Today</button>
+    <button class="dock-btn ${state.tab === "people" ? "active" : ""}" data-dock="people">💬 Crews</button>
+    <button class="dock-btn ${state.tab === "map" ? "active" : ""}" data-dock="map">🗺️ Radar</button>
+    <button class="dock-btn ${state.tab === "graph" ? "active" : ""}" data-dock="graph">💎 Graph</button>
+    <button class="dock-btn ${state.tab === "more" ? "active" : ""}" data-dock="more">⚙️ More</button>
+  `;
+  dock.querySelectorAll(".dock-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.dock;
+      if (state.tab !== target) {
+        state.tab = target;
+        state.enter = true;
+        render();
+      }
+    });
+  });
 }
 
 function todayView() {

@@ -377,3 +377,49 @@ body.theme-solar {
   --spark: #10b981;
   --text: #f1f5f9;
 }
+
+/* Sticky Glassmorphism Dock */
+.mobile-dock {
+  position: fixed;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 23, 36, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 8px 14px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  z-index: 100;
+  max-width: 90vw;
+}
+
+.dock-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 99px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dock-btn:hover, .dock-btn.active {
+  background: var(--surface-2s);
+  color: var(--text);
+  box-shadow: 0 0 12px rgba(240, 169, 74, 0.2);
+}
+
+.dock-btn.active {
+  color: var(--spark);
+  border: 1px solid rgba(240, 169, 74, 0.3);
+}
