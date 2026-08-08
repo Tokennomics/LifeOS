@@ -643,6 +643,21 @@ function todayView() {
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- AI Outing Butler, 1-Tap Split & Nomad House Swap ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(240,169,74,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🤖 AI Butler, 1-Tap Split & House Swap</h2>
+      <span class="badge good" style="font-weight:bold;">Autonomous OS</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">AI Weekend Blueprints, 1-tap Apple Pay group splits, and global apartment swaps!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f0a94a, #f59e0b);" data-act="gen-ai-blueprint">AI Weekend Blueprint 🤖</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="settle-one-tap-split">1-Tap Split (€21.00) 🪄</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="swap-nomad-flat">Nomad House Swap 🌍</button>
+    </div>
+    <div id="ai-butler-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3633,6 +3648,46 @@ function wire(root) {
       </div>
     `;
   }, "Creator Residency Awarded! 💎"));
+
+  on("[data-act=gen-ai-blueprint]", () => act(async () => {
+    const res = await api("/v1/ai/outing-butler", { weekend: "Saturday & Sunday" });
+    const out = $("#ai-butler-output");
+    if (!out) return;
+    const schedule = (res.curated_schedule || []).map((s) => `• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} (with ${s.crew.join(", ")})`).join("<br>");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
+        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:6px;">🤖 Perfect Weekend Blueprint Generated (${esc(res.weekend)}):</div>
+        <div style="font-size:12.5px; line-height:1.5; margin-bottom:6px;">${schedule}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Est. Cost: ${esc(res.estimated_cost)}</div>
+      </div>
+    `;
+  }, "AI Weekend Blueprint Generated! 🤖"));
+
+  on("[data-act=settle-one-tap-split]", () => act(async () => {
+    const res = await api("/v1/payments/one-tap-settle", { bill_total: "€84.00", members_count: 4 });
+    const out = $("#ai-butler-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🪄 1-Tap Split Settled (${esc(res.split_per_person)} / person):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Total Bill: <strong>${esc(res.bill_total)}</strong> · Split across ${res.members_count} members</div>
+        <div style="font-size:11px; color:var(--spark);">Revolut Link: ${esc(res.revolut_link)} (Apple Pay Ready )</div>
+      </div>
+    `;
+  }, "1-Tap Split Settled! 🪄"));
+
+  on("[data-act=swap-nomad-flat]", () => act(async () => {
+    const res = await api("/v1/housing/nomad-house-swap", { home_city: "Lisbon (Alfama Flat)", destination_city: "Tokyo (Shibuya Loft)" });
+    const out = $("#ai-butler-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌍 Nomad House Swap Confirmed (${esc(res.duration)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Swap: <strong>${esc(res.home_city)} ⟷ ${esc(res.destination_city)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.trust_verification)} · ${esc(res.cost_saved)}</div>
+      </div>
+    `;
+  }, "Nomad House Swap Confirmed! 🌍"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

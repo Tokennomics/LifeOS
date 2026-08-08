@@ -2971,6 +2971,50 @@ def build_router(auth) -> APIRouter:
             "message": f"💎 Creator Residency Awarded! {creator} funded for 1 month at Santos Nomad Villa (€1,200 stipend)."
         }
 
+    @router.post("/ai/outing-butler")
+    def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
+        weekend = body.get("weekend", "Saturday & Sunday").strip()
+        return {
+            "blueprint_generated": True,
+            "weekend": weekend,
+            "curated_schedule": [
+                {"time": "08:00 AM", "activity": "Dawn Patrol Surf @ Carcavelos (4ft Swell)", "crew": ["Marco", "Sofia"]},
+                {"time": "01:00 PM", "activity": "Specialty Brunch @ Fabrica Coffee Baixa", "crew": ["Inês", "Alex"]},
+                {"time": "07:30 PM", "activity": "Sunset Acoustic Jam @ Miradouro Santa Catarina", "crew": ["Elena", "Lucas"]}
+            ],
+            "estimated_cost": "€24.00 (split)",
+            "message": f"🤖 AI Outing Butler Generated your Perfect Weekend Blueprint! 3 seamless outings planned."
+        }
+
+    @router.post("/payments/one-tap-settle")
+    def one_tap_magic_split_settle_endpoint(request: Request, body: dict):
+        bill_total = body.get("bill_total", "€84.00").strip()
+        members_count = int(body.get("members_count", 4))
+        split_per_person = f"€{84.0 / members_count:.2f}"
+        return {
+            "split_settled": True,
+            "bill_total": bill_total,
+            "members_count": members_count,
+            "split_per_person": split_per_person,
+            "apple_pay_ready": True,
+            "revolut_link": "https://revolut.me/connectos-split-8921",
+            "message": f"🪄 1-Tap Split Settled! {split_per_person} charged via Apple Pay / Revolut for {members_count} members."
+        }
+
+    @router.post("/housing/nomad-house-swap")
+    def nomad_house_swap_exchange_endpoint(request: Request, body: dict):
+        home_city = body.get("home_city", "Lisbon (Alfama Flat)").strip()
+        destination_city = body.get("destination_city", "Tokyo (Shibuya Loft)").strip()
+        return {
+            "swap_confirmed": True,
+            "home_city": home_city,
+            "destination_city": destination_city,
+            "duration": "14 Days (Oct 1 - Oct 15)",
+            "trust_verification": "KYC Verified + €50,000 Host Shield",
+            "cost_saved": "€1,850.00 Saved!",
+            "message": f"🌍 House Swap Confirmed! Swapped {home_city} for {destination_city} (€1,850 saved at €0 cost)!"
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

@@ -386,3 +386,17 @@ def test_global_bridge_beacon_and_residency(cfg):
     res3 = client.post("/v1/culture/creator-residency", json={"creator_name": "Lucas V."})
     assert res3.status_code == 200
     assert res3.json()["grant_awarded"] is True
+
+def test_ai_butler_magic_split_and_house_swap(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/outing-butler", json={"weekend": "Saturday"})
+    assert res1.status_code == 200
+    assert res1.json()["blueprint_generated"] is True
+
+    res2 = client.post("/v1/payments/one-tap-settle", json={"bill_total": "€84.00", "members_count": 4})
+    assert res2.status_code == 200
+    assert res2.json()["split_settled"] is True
+
+    res3 = client.post("/v1/housing/nomad-house-swap", json={"home_city": "Lisbon", "destination_city": "Tokyo"})
+    assert res3.status_code == 200
+    assert res3.json()["swap_confirmed"] is True
