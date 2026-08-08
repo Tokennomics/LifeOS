@@ -596,6 +596,21 @@ function todayView() {
     <div id="human-needs-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Circular Economy & Barter Swap Hub ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🔄 Circular Economy & Barter Trade Hub</h2>
+      <span class="badge good" style="font-weight:bold;">Zero Cash / Zero Waste</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Trade skills & gear cash-free, borrow neighborhood tools, and earn Time Tokens!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="trade-barter-swap">Trade Skill / Item 🔄</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="borrow-gear-library">Borrow Gear Tent ♻️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #f59e0b);" data-act="earn-time-token">Time Bank (+1 Hr) 🌱</button>
+    </div>
+    <div id="circular-economy-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Evening Sunset Win Ritual ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3353,6 +3368,45 @@ function wire(root) {
       </div>
     `;
   }, "Digital Detox Lounge Reserved! 🧘"));
+
+  on("[data-act=trade-barter-swap]", () => act(async () => {
+    const res = await api("/v1/economy/barter-swap", { offering: "1-Hour Surf Lesson", seeking: "Portuguese Conversation Practice" });
+    const out = $("#circular-economy-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🔄 Barter Swap Agreed (${esc(res.cash_saved)} Cash Saved!):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Trading: <strong>${esc(res.offering)}</strong> ➔ <strong>${esc(res.seeking)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Partner: ${esc(res.match_partner)} (Swap ID: ${esc(res.swap_id)})</div>
+      </div>
+    `;
+  }, "Barter Swap Agreed! 🔄"));
+
+  on("[data-act=borrow-gear-library]", () => act(async () => {
+    const res = await api("/v1/economy/community-borrow", { item: "2-Person Camping Tent & Sleeping Bags" });
+    const out = $("#circular-economy-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">♻️ Community Borrow Approved (${esc(res.fee)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Item: <strong>${esc(res.item_name)}</strong> · Owner: ${esc(res.owner_name)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Pickup: ${esc(res.pickup_location)} · Return by ${esc(res.return_by)}</div>
+      </div>
+    `;
+  }, "Community Borrow Approved! ♻️"));
+
+  on("[data-act=earn-time-token]", () => act(async () => {
+    const res = await api("/v1/economy/time-bank", { service: "Helped neighbor fix bicycle chain", hours: 1 });
+    const out = $("#circular-economy-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🌱 Time Token Earned (+${res.tokens_earned} Hr):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Service: <strong>${esc(res.service)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Total Balance: ${res.current_time_token_balance} Time Tokens (${esc(res.community_karma_bonus)})</div>
+      </div>
+    `;
+  }, "Time Token Earned! 🌱"));
 
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";

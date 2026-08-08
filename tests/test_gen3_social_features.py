@@ -330,3 +330,17 @@ def test_human_deep_needs_features(cfg):
     res3 = client.post("/v1/wellness/digital-detox", json={"duration": "2 Hours"})
     assert res3.status_code == 200
     assert res3.json()["session_joined"] is True
+
+def test_circular_economy_features(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/economy/barter-swap", json={"offering": "Surf Lesson", "seeking": "Portuguese"})
+    assert res1.status_code == 200
+    assert res1.json()["swapped"] is True
+
+    res2 = client.post("/v1/economy/community-borrow", json={"item": "Camping Tent"})
+    assert res2.status_code == 200
+    assert res2.json()["borrowed"] is True
+
+    res3 = client.post("/v1/economy/time-bank", json={"service": "Bicycle repair", "hours": 1})
+    assert res3.status_code == 200
+    assert res3.json()["tokens_earned"] == 1

@@ -3011,6 +3011,45 @@ def build_router(auth) -> APIRouter:
             "message": f"🧘 Digital Detox Lounge Reserved! 2-Hour Phone-Free Silent Reading Session at Chiado Botanical Garden."
         }
 
+    @router.post("/economy/barter-swap")
+    def circular_barter_swap_endpoint(request: Request, body: dict):
+        offering = body.get("offering", "1-Hour Surf Lesson").strip()
+        seeking = body.get("seeking", "Portuguese Conversation Practice").strip()
+        return {
+            "swapped": True,
+            "offering": offering,
+            "seeking": seeking,
+            "match_partner": "Tiago K.",
+            "swap_id": "BARTER-8821",
+            "cash_saved": "€45.00",
+            "message": f"🔄 Barter Swap Agreed! Trading '{offering}' for '{seeking}' with Tiago K. (€45 cash saved!)."
+        }
+
+    @router.post("/economy/community-borrow")
+    def community_borrow_library_endpoint(request: Request, body: dict):
+        item_name = body.get("item", "2-Person Camping Tent & Sleeping Bags").strip()
+        return {
+            "borrowed": True,
+            "item_name": item_name,
+            "owner_name": "Sarah L.",
+            "pickup_location": "Santos Neighborhood Hub",
+            "return_by": "Sunday @ 8:00 PM",
+            "fee": "€0.00 (Zero-Waste Community Borrow)",
+            "message": f"♻️ Borrow Request Approved! Borrowing '{item_name}' from Sarah L. (Zero cost zero waste!)."
+        }
+
+    @router.post("/economy/time-bank")
+    def time_bank_tokens_endpoint(request: Request, body: dict):
+        service = body.get("service", "Helped neighbor fix bicycle chain").strip()
+        hours = body.get("hours", 1)
+        return {
+            "tokens_earned": hours,
+            "service": service,
+            "current_time_token_balance": 5,
+            "community_karma_bonus": "+25 Karma",
+            "message": f"🌱 Time Bank Credit! Earned {hours} Time Token for '{service}'. Total balance: 5 Tokens."
+        }
+
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()
