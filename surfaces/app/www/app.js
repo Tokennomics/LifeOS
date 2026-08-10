@@ -207,11 +207,73 @@ function render() {
       initLeafletMap();
     }, 50);
   }
+
+  /* ---- Sticky Glassmorphic Mobile Dock ---- */
+  let dock = $("#mobile-dock");
+  if (!dock) {
+    dock = document.createElement("nav");
+    dock.id = "mobile-dock";
+    dock.className = "mobile-dock";
+    document.body.appendChild(dock);
+  }
+  dock.innerHTML = `
+    <button class="dock-btn ${state.tab === "today" ? "active" : ""}" data-dock="today">☀️ Today</button>
+    <button class="dock-btn ${state.tab === "people" ? "active" : ""}" data-dock="people">💬 Crews</button>
+    <button class="dock-btn ${state.tab === "map" ? "active" : ""}" data-dock="map">🗺️ Radar</button>
+    <button class="dock-btn ${state.tab === "graph" ? "active" : ""}" data-dock="graph">💎 Graph</button>
+    <button class="dock-btn ${state.tab === "more" ? "active" : ""}" data-dock="more">⚙️ More</button>
+  `;
+  dock.querySelectorAll(".dock-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.dock;
+      if (state.tab !== target) {
+        state.tab = target;
+        state.enter = true;
+        render();
+      }
+    });
+  });
 }
 
 function todayView() {
   const t = state.today;
   let html = "";
+
+  /* ---- Universal Command Palette & Quick-Nav Horizon Bar ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.4); padding:16px; margin-bottom:14px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:20px;">🔍</span>
+        <h2 style="margin:0; font-size:18px; color:var(--text);">Spotlight Quick-Nav & Feature Palette</h2>
+      </div>
+      <span class="badge" style="font-family:monospace; font-size:11px; padding:3px 8px; border:1px solid var(--spark); color:var(--spark);">⌘K / Ctrl+K</span>
+    </div>
+    <div style="display:flex; gap:8px; margin-bottom:10px;">
+      <input class="field" id="global-feature-search" placeholder="Type to instantly jump to any feature... (e.g. Coffee, Dating, Surf, Festival, Co-Living, Jukebox)" style="flex:1; border-radius:10px; font-size:14px; padding:10px 14px; background:rgba(0,0,0,0.25);">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981); white-space:nowrap; padding:10px 16px;" data-act="clear-feature-search">Clear ✕</button>
+    </div>
+    <div style="display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch;">
+      <button class="pill active" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-all">All Verticals 🌐</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-coffee">☕ Coffee & Nomad</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-dating">🍷 Dating & Drinks</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-sports">🏄 Surf & Sports</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-festivals">⛺ Festivals & Camp</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-housing">🏡 Co-Living & Dine</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-economy">🔄 Barter & Borrow</button>
+      <button class="pill" style="font-size:12px; padding:5px 12px;" data-act="filter-feature-impact">🌊 Eco & Grants</button>
+    </div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08);">
+      <div style="display:flex; gap:6px; align-items:center;">
+        <span style="font-size:12px; color:var(--muted);">🌓 Theme:</span>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-cyber">Cyber 🌌</button>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-sunset">Sunset 🌅</button>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-solar">Solar ☀️</button>
+        <button class="pill" style="font-size:11px; padding:3px 8px;" data-act="theme-default">OLED 🖤</button>
+      </div>
+      <button class="ghost" style="font-size:11px; padding:3px 8px; width:auto;" data-act="test-audio-chime">🔊 Test Haptic Chime</button>
+    </div>
+  </div>`;
+
   if (!state.visions || !state.visions.length) {
     html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
       <h2>Welcome to LifeOS — Voice & Text Intake</h2>
@@ -337,9 +399,15 @@ function todayView() {
         <button class="ghost" style="font-size:10px; padding:2px 8px; margin-top:4px;" onclick="toast('Park Chess Plugin Installed! ♟️');">Install Plugin ⚡</button>
       </div>
     </div>
-    <div class="row2"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
+    <div class="row2" style="margin-bottom:8px;"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
     <input class="field" id="dp-cat" placeholder="Category (e.g. Water Sports)">
-    <button class="primary" data-act="register-dev-plugin">Publish Developer Plugin 🚀</button></div>
+    <button class="primary" data-act="register-dev-plugin">Publish Plugin 🚀</button></div>
+    <div style="display:flex; gap:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #06b6d4); font-size:12px; padding:6px 12px;" data-act="gen-dev-apikey">Provision API Key 🔌</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981); font-size:12px; padding:6px 12px;" data-act="sub-dev-webhook">Register Webhook ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899); font-size:12px; padding:6px 12px;" data-act="test-dev-sandbox">Plugin Sandbox Test 🛠️</button>
+    </div>
+    <div id="developer-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- AI Social Battery & Real-World Balance Shield ---- */
@@ -581,6 +649,51 @@ function todayView() {
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- AI Outing Butler, 1-Tap Split & Nomad House Swap ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(240,169,74,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🤖 AI Butler, 1-Tap Split & House Swap</h2>
+      <span class="badge good" style="font-weight:bold;">Autonomous OS</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">AI Weekend Blueprints, 1-tap Apple Pay group splits, and global apartment swaps!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f0a94a, #f59e0b);" data-act="gen-ai-blueprint">AI Weekend Blueprint 🤖</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="settle-one-tap-split">1-Tap Split (€21.00) 🪄</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="swap-nomad-flat">Nomad House Swap 🌍</button>
+    </div>
+    <div id="ai-butler-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Secret Comedy, Market Cookoff & Sunset Sailing ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(6,182,212,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎭 Speakeasy Comedy, Cook-Off & Sailing</h2>
+      <span class="badge good" style="font-weight:bold;">Adventures</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Intimate 25-person cellar comedy, Sunday farmers market cook-offs, and sunset catamaran charters!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="join-secret-comedy">Secret Comedy (9 PM) 🎭</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #10b981);" data-act="join-market-cookoff">Market Cook-Off 🍳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="join-sunset-sailing">Sunset Catamaran (€30) ⛵</button>
+    </div>
+    <div id="adventure-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Silent Reading, Cold Plunge & Art Crawl ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(139,92,246,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📚 Vinyl Reading, Cold Plunge & Art Crawl</h2>
+      <span class="badge good" style="font-weight:bold;">Culture & Flow</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Phone-free vinyl book lofts, 7 AM sunrise ocean cold plunges, and local gallery wine walks!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="join-silent-reading">Vinyl Reading Lounge 📚</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="join-cold-plunge">Sunrise Cold Plunge ☕</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="join-art-crawl">Gallery Art Crawl 🎨</button>
+    </div>
+    <div id="flow-culture-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -594,6 +707,66 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="reserve-digital-detox">Digital Detox 🧘</button>
     </div>
     <div id="human-needs-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Circular Economy & Barter Swap Hub ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🔄 Circular Economy & Barter Trade Hub</h2>
+      <span class="badge good" style="font-weight:bold;">Zero Cash / Zero Waste</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Trade skills & gear cash-free, borrow neighborhood tools, and earn Time Tokens!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="trade-barter-swap">Trade Skill / Item 🔄</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="borrow-gear-library">Borrow Gear Tent ♻️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #f59e0b);" data-act="earn-time-token">Time Bank (+1 Hr) 🌱</button>
+    </div>
+    <div id="circular-economy-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Live Group Nav, Squad Jukebox & Community Fund ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(99,102,241,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🗺️ Group Nav, Squad Jukebox & Grants</h2>
+      <span class="badge good" style="font-weight:bold;">Live Collaboration</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Turn-by-turn group routing, blended venue music jukebox, and neighborhood impact micro-grants!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="start-group-nav">Start Group Nav 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="sync-squad-jukebox">Squad Jukebox 🎶</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="vote-micro-grant">Community Grant (€1,450) 🏆</button>
+    </div>
+    <div id="collab-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Global City Bridge & Squad Beacon ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(6,182,212,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Global City Bridge & Safety Beacon</h2>
+      <span class="badge good" style="font-weight:bold;">Global & Secure</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live multi-city portal linkups, 1-tap trusted safety escort beacons, and artist residencies!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #6366f1);" data-act="trigger-global-bridge">Global City Bridge (LIS ⟷ TYO) 🌐</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ef4444, #f59e0b);" data-act="trigger-squad-beacon">Squad S.O.S. Beacon ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="award-creator-grant">Creator Grant 💎</button>
+    </div>
+    <div id="global-safety-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Sunset Jam, Analog Film Swap & Eco-Clean ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(240,169,74,0.15)); border:1px solid rgba(236,72,153,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⚡ Sunset Jam, Film Swap & Eco Squad</h2>
+      <span class="badge good" style="font-weight:bold;">Culture & Impact</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Match spontaneous viewpoint sunset music jams, swap 35mm film rolls, and join beach cleanups!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f0a94a);" data-act="join-popup-jam">Sunset Jam (7:30 PM) ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="swap-film-roll">35mm Film Swap 📸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="join-eco-clean">Eco-Clean Squad 🌊</button>
+    </div>
+    <div id="culture-impact-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Evening Sunset Win Ritual ---- */
@@ -3354,6 +3527,325 @@ function wire(root) {
     `;
   }, "Digital Detox Lounge Reserved! 🧘"));
 
+  on("[data-act=trade-barter-swap]", () => act(async () => {
+    const res = await api("/v1/economy/barter-swap", { offering: "1-Hour Surf Lesson", seeking: "Portuguese Conversation Practice" });
+    const out = $("#circular-economy-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🔄 Barter Swap Agreed (${esc(res.cash_saved)} Cash Saved!):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Trading: <strong>${esc(res.offering)}</strong> ➔ <strong>${esc(res.seeking)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Partner: ${esc(res.match_partner)} (Swap ID: ${esc(res.swap_id)})</div>
+      </div>
+    `;
+  }, "Barter Swap Agreed! 🔄"));
+
+  on("[data-act=borrow-gear-library]", () => act(async () => {
+    const res = await api("/v1/economy/community-borrow", { item: "2-Person Camping Tent & Sleeping Bags" });
+    const out = $("#circular-economy-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">♻️ Community Borrow Approved (${esc(res.fee)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Item: <strong>${esc(res.item_name)}</strong> · Owner: ${esc(res.owner_name)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Pickup: ${esc(res.pickup_location)} · Return by ${esc(res.return_by)}</div>
+      </div>
+    `;
+  }, "Community Borrow Approved! ♻️"));
+
+  on("[data-act=earn-time-token]", () => act(async () => {
+    const res = await api("/v1/economy/time-bank", { service: "Helped neighbor fix bicycle chain", hours: 1 });
+    const out = $("#circular-economy-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
+        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🌱 Time Token Earned (+${res.tokens_earned} Hr):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Service: <strong>${esc(res.service)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Total Balance: ${res.current_time_token_balance} Time Tokens (${esc(res.community_karma_bonus)})</div>
+      </div>
+    `;
+  }, "Time Token Earned! 🌱"));
+
+  on("[data-act=start-group-nav]", () => act(async () => {
+    const res = await api("/v1/routing/group-nav", { route_name: "Alfama Sunset Viewpoints Walk" });
+    const out = $("#collab-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🗺️ Group Navigation Active (${res.group_members_on_route} Members Synced):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Route: <strong>${esc(res.route_name)}</strong> · ${res.waypoints_count} Waypoints</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Next Turn: ${esc(res.next_turn)}</div>
+      </div>
+    `;
+  }, "Group Turn-by-Turn Navigation Started! 🗺️"));
+
+  on("[data-act=sync-squad-jukebox]", () => act(async () => {
+    const res = await api("/v1/music/squad-jukebox", { venue: "Fabrica Coffee Baixa" });
+    const out = $("#collab-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎶 Squad Jukebox Synced (${esc(res.venue)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Now Playing: <strong>${esc(res.now_playing)}</strong></div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Playlist: ${esc(res.blended_playlist)} (${res.tracks_queued} tracks queued)</div>
+      </div>
+    `;
+  }, "Squad Jukebox Synced! 🎶"));
+
+  on("[data-act=vote-micro-grant]", () => act(async () => {
+    const res = await api("/v1/community/micro-grants", { project: "Neighborhood Surfboard Rescue Stand @ Carcavelos" });
+    const out = $("#collab-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏆 Community Grant Vote Cast (${esc(res.grant_status)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Project: <strong>${esc(res.project_name)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Fund Pool: ${esc(res.community_fund_pool)} · ${res.votes_count} Votes</div>
+      </div>
+    `;
+  }, "Community Grant Vote Cast! 🏆"));
+
+  on("[data-act=join-popup-jam]", () => act(async () => {
+    const res = await api("/v1/creatives/pop-up-jam", { instrument: "Acoustic Guitar", location: "Miradouro de Santa Catarina" });
+    const out = $("#culture-impact-output");
+    if (!out) return;
+    const members = res.jam_members || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">⚡ Sunset Pop-Up Jam Matched (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Spot: <strong>${esc(res.location)}</strong> · Playing: ${esc(res.instrument)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Musicians: ${members.join(" · ")}</div>
+      </div>
+    `;
+  }, "Sunset Pop-Up Jam Matched! ⚡"));
+
+  on("[data-act=swap-film-roll]", () => act(async () => {
+    const res = await api("/v1/memories/analog-film-swap", { outing_id: "OUTING-8821" });
+    const out = $("#culture-impact-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">📸 Analog 35mm Film Roll Synced (${res.photos_scanned} Scans):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Film: <strong>${esc(res.film_stock)}</strong> · Outing: ${esc(res.outing_id)}</div>
+        <div style="font-size:11px; color:var(--spark);">Album Link: ${esc(res.shared_album_url)}</div>
+      </div>
+    `;
+  }, "Analog 35mm Film Roll Synced! 📸"));
+
+  on("[data-act=join-eco-clean]", () => act(async () => {
+    const res = await api("/v1/impact/eco-clean-crew", { beach: "Carcavelos Surf Beach" });
+    const out = $("#culture-impact-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌊 Eco-Clean Squad Confirmed (${res.crew_size} Legends):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · ${esc(res.duration)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: ${esc(res.karma_awarded)} & ${esc(res.reward_coffee_voucher)}</div>
+      </div>
+    `;
+  }, "Eco-Clean Squad Confirmed! 🌊"));
+
+  on("[data-act=trigger-global-bridge]", () => act(async () => {
+    const res = await api("/v1/culture/global-bridge", { city_a: "Lisbon", city_b: "Tokyo" });
+    const out = $("#global-safety-output");
+    if (!out) return;
+    const features = res.interactive_features || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🌐 Global Twin City Bridge Live (${esc(res.cities)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue Portal: <strong>${esc(res.live_portal_venue)}</strong> · ${res.participants_count} Live Members</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Features: ${features.join(" · ")}</div>
+      </div>
+    `;
+  }, "Global Twin City Bridge Activated! 🌐"));
+
+  on("[data-act=trigger-squad-beacon]", () => act(async () => {
+    const res = await api("/v1/safety/squad-beacon", { location: "Cais do Sodre @ 2:30 AM" });
+    const out = $("#global-safety-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ef4444;">
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">⚡ Squad Safety Beacon Active (${res.trusted_crew_notified} Crew Notified):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · Battery: <strong>${esc(res.battery_level)}</strong></div>
+        <div style="font-size:11px; color:var(--growth);">Safe Ride Link: ${esc(res.safe_uber_link)}</div>
+      </div>
+    `;
+  }, "Squad Emergency Beacon Triggered! ⚡"));
+
+  on("[data-act=award-creator-grant]", () => act(async () => {
+    const res = await api("/v1/culture/creator-residency", { creator_name: "Lucas V. (Acoustic Ambient Composer)" });
+    const out = $("#global-safety-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">💎 Creator Residency Awarded (${esc(res.duration)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Artist: <strong>${esc(res.creator_name)}</strong> · ${esc(res.residency_villa)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Stipend: ${esc(res.stipend)} · ${res.community_votes} Community Votes</div>
+      </div>
+    `;
+  }, "Creator Residency Awarded! 💎"));
+
+  on("[data-act=gen-ai-blueprint]", () => act(async () => {
+    const res = await api("/v1/ai/outing-butler", { weekend: "Saturday & Sunday" });
+    const out = $("#ai-butler-output");
+    if (!out) return;
+    const schedule = (res.curated_schedule || []).map((s) => `• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} (with ${s.crew.join(", ")})`).join("<br>");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
+        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:6px;">🤖 Perfect Weekend Blueprint Generated (${esc(res.weekend)}):</div>
+        <div style="font-size:12.5px; line-height:1.5; margin-bottom:6px;">${schedule}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Est. Cost: ${esc(res.estimated_cost)}</div>
+      </div>
+    `;
+  }, "AI Weekend Blueprint Generated! 🤖"));
+
+  on("[data-act=settle-one-tap-split]", () => act(async () => {
+    const res = await api("/v1/payments/one-tap-settle", { bill_total: "€84.00", members_count: 4 });
+    const out = $("#ai-butler-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🪄 1-Tap Split Settled (${esc(res.split_per_person)} / person):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Total Bill: <strong>${esc(res.bill_total)}</strong> · Split across ${res.members_count} members</div>
+        <div style="font-size:11px; color:var(--spark);">Revolut Link: ${esc(res.revolut_link)} (Apple Pay Ready )</div>
+      </div>
+    `;
+  }, "1-Tap Split Settled! 🪄"));
+
+  on("[data-act=swap-nomad-flat]", () => act(async () => {
+    const res = await api("/v1/housing/nomad-house-swap", { home_city: "Lisbon (Alfama Flat)", destination_city: "Tokyo (Shibuya Loft)" });
+    const out = $("#ai-butler-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌍 Nomad House Swap Confirmed (${esc(res.duration)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Swap: <strong>${esc(res.home_city)} ⟷ ${esc(res.destination_city)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.trust_verification)} · ${esc(res.cost_saved)}</div>
+      </div>
+    `;
+  }, "Nomad House Swap Confirmed! 🌍"));
+
+  on("[data-act=join-secret-comedy]", () => act(async () => {
+    const res = await api("/v1/culture/secret-comedy", { venue: "Alfama Cellar Speakeasy" });
+    const out = $("#adventure-output");
+    if (!out) return;
+    const lineup = res.lineup || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎭 Secret Comedy Speakeasy Confirmed (${esc(res.show_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> (${esc(res.capacity)})</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Passcode: ${esc(res.secret_passcode)} · Lineup: ${lineup.join(", ")}</div>
+      </div>
+    `;
+  }, "Secret Comedy Speakeasy Confirmed! 🎭"));
+
+  on("[data-act=join-market-cookoff]", () => act(async () => {
+    const res = await api("/v1/dining/market-cookoff", { market: "Mercado da Ribeira Organic Market" });
+    const out = $("#adventure-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍳 Farmers Market Cook-Off Confirmed (${res.crew_size} Food Lovers):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Meeting: <strong>${esc(res.meeting_time)}</strong> · Menu: ${esc(res.menu_vibe)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Split Cost: ${esc(res.split_cost)} (Fresh Organic Produce)</div>
+      </div>
+    `;
+  }, "Farmers Market Cook-Off Confirmed! 🍳"));
+
+  on("[data-act=join-sunset-sailing]", () => act(async () => {
+    const res = await api("/v1/outdoors/sunset-sailing", { harbor: "Belém Marina (Lisbon)" });
+    const out = $("#adventure-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⛵ Sunset Catamaran Co-Share Confirmed (${res.passengers} Passengers):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Vessel: <strong>${esc(res.vessel)}</strong> · Departure: ${esc(res.departure)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Skipper Split: ${esc(res.skipper_split)} from ${esc(res.harbor)}</div>
+      </div>
+    `;
+  }, "Sunset Catamaran Co-Share Confirmed! ⛵"));
+
+  on("[data-act=join-silent-reading]", () => act(async () => {
+    const res = await api("/v1/culture/silent-reading", { loft: "Alfama Loft Vinyl & Book Lounge" });
+    const out = $("#flow-culture-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">📚 Silent Reading Lounge Confirmed (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Loft: <strong>${esc(res.loft)}</strong> · Playing: ${esc(res.vinyl_record_playing)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Includes: ${esc(res.complimentary_tea)} · ${res.attendees_count} Readers</div>
+      </div>
+    `;
+  }, "Silent Reading Lounge Confirmed! 📚"));
+
+  on("[data-act=join-cold-plunge]", () => act(async () => {
+    const res = await api("/v1/wellness/cold-plunge", { beach: "Cais do Ginjal / Carcavelos" });
+    const out = $("#flow-culture-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">☕ Sunrise Cold Plunge Squad Confirmed (${res.crew_size} Legends):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Meeting: <strong>${esc(res.meeting_time)}</strong> · Water: ${esc(res.water_temp)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Reward: ${esc(res.post_plunge_reward)}</div>
+      </div>
+    `;
+  }, "Sunrise Cold Plunge Squad Confirmed! ☕"));
+
+  on("[data-act=join-art-crawl]", () => act(async () => {
+    const res = await api("/v1/creatives/art-crawl", { district: "Santos Art & Design District" });
+    const out = $("#flow-culture-output");
+    if (!out) return;
+    const artists = res.featured_artists || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎨 Art Gallery Crawl Confirmed (${res.stops_count} Curated Studios):</div>
+        <div style="font-size:13px; margin-bottom:4px;">District: <strong>${esc(res.district)}</strong> (${esc(res.tour_time)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Artists: ${artists.join(", ")} · ${esc(res.wine_pairing)}</div>
+      </div>
+    `;
+  }, "Art Gallery Crawl Confirmed! 🎨"));
+
+  on("[data-act=gen-dev-apikey]", () => act(async () => {
+    const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
+    const out = $("#developer-output");
+    if (!out) return;
+    const scopes = res.scopes || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔌 Developer API Key Provisioned (${esc(res.environment)}):</div>
+        <div style="font-family:monospace; font-size:12px; background:rgba(0,0,0,0.3); padding:6px; border-radius:6px; margin-bottom:4px; color:var(--growth);">${esc(res.api_key)}</div>
+        <div style="font-size:12px; color:var(--muted);">Rate Limit: ${esc(res.rate_limit)} · Scopes: ${scopes.join(", ")}</div>
+      </div>
+    `;
+  }, "Developer API Key Provisioned! 🔌"));
+
+  on("[data-act=sub-dev-webhook]", () => act(async () => {
+    const res = await api("/v1/developers/webhooks", { target_url: "https://api.myapp.com/webhooks/connectos" });
+    const out = $("#developer-output");
+    if (!out) return;
+    const events = res.subscribed_events || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⚡ Webhook Active (${events.length} Events):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Target: <strong>${esc(res.target_url)}</strong></div>
+        <div style="font-size:11px; color:var(--spark);">Signing Secret: ${esc(res.signing_secret)} (${esc(res.signature_header)})</div>
+      </div>
+    `;
+  }, "Webhook Subscribed! ⚡"));
+
+  on("[data-act=test-dev-sandbox]", () => act(async () => {
+    const res = await api("/v1/developers/plugin-sandbox", { plugin_id: "com.windydev.kitesurf-radar" });
+    const out = $("#developer-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🛠️ Plugin Sandbox Verified (${esc(res.store_status)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Plugin: <strong>${esc(res.plugin_id)}</strong> (${esc(res.sdk_version)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Rev-Share: ${esc(res.monetization_tier)}</div>
+      </div>
+    `;
+  }, "Plugin Sandbox Tested & Published! 🛠️"));
+
   on("[data-act=switch-nomad-city]", () => act(async () => {
     const target = $("#np-city").value.trim() || "Tokyo";
     const res = await api("/v1/nomad/city-switch", { target_city: target });
@@ -3368,6 +3860,116 @@ function wire(root) {
       </div>
     `;
   }, "Teleported City via Nomad Passport! 🌐"));
+
+  /* ---- Web Audio Haptic Chimes & Theme Engine ---- */
+  function playChime(freq = 520, type = "sine") {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(freq * 1.5, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+    } catch (_) {}
+  }
+
+  on("[data-act=test-audio-chime]", () => {
+    playChime(640, "triangle");
+    toast("🔊 Haptic Audio Chime Played!");
+  });
+
+  on("[data-act=theme-cyber]", () => {
+    document.body.className = "theme-cyber";
+    playChime(520);
+    toast("🌓 Cyber Dark Theme Activated! 🌌");
+  });
+
+  on("[data-act=theme-sunset]", () => {
+    document.body.className = "theme-sunset";
+    playChime(580);
+    toast("🌅 Sunset Amber Theme Activated! 🌅");
+  });
+
+  on("[data-act=theme-solar]", () => {
+    document.body.className = "theme-solar";
+    playChime(660);
+    toast("☀️ Solar Theme Activated! ☀️");
+  });
+
+  on("[data-act=theme-default]", () => {
+    document.body.className = "";
+    playChime(440);
+    toast("🖤 OLED Pure Dark Theme Restored!");
+  });
+
+  /* ---- Universal Feature Spotlight & Command Palette (⌘K) ---- */
+  const searchInput = $("#global-feature-search");
+  if (searchInput) {
+    searchInput.addEventListener("input", (e) => {
+      const q = e.target.value.toLowerCase().trim();
+      document.querySelectorAll(".card").forEach((card) => {
+        if (!q) {
+          card.style.display = "";
+          return;
+        }
+        const text = card.textContent.toLowerCase();
+        if (text.includes(q) || card.querySelector("#global-feature-search")) {
+          card.style.display = "";
+        } else {
+          card.style.display = "none";
+        }
+      });
+    });
+  }
+
+  window.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+      e.preventDefault();
+      const el = $("#global-feature-search");
+      if (el) {
+        el.focus();
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }
+  });
+
+  on("[data-act=clear-feature-search]", () => {
+    const el = $("#global-feature-search");
+    if (el) {
+      el.value = "";
+      el.dispatchEvent(new Event("input"));
+    }
+  });
+
+  const filterPills = [
+    { act: "filter-feature-all", query: "" },
+    { act: "filter-feature-coffee", query: "coffee" },
+    { act: "filter-feature-dating", query: "dating" },
+    { act: "filter-feature-sports", query: "sports" },
+    { act: "filter-feature-festivals", query: "festival" },
+    { act: "filter-feature-housing", query: "co-living" },
+    { act: "filter-feature-economy", query: "barter" },
+    { act: "filter-feature-impact", query: "eco" },
+  ];
+
+  filterPills.forEach(({ act: actName, query }) => {
+    on(`[data-act=${actName}]`, () => {
+      const el = $("#global-feature-search");
+      if (el) {
+        el.value = query;
+        el.dispatchEvent(new Event("input"));
+        toast(query ? `Filtered by ${query} 🔍` : "Showing all features 🌐");
+      }
+    });
+  });
 
   on("[data-act=gen-memory-capsule]", () => act(async () => {
     const res = await api("/v1/memories/highlight-reel", { title: "Lisbon Sunset Rooftop Drinks" });

@@ -10,6 +10,8 @@ recorded-shape fixtures, not proof the live API matches — which is exactly why
 is written to survive a payload that is not what the docs say.
 """
 
+import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -45,6 +47,23 @@ def unkeyed(monkeypatch):
 def _fetch(url, params):
     assert params["apikey"] == KEY, "the key must actually be sent"
     return PAYLOAD
+
+
+def _payload_relative(url=None, params=None):
+    """PAYLOAD with its two listings moved to tomorrow and the day after."""
+    if params is not None:
+        assert params["apikey"] == KEY, "the key must actually be sent"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    first, second = now + datetime.timedelta(days=1), now + datetime.timedelta(days=2)
+    return {"_embedded": {"events": [
+        {"id": "tm-1", "name": "Nina Kraviz", "url": "https://tm.example/tm-1",
+         "dates": {"start": {"dateTime": first.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                             "localDate": first.strftime("%Y-%m-%d")}},
+         "_embedded": {"venues": [{"name": "Lux Frágil", "city": {"name": "Lisbon"}}]}},
+        {"id": "tm-2", "name": "Date-only listing",
+         "dates": {"start": {"localDate": second.strftime("%Y-%m-%d")}},
+         "_embedded": {"venues": [{"name": "Coliseu"}]}},
+    ]}}
 
 
 # ---- the rule ----------------------------------------------------------------
@@ -206,7 +225,10 @@ def test_the_horizon_applies_to_providers_too(graph, keyed, monkeypatch):
 
 def test_the_endpoints_work(cfg, monkeypatch):
     monkeypatch.setenv(ticketmaster.ENV_VAR, KEY)
-    monkeypatch.setattr(ticketmaster, "_fetch", _fetch)
+    # Every other test here pins the clock with `now=TUE` and can use PAYLOAD as written.
+    # This one goes through HTTP, which has no clock seam, so its listings have to be dated
+    # relative to today or the test expires a couple of days after it is written.
+    monkeypatch.setattr(ticketmaster, "_fetch", _payload_relative)
     client = TestClient(create_app(cfg))
 
     listed = client.get("/v1/feeds/providers").json()["providers"]

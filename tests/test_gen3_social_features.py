@@ -330,3 +330,115 @@ def test_human_deep_needs_features(cfg):
     res3 = client.post("/v1/wellness/digital-detox", json={"duration": "2 Hours"})
     assert res3.status_code == 200
     assert res3.json()["session_joined"] is True
+
+def test_circular_economy_features(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/economy/barter-swap", json={"offering": "Surf Lesson", "seeking": "Portuguese"})
+    assert res1.status_code == 200
+    assert res1.json()["swapped"] is True
+
+    res2 = client.post("/v1/economy/community-borrow", json={"item": "Camping Tent"})
+    assert res2.status_code == 200
+    assert res2.json()["borrowed"] is True
+
+    res3 = client.post("/v1/economy/time-bank", json={"service": "Bicycle repair", "hours": 1})
+    assert res3.status_code == 200
+    assert res3.json()["tokens_earned"] == 1
+
+def test_group_collab_and_micro_grants(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/routing/group-nav", json={"route_name": "Sunset Walk"})
+    assert res1.status_code == 200
+    assert res1.json()["navigation_active"] is True
+
+    res2 = client.post("/v1/music/squad-jukebox", json={"venue": "Fabrica Coffee"})
+    assert res2.status_code == 200
+    assert res2.json()["jukebox_synced"] is True
+
+    res3 = client.post("/v1/community/micro-grants", json={"project": "Rescue Stand"})
+    assert res3.status_code == 200
+    assert res3.json()["grant_voted"] is True
+
+def test_popup_jam_film_and_eco_clean(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/creatives/pop-up-jam", json={"instrument": "Guitar"})
+    assert res1.status_code == 200
+    assert res1.json()["jam_matched"] is True
+
+    res2 = client.post("/v1/memories/analog-film-swap", json={"outing_id": "OUTING-8821"})
+    assert res2.status_code == 200
+    assert res2.json()["film_roll_synced"] is True
+
+    res3 = client.post("/v1/impact/eco-clean-crew", json={"beach": "Carcavelos"})
+    assert res3.status_code == 200
+    assert res3.json()["eco_session_joined"] is True
+
+def test_global_bridge_beacon_and_residency(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/culture/global-bridge", json={"city_a": "Lisbon", "city_b": "Tokyo"})
+    assert res1.status_code == 200
+    assert res1.json()["bridge_active"] is True
+
+    res2 = client.post("/v1/safety/squad-beacon", json={"location": "Cais do Sodre"})
+    assert res2.status_code == 200
+    assert res2.json()["beacon_triggered"] is True
+
+    res3 = client.post("/v1/culture/creator-residency", json={"creator_name": "Lucas V."})
+    assert res3.status_code == 200
+    assert res3.json()["grant_awarded"] is True
+
+def test_ai_butler_magic_split_and_house_swap(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/outing-butler", json={"weekend": "Saturday"})
+    assert res1.status_code == 200
+    assert res1.json()["blueprint_generated"] is True
+
+    res2 = client.post("/v1/payments/one-tap-settle", json={"bill_total": "€84.00", "members_count": 4})
+    assert res2.status_code == 200
+    assert res2.json()["split_settled"] is True
+
+    res3 = client.post("/v1/housing/nomad-house-swap", json={"home_city": "Lisbon", "destination_city": "Tokyo"})
+    assert res3.status_code == 200
+    assert res3.json()["swap_confirmed"] is True
+
+def test_comedy_market_and_sunset_sailing(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/culture/secret-comedy", json={"venue": "Alfama Cellar"})
+    assert res1.status_code == 200
+    assert res1.json()["comedy_booked"] is True
+
+    res2 = client.post("/v1/dining/market-cookoff", json={"market": "Mercado da Ribeira"})
+    assert res2.status_code == 200
+    assert res2.json()["cookoff_crew_joined"] is True
+
+    res3 = client.post("/v1/outdoors/sunset-sailing", json={"harbor": "Belem"})
+    assert res3.status_code == 200
+    assert res3.json()["sailing_charter_confirmed"] is True
+
+def test_reading_cold_plunge_and_art_crawl(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/culture/silent-reading", json={"loft": "Alfama Loft"})
+    assert res1.status_code == 200
+    assert res1.json()["reading_session_booked"] is True
+
+    res2 = client.post("/v1/wellness/cold-plunge", json={"beach": "Cais do Ginjal"})
+    assert res2.status_code == 200
+    assert res2.json()["plunge_crew_joined"] is True
+
+    res3 = client.post("/v1/creatives/art-crawl", json={"district": "Santos"})
+    assert res3.status_code == 200
+    assert res3.json()["crawl_confirmed"] is True
+
+def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/developers/api-keys", json={"app_name": "Wind Radar"})
+    assert res1.status_code == 200
+    assert res1.json()["key_generated"] is True
+
+    res2 = client.post("/v1/developers/webhooks", json={"target_url": "https://api.myapp.com/webhooks"})
+    assert res2.status_code == 200
+    assert res2.json()["webhook_registered"] is True
+
+    res3 = client.post("/v1/developers/plugin-sandbox", json={"plugin_id": "com.windydev.radar"})
+    assert res3.status_code == 200
+    assert res3.json()["sandbox_tested"] is True

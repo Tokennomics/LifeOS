@@ -6,6 +6,7 @@ the module, because that is how they will be read if one of them ever fails agai
 """
 
 import os
+import pathlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -462,3 +463,80 @@ def test_a_junk_port_falls_back_rather_than_crashing(monkeypatch):
     monkeypatch.delenv("LIFEOS_HOST", raising=False)
     host, port = launch.resolve_bind()
     assert port == 8000 and host == "0.0.0.0"
+
+
+# ---- no vendor-shaped credentials in the tree --------------------------------
+
+# Assembled at import time rather than written out, so this file does not trip its own scan.
+# Each entry is (vendor, prefix) where the prefix is the part vendors guarantee.
+_VENDOR_PREFIXES = [
+    ("Stripe secret key", "sk_" + "live_"),
+    ("Stripe test key", "sk_" + "test_"),
+    ("Stripe webhook signing secret", "wh" + "sec_"),
+    ("Stripe restricted key", "rk_" + "live_"),
+    ("GitHub personal token", "gh" + "p_"),
+    ("GitHub fine-grained token", "github" + "_pat_"),
+    ("AWS access key id", "AKI" + "A"),
+    ("Slack bot token", "xox" + "b-"),
+    ("Google API key", "AIza" + "Sy"),
+    ("Anthropic API key", "sk-" + "ant-"),
+    ("OpenAI key", "sk-" + "proj-"),
+]
+
+_SCANNED_SUFFIXES = (".py", ".js", ".json", ".yml", ".yaml", ".md", ".html", ".toml", ".sh")
+
+
+def _tracked_files():
+    """git ls-files, so vendored deps and local scratch never enter the scan."""
+    import subprocess
+    root = pathlib.Path(__file__).resolve().parent.parent
+    out = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True)
+    for line in out.stdout.splitlines():
+        path = root / line
+        if path.suffix in _SCANNED_SUFFIXES and path.is_file():
+            yield path
+
+
+def test_no_vendor_credential_prefixes_are_committed():
+    """A GitHub secret-scanning alert fired on `gateway/modules_api.py` for a Stripe webhook
+    signing secret. The value was invented — this repo has never integrated Stripe — but it
+    was spelled in Stripe's namespace, published on a public repo, and handed identically to
+    every caller, which is a broken signing secret quite apart from the alert.
+
+    The lesson is not "remove that one string". It is that code arrives here from several
+    tools, and demo data that *looks* like a credential reads as a real leak to anyone
+    scanning, including GitHub. Catch it in CI, not three days later in an email.
+
+    If this fails on a genuinely fake value: do not add an ignore. Mint it at runtime
+    (`_issued_credential`) or use a prefix that is not some vendor's."""
+    hits = []
+    here = pathlib.Path(__file__).resolve()
+    for path in _tracked_files():
+        if path == here:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for vendor, prefix in _VENDOR_PREFIXES:
+            index = text.find(prefix)
+            if index != -1:
+                line = text.count("\n", 0, index) + 1
+                hits.append(f"{path.name}:{line} looks like a {vendor}")
+    assert hits == [], "credential-shaped literals committed: " + "; ".join(hits)
+
+
+def test_an_issued_credential_is_never_the_same_twice(world):
+    """The whole point of the fix. Two provisioning calls that return one shared string are
+    worse than no secret at all, because callers will trust it to authenticate a webhook."""
+    client, headers = world["c"], world["h"]["ana"]
+    first = client.post("/v1/developers/webhooks", headers=headers,
+                        json={"target_url": "https://a.example/hook"}).json()
+    second = client.post("/v1/developers/webhooks", headers=headers,
+                         json={"target_url": "https://b.example/hook"}).json()
+    assert first["signing_secret"] != second["signing_secret"]
+    assert len(first["signing_secret"]) >= 32
+
+    keys = {client.post("/v1/developers/api-keys", headers=headers,
+                        json={"app_name": "x"}).json()["api_key"] for _ in range(3)}
+    assert len(keys) == 3

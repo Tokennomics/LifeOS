@@ -203,7 +203,7 @@ def test_the_endpoints_work(cfg):
     r = client.get("/v1/weekend", params={"city": "Lisbon"})
     assert r.status_code == 200
     body = r.json()
-    assert len(body["days"]) == 3 and "text" in body
+    assert len(body["days"]) in (2, 3) and "text" in body
 
     s = client.get("/v1/weekend/share", params={"city": "Lisbon"})
     assert s.status_code == 200

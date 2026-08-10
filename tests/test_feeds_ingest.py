@@ -1,5 +1,7 @@
 """Venue feeds into the graph: ownership, dedupe, bounds, and failure that stays local."""
 
+import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -30,6 +32,33 @@ DTEND:20260809T220000Z
 END:VEVENT
 END:VCALENDAR
 """
+
+
+def ics_relative(*day_offsets):
+    """An ICS whose events sit a fixed number of days from *today*.
+
+    `ICS` above is pinned to real dates, which is fine everywhere it is passed with
+    `now=TUE` — those tests carry their own clock and stay deterministic forever. Tests that
+    go through the gateway or the scheduler have no clock seam: they run against the real
+    `datetime.now()`. With absolute dates they pass on the day they are written and then
+    silently rot, failing once the calendar walks past `ingest.STALE_DAYS` — which is
+    exactly what happened, three days after these were written, to six tests at once.
+
+    A test that only passes in the week it was authored is not testing the horizon, it is
+    testing the wall clock. Offsets keep it honest.
+    """
+    when = datetime.datetime.now(datetime.timezone.utc)
+    events = "".join(
+        "BEGIN:VEVENT\nUID:rel-{i}\nSUMMARY:Night {i}\nDTSTART:{s}\nDTEND:{e}\n"
+        "LOCATION:Cais do Sodré\nEND:VEVENT\n".format(
+            i=i,
+            s=(when + datetime.timedelta(days=offset)).strftime("%Y%m%dT%H%M%SZ"),
+            e=(when + datetime.timedelta(days=offset, hours=3)).strftime("%Y%m%dT%H%M%SZ"))
+        for i, offset in enumerate(day_offsets))
+    return "BEGIN:VCALENDAR\n" + events + "END:VCALENDAR\n"
+
+
+ICS_SOON = ics_relative(1, 2)
 
 
 @pytest.fixture
@@ -186,7 +215,7 @@ def test_one_bad_feed_does_not_stop_the_others(world, monkeypatch):
     def fetch(url):
         if "dead" in url:
             raise OSError("nope")
-        return ICS
+        return ICS_SOON
     monkeypatch.setattr(ingest, "_fetch", fetch)
 
     result = ingest.sync_all(world["ana"])
@@ -233,7 +262,7 @@ def test_the_endpoints_work(cfg):
     assert added.status_code == 200
     feed_id = added.json()["feed_id"]
 
-    synced = client.post(f"/v1/feeds/{feed_id}/sync", json={"text": ICS})
+    synced = client.post(f"/v1/feeds/{feed_id}/sync", json={"text": ICS_SOON})
     assert synced.status_code == 200 and synced.json()["added"] == 2
     assert client.get("/v1/feeds").json()["feeds"][0]["venue"] == "Lux"
     assert client.delete(f"/v1/feeds/{feed_id}").json()["removed"] is True

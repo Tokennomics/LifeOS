@@ -3,6 +3,7 @@ Ledger, Calibre, Hearth). Mounted by gateway.main; handlers pull graph/claude of
 app.state. Every endpoint works with zero API keys (offline fallbacks in the modules)."""
 
 import os
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -718,6 +719,23 @@ def _serialize_event(session, event: dict) -> dict:
     return {"id": event["id"], "title": a.get("title", ""), "start": a.get("start", ""),
             "place": a.get("place", ""), "url": a.get("url", ""), "status": a.get("status", ""),
             "invited": len(a.get("invited", [])), "yes": yes_names, "no": len(a.get("no", []))}
+
+
+def _issued_credential(prefix: str) -> str:
+    """Mint a fresh credential-shaped string for a demo endpoint that hands one out.
+
+    Two reasons this is not a constant. The obvious one: a constant checked into a public
+    repo is a published credential, and GitHub's scanner said so — the previous values were
+    spelled in Stripe's reserved key namespaces, so they read as a live API key and a live
+    webhook signing secret. Borrowing another vendor's prefix for fake data is how you get a
+    "possible valid secret" alert on a repo that has never integrated that vendor.
+
+    The less obvious one, and the actual bug: every caller got the *same* string. A shared
+    "signing secret" verifies nothing — anyone who has ever hit the endpoint can forge every
+    other tenant's webhook. Minting per call is the only version of this that is not
+    actively misleading, whatever the endpoint grows into later.
+    """
+    return f"{prefix}_{secrets.token_hex(16)}"
 
 
 def build_router(auth) -> APIRouter:
@@ -2858,6 +2876,284 @@ def build_router(auth) -> APIRouter:
             "message": "⚡ 1-Tap QR Check-In Complete! Checked into Fabrica Coffee Roasters, joined active squad & PoP badge minted!"
         }
 
+    @router.post("/routing/group-nav")
+    def live_group_routing_nav_endpoint(request: Request, body: dict):
+        route_name = body.get("route_name", "Alfama Sunset Viewpoints Walk").strip()
+        return {
+            "navigation_active": True,
+            "route_name": route_name,
+            "waypoints_count": 4,
+            "group_members_on_route": 6,
+            "live_sync_interval": "1.5s",
+            "next_turn": "Turn left at Miradouro de Santa Luzia in 80m",
+            "message": f"🗺️ Live Group Navigation Active! 6 members synced on '{route_name}'."
+        }
+
+    @router.post("/music/squad-jukebox")
+    def crowdsourced_squad_jukebox_endpoint(request: Request, body: dict):
+        venue = body.get("venue", "Fabrica Coffee Baixa").strip()
+        return {
+            "jukebox_synced": True,
+            "venue": venue,
+            "blended_playlist": "Lisbon Chill Tech & Deep House Blend",
+            "tracks_queued": 18,
+            "now_playing": "Bicep - Glue (Ambient Mix)",
+            "message": f"🎶 Squad Jukebox Synced! Blended music profile active for {venue}."
+        }
+
+    @router.post("/community/micro-grants")
+    def community_micro_grants_endpoint(request: Request, body: dict):
+        project = body.get("project", "Neighborhood Surfboard Rescue Stand @ Carcavelos").strip()
+        return {
+            "grant_voted": True,
+            "project_name": project,
+            "community_fund_pool": "€1,450.00",
+            "votes_count": 48,
+            "grant_status": "FUNDED_AND_APPROVED",
+            "message": f"🏆 Community Grant Vote Cast! '{project}' funded with €1,450 from community pool!"
+        }
+
+    @router.post("/creatives/pop-up-jam")
+    def spontaneous_pop_up_jam_endpoint(request: Request, body: dict):
+        instrument = body.get("instrument", "Acoustic Guitar").strip()
+        location = body.get("location", "Miradouro de Santa Catarina").strip()
+        return {
+            "jam_matched": True,
+            "instrument": instrument,
+            "location": location,
+            "session_time": "Today @ 7:30 PM (Sunset)",
+            "jam_members": ["Elena (Vocals)", "Marcus (Saxophone)", "You (Acoustic Guitar)"],
+            "message": f"⚡ Sunset Pop-Up Jam Matched! 3 musicians jamming at {location} today @ 7:30 PM!"
+        }
+
+    @router.post("/memories/analog-film-swap")
+    def analog_film_photo_swap_endpoint(request: Request, body: dict):
+        outing_id = body.get("outing_id", "OUTING-8821").strip()
+        return {
+            "film_roll_synced": True,
+            "outing_id": outing_id,
+            "film_stock": "Kodak Portra 400 & Fujifilm Superia",
+            "photos_scanned": 12,
+            "shared_album_url": "https://connectos.app/film/outing-8821.roll",
+            "message": f"📸 Analog 35mm Film Roll Synced! 12 vintage scans unlocked for Outing {outing_id}."
+        }
+
+    @router.post("/impact/eco-clean-crew")
+    def eco_clean_ocean_mountain_endpoint(request: Request, body: dict):
+        beach = body.get("beach", "Carcavelos Surf Beach").strip()
+        return {
+            "eco_session_joined": True,
+            "location": beach,
+            "crew_size": 14,
+            "duration": "20-Min Pre-Surf Beach Clean",
+            "karma_awarded": "+100 Social Impact Karma",
+            "reward_coffee_voucher": "Free Specialty Batch Brew @ Fabrica",
+            "message": f"🌊 Eco-Clean Squad Confirmed! Joined 14 legends at {beach} (+100 Karma & Free Coffee voucher)!"
+        }
+
+    @router.post("/culture/global-bridge")
+    def global_city_bridge_endpoint(request: Request, body: dict):
+        city_a = body.get("city_a", "Lisbon").strip()
+        city_b = body.get("city_b", "Tokyo").strip()
+        return {
+            "bridge_active": True,
+            "cities": f"{city_a} ⟷ {city_b}",
+            "live_portal_venue": "Miradouro Rooftop (Lisbon) ➔ Shibuya Sky Lounge (Tokyo)",
+            "participants_count": 84,
+            "interactive_features": ["Live Sunset DJ Stream", "Real-Time Chat Portal", "Shared Digital Guestbook"],
+            "message": f"🌐 Global Bridge Live! Twin linkup active between {city_a} and {city_b} (84 participants)!"
+        }
+
+    @router.post("/safety/squad-beacon")
+    def squad_emergency_beacon_endpoint(request: Request, body: dict):
+        location = body.get("location", "Cais do Sodre @ 2:30 AM").strip()
+        return {
+            "beacon_triggered": True,
+            "location": location,
+            "battery_level": "88%",
+            "trusted_crew_notified": 4,
+            "safe_uber_link": "https://uber.com/ride?safe_token=CREW-8921",
+            "message": f"⚡ Squad Safety Beacon Active! 4 trusted crew members alerted with live GPS & safe ride route."
+        }
+
+    @router.post("/culture/creator-residency")
+    def creator_residency_grant_endpoint(request: Request, body: dict):
+        creator = body.get("creator_name", "Lucas V. (Acoustic Ambient Composer)").strip()
+        return {
+            "grant_awarded": True,
+            "creator_name": creator,
+            "residency_villa": "Santos Nomad Creative Villa",
+            "duration": "1-Month Funded Residency",
+            "stipend": "€1,200/mo + Studio Space",
+            "community_votes": 62,
+            "message": f"💎 Creator Residency Awarded! {creator} funded for 1 month at Santos Nomad Villa (€1,200 stipend)."
+        }
+
+    @router.post("/ai/outing-butler")
+    def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
+        weekend = body.get("weekend", "Saturday & Sunday").strip()
+        return {
+            "blueprint_generated": True,
+            "weekend": weekend,
+            "curated_schedule": [
+                {"time": "08:00 AM", "activity": "Dawn Patrol Surf @ Carcavelos (4ft Swell)", "crew": ["Marco", "Sofia"]},
+                {"time": "01:00 PM", "activity": "Specialty Brunch @ Fabrica Coffee Baixa", "crew": ["Inês", "Alex"]},
+                {"time": "07:30 PM", "activity": "Sunset Acoustic Jam @ Miradouro Santa Catarina", "crew": ["Elena", "Lucas"]}
+            ],
+            "estimated_cost": "€24.00 (split)",
+            "message": f"🤖 AI Outing Butler Generated your Perfect Weekend Blueprint! 3 seamless outings planned."
+        }
+
+    @router.post("/payments/one-tap-settle")
+    def one_tap_magic_split_settle_endpoint(request: Request, body: dict):
+        bill_total = body.get("bill_total", "€84.00").strip()
+        members_count = int(body.get("members_count", 4))
+        split_per_person = f"€{84.0 / members_count:.2f}"
+        return {
+            "split_settled": True,
+            "bill_total": bill_total,
+            "members_count": members_count,
+            "split_per_person": split_per_person,
+            "apple_pay_ready": True,
+            "revolut_link": "https://revolut.me/connectos-split-8921",
+            "message": f"🪄 1-Tap Split Settled! {split_per_person} charged via Apple Pay / Revolut for {members_count} members."
+        }
+
+    @router.post("/housing/nomad-house-swap")
+    def nomad_house_swap_exchange_endpoint(request: Request, body: dict):
+        home_city = body.get("home_city", "Lisbon (Alfama Flat)").strip()
+        destination_city = body.get("destination_city", "Tokyo (Shibuya Loft)").strip()
+        return {
+            "swap_confirmed": True,
+            "home_city": home_city,
+            "destination_city": destination_city,
+            "duration": "14 Days (Oct 1 - Oct 15)",
+            "trust_verification": "KYC Verified + €50,000 Host Shield",
+            "cost_saved": "€1,850.00 Saved!",
+            "message": f"🌍 House Swap Confirmed! Swapped {home_city} for {destination_city} (€1,850 saved at €0 cost)!"
+        }
+
+    @router.post("/culture/secret-comedy")
+    def secret_comedy_speakeasy_endpoint(request: Request, body: dict):
+        venue = body.get("venue", "Alfama Cellar Speakeasy").strip()
+        return {
+            "comedy_booked": True,
+            "venue": venue,
+            "show_time": "Tonight @ 9:00 PM",
+            "capacity": "Intimate 25-Seat Cellar",
+            "lineup": ["Sammy R. (Stand-Up)", "Claire T. (Improv)", "Lucas M. (Host)"],
+            "secret_passcode": "SPEAKEASY-7741",
+            "message": f"🎭 Secret Comedy Speakeasy Confirmed! Secret Passcode 'SPEAKEASY-7741' unlocked for {venue} tonight @ 9 PM."
+        }
+
+    @router.post("/dining/market-cookoff")
+    def farmers_market_cookoff_endpoint(request: Request, body: dict):
+        market = body.get("market", "Mercado da Ribeira Organic Farmers Market").strip()
+        return {
+            "cookoff_crew_joined": True,
+            "market_name": market,
+            "crew_size": 8,
+            "meeting_time": "Sunday @ 10:00 AM",
+            "menu_vibe": "Communal Shakshuka & Fresh Sourdough Brunch",
+            "split_cost": "€6.50 / person",
+            "message": f"🍳 Market & Cook-Off Crew Confirmed! 8 food lovers meeting {market} Sunday @ 10 AM (€6.50 split)!"
+        }
+
+    @router.post("/outdoors/sunset-sailing")
+    def sunset_sailing_catamaran_endpoint(request: Request, body: dict):
+        harbor = body.get("harbor", "Belém Marina (Lisbon)").strip()
+        return {
+            "sailing_charter_confirmed": True,
+            "harbor": harbor,
+            "vessel": "40ft Lagoon Catamaran",
+            "departure": "Today @ 6:30 PM (Golden Hour)",
+            "passengers": 6,
+            "skipper_split": "€30.00 / person (€180 total)",
+            "message": f"⛵ Sunset Catamaran Co-Share Confirmed! 6 spots booked from {harbor} today @ 6:30 PM (€30 split)."
+        }
+
+    @router.post("/culture/silent-reading")
+    def silent_reading_vinyl_lounge_endpoint(request: Request, body: dict):
+        loft = body.get("loft", "Alfama Loft Vinyl & Book Lounge").strip()
+        return {
+            "reading_session_booked": True,
+            "loft": loft,
+            "session_time": "Today @ 4:00 PM (2 Hours)",
+            "vinyl_record_playing": "Bill Evans Trio - Sunday at the Village Vanguard (Original Vinyl)",
+            "attendees_count": 12,
+            "complimentary_tea": "Herbal Japanese Genmaicha",
+            "message": f"📚 Silent Reading Lounge Confirmed! 12 readers & vinyl records active at {loft} today @ 4 PM."
+        }
+
+    @router.post("/wellness/cold-plunge")
+    def sunrise_cold_plunge_squad_endpoint(request: Request, body: dict):
+        beach = body.get("beach", "Cais do Ginjal / Carcavelos").strip()
+        return {
+            "plunge_crew_joined": True,
+            "location": beach,
+            "meeting_time": "Tomorrow @ 7:00 AM (Sunrise)",
+            "water_temp": "15°C (Invigorating)",
+            "crew_size": 16,
+            "post_plunge_reward": "Hot Chocolate & Batch Brew @ Fabrica Coffee",
+            "message": f"☕ Sunrise Cold Plunge Squad Confirmed! 16 legends meeting at {beach} tomorrow @ 7 AM!"
+        }
+
+    @router.post("/creatives/art-crawl")
+    def art_gallery_crawl_hop_endpoint(request: Request, body: dict):
+        district = body.get("district", "Santos Art & Design District").strip()
+        return {
+            "crawl_confirmed": True,
+            "district": district,
+            "stops_count": 4,
+            "tour_time": "Today @ 6:00 PM",
+            "featured_artists": ["Marta B. (Ceramics)", "Tomas P. (Oil Canvas)", "Inês C. (Sculpture)"],
+            "wine_pairing": "Complimentary Douro Natural Wine",
+            "message": f"🎨 Art Gallery Crawl Confirmed! 4 curated studios with wine tasting in {district} today @ 6 PM."
+        }
+
+    @router.post("/developers/api-keys")
+    def developer_api_keys_provisioning_endpoint(request: Request, body: dict):
+        app_name = body.get("app_name", "KiteSurf Wind Radar Plugin").strip()
+        environment = body.get("environment", "production").strip()
+        scopes = body.get("scopes", ["events:read", "match:trigger", "webhooks:write", "graph:export"])
+        return {
+            "key_generated": True,
+            "app_name": app_name,
+            "environment": environment,
+            "api_key": _issued_credential("lifeos_dk"),
+            "key_prefix": "lifeos_dk_...",
+            "scopes": scopes,
+            "rate_limit": "10,000 req / minute",
+            "docs_url": "https://connectos.app/docs/sdk/v2.4",
+            "message": f"🔌 Developer API Key Provisioned for '{app_name}'! Rate Limit: 10,000 req/min with {len(scopes)} scopes."
+        }
+
+    @router.post("/developers/webhooks")
+    def developer_webhooks_subscription_endpoint(request: Request, body: dict):
+        target_url = body.get("target_url", "https://api.myapp.com/webhooks/connectos").strip()
+        events = body.get("events", ["outing.created", "member.checked_in", "squad.matched", "split.settled"])
+        return {
+            "webhook_registered": True,
+            "target_url": target_url,
+            "subscribed_events": events,
+            "signing_secret": _issued_credential("lifeos_whsec"),
+            "signature_header": "X-ConnectOS-Signature (HMAC-SHA256)",
+            "message": f"⚡ Webhook Active! Subscribed to {len(events)} events with HMAC-SHA256 signature verification."
+        }
+
+    @router.post("/developers/plugin-sandbox")
+    def developer_plugin_sandbox_endpoint(request: Request, body: dict):
+        plugin_id = body.get("plugin_id", "com.windydev.kitesurf-radar").strip()
+        return {
+            "sandbox_tested": True,
+            "plugin_id": plugin_id,
+            "sdk_version": "Synergy SDK v2.4",
+            "simulation_status": "PASSED (100% telemetry accuracy)",
+            "monetization_tier": "70% Developer Rev-Share Active (€4.99/mo per user)",
+            "store_status": "PUBLISHED_TO_COMMUNITY_STORE",
+            "message": f"🛠️ Plugin Sandbox Tested & Published! '{plugin_id}' live in Store with 70% developer rev-share!"
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
@@ -3009,6 +3305,45 @@ def build_router(auth) -> APIRouter:
             "attendees_count": 8,
             "phone_lockbox_code": "DETOX-4892",
             "message": f"🧘 Digital Detox Lounge Reserved! 2-Hour Phone-Free Silent Reading Session at Chiado Botanical Garden."
+        }
+
+    @router.post("/economy/barter-swap")
+    def circular_barter_swap_endpoint(request: Request, body: dict):
+        offering = body.get("offering", "1-Hour Surf Lesson").strip()
+        seeking = body.get("seeking", "Portuguese Conversation Practice").strip()
+        return {
+            "swapped": True,
+            "offering": offering,
+            "seeking": seeking,
+            "match_partner": "Tiago K.",
+            "swap_id": "BARTER-8821",
+            "cash_saved": "€45.00",
+            "message": f"🔄 Barter Swap Agreed! Trading '{offering}' for '{seeking}' with Tiago K. (€45 cash saved!)."
+        }
+
+    @router.post("/economy/community-borrow")
+    def community_borrow_library_endpoint(request: Request, body: dict):
+        item_name = body.get("item", "2-Person Camping Tent & Sleeping Bags").strip()
+        return {
+            "borrowed": True,
+            "item_name": item_name,
+            "owner_name": "Sarah L.",
+            "pickup_location": "Santos Neighborhood Hub",
+            "return_by": "Sunday @ 8:00 PM",
+            "fee": "€0.00 (Zero-Waste Community Borrow)",
+            "message": f"♻️ Borrow Request Approved! Borrowing '{item_name}' from Sarah L. (Zero cost zero waste!)."
+        }
+
+    @router.post("/economy/time-bank")
+    def time_bank_tokens_endpoint(request: Request, body: dict):
+        service = body.get("service", "Helped neighbor fix bicycle chain").strip()
+        hours = body.get("hours", 1)
+        return {
+            "tokens_earned": hours,
+            "service": service,
+            "current_time_token_balance": 5,
+            "community_karma_bonus": "+25 Karma",
+            "message": f"🌱 Time Bank Credit! Earned {hours} Time Token for '{service}'. Total balance: 5 Tokens."
         }
 
     @router.post("/dating/agree-meet")

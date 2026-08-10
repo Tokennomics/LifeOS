@@ -1,5 +1,6 @@
 """City seed packs — loading, validating, and refusing to trust junk."""
 
+import datetime
 import json
 
 import pytest
@@ -162,8 +163,14 @@ def test_a_venue_advertising_no_feed_is_reported_not_silently_dropped(graph, pac
 
 
 def test_applying_can_sync_straight_away(graph, packs, monkeypatch):
+    # Dated relative to today: `seeds.apply(sync=True)` has no clock seam, so a fixed
+    # DTSTART turns this into a test that expires `ingest.STALE_DAYS` days after it is
+    # written and then reports the seeding feature as broken.
+    soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
     ics = ("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nSUMMARY:Night\n"
-           "DTSTART:20260807T230000Z\nDTEND:20260808T060000Z\nEND:VEVENT\nEND:VCALENDAR\n")
+           f"DTSTART:{soon.strftime('%Y%m%dT%H%M%SZ')}\n"
+           f"DTEND:{(soon + datetime.timedelta(hours=7)).strftime('%Y%m%dT%H%M%SZ')}\n"
+           "END:VEVENT\nEND:VCALENDAR\n")
     monkeypatch.setattr(ingest, "_fetch", lambda url: PAGE if url.endswith("/") or
                         "whats-on" in url else ics)
     result = seeds.apply(graph, "lisbon", directory=packs, sync=True)
