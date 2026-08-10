@@ -3241,7 +3241,7 @@ function wire(root) {
     out.innerHTML = `
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
         <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">💸 Crew Outing Tab Settled:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${c.name} (€${c.amount.toFixed(2)})`).join(", ")}</div>
+        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${esc(c.name)} (€${Number(c.amount).toFixed(2)})`).join(", ")}</div>
         <div style="font-size:12px; color:var(--spark); font-weight:700;">Revolut Link: ${esc(res.settlement_link)}</div>
       </div>
     `;
@@ -3311,7 +3311,7 @@ function wire(root) {
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
         <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎙️ AI Voice Outing Brief Created:</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">"${esc(res.transcript)}"</div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${s.time} @ ${s.place} (${s.activity})`).join(" ➔ ")}</div>
+        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})`).join(" ➔ ")}</div>
       </div>
     `;
   }, "AI Voice Brief Converted to Outing Card! 🎙️"));

@@ -122,6 +122,36 @@ def register_external(graph: Graph, handle: str, source: str = MODULE) -> dict:
     return {"account_id": account_id, "handle": handle, "owner_id": owner_id}
 
 
+def set_password(graph: Graph, account_id: str, password: str,
+                 source: str = MODULE) -> dict:
+    """Replace an account's password and end every session it has open.
+
+    **Revoking is not tidiness, it is the point.** Somebody resetting a password has usually
+    lost control of the account or believes they have; leaving the old sessions alive means
+    the reset changes nothing for whoever is already inside. The person resetting gets a new
+    session from the endpoint, so the cost is that their other devices sign in again — which
+    is the behaviour they expect from a password reset anyway.
+
+    A fresh salt too: reusing the old one lets anyone holding both hashes see the password
+    was changed, and costs nothing to avoid.
+    """
+    if not password or len(password) < MIN_PASSWORD:
+        raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
+    session = _sys(graph)
+    if session.get_entity(account_id) is None:
+        raise ValueError("no such account")
+
+    salt = secrets.token_bytes(SALT_BYTES).hex()
+    session.update_entity(account_id, {
+        "salt": salt, "password_hash": _hash_password(password, salt),
+        "iterations": ITERATIONS, "passwordless": False,
+        "password_set_at": now_iso(),
+    }, source=source)
+    revoked = revoke_all(graph, account_id, source=source)
+    return {"account_id": account_id, "password_set": True,
+            "sessions_revoked": revoked["revoked"]}
+
+
 def _verify_password(attrs: dict, password: str) -> bool:
     stored = attrs.get("password_hash", "")
     if not stored:

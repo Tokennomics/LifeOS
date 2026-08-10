@@ -41,13 +41,38 @@ like an installed app from then on.
 
 They tap **Register**, pick a handle and a password, and they are in.
 
-**Before you send the link, know these two things:**
+**Before you send the link, know this:**
 
 - **Signup is open.** Anyone with the URL can create an account. That is right for friends
   and wrong for a public link — do not post it anywhere indexable yet.
-- **There is no password reset.** No email is configured, so a forgotten password means a
-  locked-out account with no recovery. Tell them to save it. This is the single most
-  important thing to fix before anyone outside your circle uses it.
+
+Password reset and email sign-in now exist, but **only if you set up email** — see below.
+Without it a forgotten password is still an account nobody can get back into.
+
+## Email: sign-in codes and password reset
+
+Fifteen minutes, and it is what turns "tell them to save the password" into a real recovery
+path. Two variables:
+
+```
+LIFEOS_RESEND_KEY=re_...                  # resend.com — free tier is 3,000 emails/month
+LIFEOS_MAIL_FROM=LifeOS <hi@yourdomain>   # the domain must be verified in Resend
+```
+
+Resend rather than SMTP because it is one HTTPS POST — no port 587, which most hosts block
+outbound anyway. You need a domain you control to verify as the sender; a free-tier address
+will not send.
+
+With both set, `GET /v1/auth/providers` reports `email.available: true` and three things
+start working: signing in with a code instead of a password, adding an address to an account
+you already have, and resetting a forgotten password. A reset **ends every open session on
+that account** — that is deliberate, since most resets follow a suspected compromise.
+
+**With neither set, email sign-in is simply unavailable** rather than half-working. The one
+thing not to do is set `LIFEOS_OTP_ECHO=1` on a public box: it returns the code in the HTTP
+response so a laptop install is usable without a provider, and on a reachable host it lets
+anyone request a code for any address and read it — a complete bypass. It is off by default
+and should stay off anywhere friends can reach.
 
 ## Being the operator
 
@@ -64,7 +89,7 @@ a lost disk.
 ## Checking everything works
 
 ```sh
-python -m pytest              # 883, and CI runs the same on 3.11 and 3.13
+python -m pytest              # 934, and CI runs the same on 3.11 and 3.13
 ```
 
 For a live instance, the honest check is to walk it: register two accounts on two phones,
@@ -77,6 +102,7 @@ it is where the last two bugs were found — both at seams no unit test covered.
 | Variable | Effect when unset |
 |---|---|
 | `LIFEOS_GOOGLE_CLIENT_ID` / `LIFEOS_APPLE_CLIENT_ID` | sign-in offers password only |
+| `LIFEOS_RESEND_KEY` / `LIFEOS_MAIL_FROM` | no email sign-in, no password reset |
 | `LIFEOS_TICKETMASTER_KEY` | Tier 2 listings contribute nothing; venue feeds still work |
 | `LIFEOS_SEED_CITY` | the app starts empty |
 | `LIFEOS_DATING_ENABLED` | `/v1/dating/*` returns 503 — leave it empty until you mean it |

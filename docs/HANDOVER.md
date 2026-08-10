@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **883 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **934 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,49 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## Email verification, and the secret-scanning alert
+
+**A GitHub secret-scanning alert fired on `gateway/modules_api.py` for a Stripe webhook
+signing secret.** Nothing real leaked — this repo has never integrated Stripe, and the value
+was invented by a generated commit on `main`. But it was spelled in Stripe's reserved
+namespaces, which is what a scanner reads as a live key. The alert also undersold the actual
+defect: all three `/v1/developers/*` endpoints returned the *same* constant to every caller,
+and a shared signing secret authenticates nothing. Credentials are minted per call now
+(`_issued_credential`), and `tests/test_security_audit.py` scans every tracked file for
+eleven vendor credential prefixes so the next one fails in CI instead of in an email.
+
+**Email verification exists** (`modules/auth/otp.py` + `modules/auth/mailer.py`), which
+finally unlocks the `verified=True` seam `identities.link()` has been refusing since it was
+written. Three flows: sign in with a code, link an address to an account you already have,
+and reset a forgotten password. The security is not the six-digit code — a million values is
+nothing — it is the attempt cap, the ten-minute expiry, single use, and a per-address
+issuance cap so nobody can use us to mail-bomb a stranger.
+
+**The one switch to never turn on in production is `LIFEOS_OTP_ECHO`.** `request_code`
+returns the plaintext code when no mail provider is configured, so a laptop stays usable;
+`_redact_code` strips it from HTTP responses unless that variable is explicitly set. Without
+the strip, `/v1/auth/email/code` — which is unauthenticated by necessity — would let anyone
+request a code for any address and read it straight back.
+
+A password reset **revokes every open session** on the account. That is the point rather
+than housekeeping: resets follow suspected compromise, and leaving the old sessions alive
+means the reset changes nothing for whoever is already inside.
+
+## Browser-side hardening
+
+The gateway sent **no security headers at all**. It now sends a CSP, `nosniff`, `DENY`,
+`no-referrer` and COOP on every response. Read the CSP honestly: `script-src` has to keep
+`'unsafe-inline'` while the PWA carries ~950 inline styles and ~20 inline handlers, so it
+does **not** stop an injected script running. What it does stop is what follows —
+`connect-src 'self'` means an injected script cannot post the localStorage session token
+anywhere, and `base-uri`/`object-src`/`frame-ancestors` close the rest.
+
+**Known gap, needs a machine that can reach the internet:** the map loads Leaflet from
+`unpkg.com` with no Subresource Integrity hash, into the origin that holds the session
+token. The fix is to vendor `leaflet.js`/`leaflet.css` into `surfaces/app/www/vendor/` and
+serve them locally — the sandbox proxy blocks unpkg, and writing an SRI hash from memory
+that turns out wrong silently kills the map, so it was left alone rather than guessed at.
 
 ## Hosting — see `docs/HOSTING.md`
 

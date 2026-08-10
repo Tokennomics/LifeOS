@@ -540,3 +540,61 @@ def test_an_issued_credential_is_never_the_same_twice(world):
     keys = {client.post("/v1/developers/api-keys", headers=headers,
                         json={"app_name": "x"}).json()["api_key"] for _ in range(3)}
     assert len(keys) == 3
+
+
+# ---- browser-side hardening --------------------------------------------------
+
+def test_every_response_carries_the_security_headers(cfg):
+    """There were none at all — not on the API, not on the PWA. Checked on `/health`
+    precisely because it is the one route that answers before authentication."""
+    client = TestClient(create_app(cfg))
+    for path in ("/health", "/v1/auth/providers"):
+        headers = client.get(path).headers
+        assert headers["x-content-type-options"] == "nosniff"
+        assert headers["x-frame-options"] == "DENY"
+        assert headers["referrer-policy"] == "no-referrer"
+        assert "content-security-policy" in headers
+
+
+def test_the_csp_blocks_token_exfiltration_and_base_tag_injection(cfg):
+    """The session token lives in localStorage, so the CSP's job here is not to stop a script
+    running — `'unsafe-inline'` has to stay while the PWA has inline handlers — but to stop
+    one *sending anything anywhere* once it does."""
+    csp = TestClient(create_app(cfg)).get("/health").headers["content-security-policy"]
+    directives = dict(part.strip().split(" ", 1) for part in csp.split(";") if " " in part.strip())
+    assert directives["connect-src"] == "'self'", "an injected script must not reach a third party"
+    assert directives["object-src"] == "'none'"
+    assert directives["base-uri"] == "'self'"
+    assert directives["frame-ancestors"] == "'none'"
+    assert "'unsafe-eval'" not in csp
+
+
+def test_the_referrer_policy_covers_invite_tokens(cfg):
+    """Crew invites are `/app/?invite_token=…`. With a default referrer policy, every
+    outbound link and every remote image on that page hands the token to a third party."""
+    assert TestClient(create_app(cfg)).get(
+        "/health").headers["referrer-policy"] == "no-referrer"
+
+
+def test_the_pwa_escapes_every_value_it_renders_from_a_response():
+    """Two render sites interpolated response fields straight into innerHTML. Neither was
+    exploitable — both endpoints return hardcoded demo data — which is exactly why it would
+    have survived until the day those endpoints started returning real names."""
+    import pathlib
+    app_js = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
+    assert "${esc(c.name)} (€${Number(c.amount).toFixed(2)})" in app_js
+    assert "${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})" in app_js
+
+
+def test_the_pwa_builds_no_link_target_out_of_response_data():
+    """`esc()` stops an attribute breaking out; it does nothing about `javascript:` in an
+    href, because the scheme survives escaping intact. The defence is that no href, src or
+    action is built from server data — the one exception is an <img src>, where a script
+    URL does not execute. If this fails, the new sink needs a scheme allow-list, not esc()."""
+    import pathlib
+    import re
+    app_js = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
+    sinks = re.findall(r'(href|action|formaction)\s*=\s*.\$\{', app_js)
+    assert sinks == [], f"a URL attribute is now built from data: {sinks}"
