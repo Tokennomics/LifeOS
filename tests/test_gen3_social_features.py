@@ -442,3 +442,339 @@ def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
     res3 = client.post("/v1/developers/plugin-sandbox", json={"plugin_id": "com.windydev.radar"})
     assert res3.status_code == 200
     assert res3.json()["sandbox_tested"] is True
+
+def test_sauna_plant_swap_and_wine_tasting(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/wellness/sauna-social", json={"venue": "Alfama Nordic Sauna"})
+    assert res1.status_code == 200
+    assert res1.json()["sauna_session_confirmed"] is True
+
+    res2 = client.post("/v1/economy/plant-swap", json={"park": "Jardim da Estrela"})
+    assert res2.status_code == 200
+    assert res2.json()["plant_swap_joined"] is True
+
+    res3 = client.post("/v1/dining/wine-tasting", json={"rooftop": "Miradouro"})
+    assert res3.status_code == 200
+    assert res3.json()["tasting_confirmed"] is True
+
+def test_frontier_stack_all_four_engines(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/native/app-store-manifest", json={"platform": "ios_and_android"})
+    assert res1.status_code == 200
+    assert res1.json()["manifest_generated"] is True
+
+    res2 = client.post("/v1/wearables/sync-telemetry", json={"device": "Apple Watch Ultra", "hrv_ms": 82, "recovery_score": 94})
+    assert res2.status_code == 200
+    assert res2.json()["telemetry_synced"] is True
+
+    res3 = client.post("/v1/infra/edge-replication", json={"primary_region": "eu-central"})
+    assert res3.status_code == 200
+    assert res3.json()["edge_mesh_active"] is True
+
+    res4 = client.post("/v1/ai/agent-negotiator", json={"topic": "Weekend Sunset Surf"})
+    assert res4.status_code == 200
+    assert res4.json()["negotiation_consensus_reached"] is True
+
+def test_city_seeding_and_cold_start_engine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/city-bootstrap", json={"city": "Lisbon"})
+    assert res1.status_code == 200
+    assert res1.json()["city_bootstrapped"] is True
+
+    res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon", "pioneer_number": 42})
+    assert res2.status_code == 200
+    assert res2.json()["pioneer_pass_minted"] is True
+
+    res3 = client.post("/v1/seeding/golden-tickets", json={"outing": "Sunset Catamaran"})
+    assert res3.status_code == 200
+    assert res3.json()["tickets_generated"] is True
+
+    res4 = client.post("/v1/seeding/anchor-outings", json={"city": "Lisbon"})
+    assert res4.status_code == 200
+    assert res4.json()["anchors_active"] is True
+
+def test_stripe_and_paypal_payment_gateways(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/payments/stripe/checkout-session", json={"amount": 21.00, "description": "Catamaran Split"})
+    assert res1.status_code == 200
+    assert res1.json()["session_created"] is True
+
+    res2 = client.post("/v1/payments/stripe/webhook", json={"type": "checkout.session.completed"})
+    assert res2.status_code == 200
+    assert res2.json()["webhook_processed"] is True
+
+    res3 = client.post("/v1/payments/paypal/create-order", json={"amount": 21.00, "item": "Catamaran Split"})
+    assert res3.status_code == 200
+    assert res3.json()["order_created"] is True
+
+    res4 = client.post("/v1/payments/paypal/capture-order", json={"order_id": "PAYPAL-ORDER-882194A"})
+    assert res4.status_code == 200
+    assert res4.json()["order_captured"] is True
+
+def test_automated_city_content_pipeline_and_weather_triggers(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/auto-event-pipeline", json={"city": "Lisbon"})
+    assert res1.status_code == 200
+    assert res1.json()["pipeline_synced"] is True
+
+    res2 = client.post("/v1/seeding/ai-outing-synthesizer", json={"city": "Lisbon", "theme": "Vinyl & Beer"})
+    assert res2.status_code == 200
+    assert res2.json()["itinerary_synthesized"] is True
+
+    res3 = client.post("/v1/seeding/third-places-directory", json={"city": "Lisbon"})
+    assert res3.status_code == 200
+    assert res3.json()["directory_enriched"] is True
+
+    res4 = client.post("/v1/seeding/weather-triggers", json={"city": "Lisbon", "condition": "Sunny 24C"})
+    assert res4.status_code == 200
+    assert res4.json()["weather_triggers_evaluated"] is True
+
+def test_multi_hobby_passion_content_hubs(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/hobbies/sports-outdoors", json={})
+    assert res1.status_code == 200
+    assert res1.json()["hobby_feed_synced"] is True
+
+    res2 = client.post("/v1/hobbies/creative-making", json={})
+    assert res2.status_code == 200
+    assert res2.json()["hobby_feed_synced"] is True
+
+    res3 = client.post("/v1/hobbies/gaming-strategy", json={})
+    assert res3.status_code == 200
+    assert res3.json()["hobby_feed_synced"] is True
+
+    res4 = client.post("/v1/hobbies/culinary-craft", json={})
+    assert res4.status_code == 200
+    assert res4.json()["hobby_feed_synced"] is True
+
+def test_landmark_mega_festival_radar(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/events/landmark-radar", json={"city": "Edinburgh", "month": "August"})
+    assert res1.status_code == 200
+    assert res1.json()["landmark_radar_active"] is True
+    assert res1.json()["total_landmark_events"] >= 4
+
+    res2 = client.post("/v1/events/landmark-radar", json={"city": "Munich", "month": "September"})
+    assert res2.status_code == 200
+    assert res2.json()["landmark_radar_active"] is True
+
+    res3 = client.post("/v1/events/landmark-radar", json={"city": "Lisbon", "month": "June"})
+    assert res3.status_code == 200
+    assert res3.json()["landmark_radar_active"] is True
+
+def test_frontier_voice_nfc_culture_and_dao(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/voice/crew-huddle", json={"event_name": "Fringe Festival"})
+    assert res1.status_code == 200
+    assert res1.json()["huddle_active"] is True
+
+    res2 = client.post("/v1/nfc/tap-to-synergy", json={"peer": "Catriona"})
+    assert res2.status_code == 200
+    assert res2.json()["handshake_verified"] is True
+
+    res3 = client.post("/v1/ai/culture-bridge-translator", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["translation_active"] is True
+
+    res4 = client.post("/v1/dao/community-treasury", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["treasury_synced"] is True
+
+def test_anti_boredom_and_genuine_fulfillment_engine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/spontaneous-quests", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["quests_generated"] is True
+    assert len(res1.json()["anti_boredom_quests"]) >= 3
+
+    res2 = client.post("/v1/ai/ikigai-compass", json={})
+    assert res2.status_code == 200
+    assert res2.json()["ikigai_aligned"] is True
+
+    res3 = client.post("/v1/ai/flow-mastery", json={"skill": "Ceramics"})
+    assert res3.status_code == 200
+    assert res3.json()["flow_lab_scheduled"] is True
+
+    res4 = client.post("/v1/ai/meaningful-salons", json={"theme": "Courage"})
+    assert res4.status_code == 200
+    assert res4.json()["salon_confirmed"] is True
+
+def test_proactive_butler_4_superhuman_engines(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/serendipity-engine", json={"user": "Robert"})
+    assert res1.status_code == 200
+    assert res1.json()["serendipity_detected"] is True
+
+    res2 = client.post("/v1/ai/empathy-vibe-tuner", json={"vibe": "Overstimulated"})
+    assert res2.status_code == 200
+    assert res2.json()["vibe_tuned"] is True
+
+    res3 = client.post("/v1/ai/group-concierge", json={"group": "Lisbon Crew"})
+    assert res3.status_code == 200
+    assert res3.json()["group_negotiation_complete"] is True
+
+    res4 = client.post("/v1/ai/friendship-compounding", json={})
+    assert res4.status_code == 200
+    assert res4.json()["friendship_vault_active"] is True
+
+def test_butler_of_true_life_value(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/vitality-circadian-flow", json={})
+    assert res1.status_code == 200
+    assert res1.json()["vitality_engine_active"] is True
+
+    res2 = client.post("/v1/ai/regret-minimization", json={})
+    assert res2.status_code == 200
+    assert res2.json()["regret_minimization_active"] is True
+
+    res3 = client.post("/v1/ai/wealth-value-optimizer", json={})
+    assert res3.status_code == 200
+    assert res3.json()["wealth_optimizer_active"] is True
+
+    res4 = client.post("/v1/ai/stoic-presence-mirror", json={"moment": "Sunset tea", "gratitude": "Health"})
+    assert res4.status_code == 200
+    assert res4.json()["reflection_logged"] is True
+
+def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/zero-user-event-crawler", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["crawler_active"] is True
+    assert res1.json()["total_verified_events"] >= 200
+
+    res2 = client.post("/v1/seeding/tastemaker-curation", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["curation_active"] is True
+    assert len(res2.json()["top_hidden_gems"]) >= 3
+
+    res3 = client.post("/v1/seeding/recurring-gravity-hubs", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["gravity_hubs_synced"] is True
+
+    res4 = client.post("/v1/seeding/city-culture-guide", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["guide_generated"] is True
+
+def test_full_day_user_ux_simulation(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/simulation/full-day-ux-optimizer", json={"persona": "Digital Nomad", "city": "Edinburgh"})
+    assert res.status_code == 200
+    assert res.json()["simulation_complete"] is True
+    assert len(res.json()["simulated_24h_timeline"]) >= 6
+    assert res.json()["simulation_metrics"]["lifelong_memory_dividends"] >= 3
+
+def test_multi_demographic_simulation_suite(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/simulation/multi-demographic-suite", json={"profile": "ALL"})
+    assert res.status_code == 200
+    assert res.json()["suite_simulation_complete"] is True
+    assert res.json()["total_demographics_covered"] >= 6
+
+def test_ultimate_frontier_capabilities(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/mesh/offline-peer-sync", json={})
+    assert res1.status_code == 200
+    assert res1.json()["mesh_active"] is True
+
+    res2 = client.post("/v1/wearables/ambient-whispers", json={})
+    assert res2.status_code == 200
+    assert res2.json()["wearables_synced"] is True
+
+    res3 = client.post("/v1/trust/web-of-trust", json={"target_user": "Elena"})
+    assert res3.status_code == 200
+    assert res3.json()["trust_verified"] is True
+
+    res4 = client.post("/v1/atlas/living-memory-map", json={})
+    assert res4.status_code == 200
+    assert res4.json()["atlas_active"] is True
+
+def test_global_flourishing_and_regenerative_earth(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/impact/regenerative-earth", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["eco_quests_active"] is True
+
+    res2 = client.post("/v1/impact/zero-waste-pantry", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["pantry_synced"] is True
+
+    res3 = client.post("/v1/impact/compassion-listener-network", json={})
+    assert res3.status_code == 200
+    assert res3.json()["listener_network_ready"] is True
+
+    res4 = client.post("/v1/impact/intergenerational-guild", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["guild_synced"] is True
+
+def test_universal_master_controller(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/os/master-controller", json={"mode": "High Growth & Adventure", "city": "Edinburgh"})
+    assert res.status_code == 200
+    assert res.json()["master_controller_online"] is True
+    assert "ai_butler_v4" in res.json()["orchestrated_subsystems"]
+    assert res.json()["active_mode"] == "High Growth & Adventure"
+
+def test_nextgen_content_seeding_engines(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/underground-vinyl-radar", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["vinyl_radar_active"] is True
+
+    res2 = client.post("/v1/seeding/culinary-popup-drops", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["culinary_drops_active"] is True
+
+    res3 = client.post("/v1/seeding/wild-nature-trails", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["wilderness_radar_active"] is True
+
+    res4 = client.post("/v1/seeding/literary-salon-radar", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["literary_radar_active"] is True
+
+def test_hyper_autonomous_discovery_signals(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/social-viral-pulse", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["viral_pulse_active"] is True
+
+    res2 = client.post("/v1/seeding/live-footfall-anomalies", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["anomaly_detector_active"] is True
+
+    res3 = client.post("/v1/seeding/editorial-press-scraper", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["editorial_scraper_active"] is True
+
+    res4 = client.post("/v1/seeding/weather-tide-triggers", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["weather_engine_active"] is True
+
+def test_live_external_api_ingestion(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/seeding/live-external-api-ingest", json={"city": "Edinburgh"})
+    assert res.status_code == 200
+    assert res.json()["live_ingestion_complete"] is True
+    assert "temp_c" in res.json()["live_weather"]
+    assert len(res.json()["live_cultural_events"]) >= 1
+
+def test_nightlife_party_and_speakeasy_engine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/nightlife/party-radar", json={"city": "Munich"})
+    assert res1.status_code == 200
+    assert res1.json()["nightlife_radar_active"] is True
+    assert len(res1.json()["curated_clubs_and_parties"]) >= 3
+
+    res2 = client.post("/v1/nightlife/secret-speakeasies", json={"city": "Munich"})
+    assert res2.status_code == 200
+    assert res2.json()["speakeasies_active"] is True
+    assert len(res2.json()["secret_cocktail_dens"]) >= 3
+
+    res3 = client.post("/v1/nightlife/guestlist-vip", json={"venue": "Blitz Club", "crew_size": 2})
+    assert res3.status_code == 200
+    assert res3.json()["guestlist_confirmed"] is True
+    assert res3.json()["fastpass_code"] == "CONNECT-VIP-882"
+
+    res4 = client.post("/v1/nightlife/crew-pregame", json={"destination": "Blitz Club", "city": "Munich"})
+    assert res4.status_code == 200
+    assert res4.json()["pregame_squad_matched"] is True

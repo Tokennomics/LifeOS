@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **934 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **976 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,40 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## Audit round four — one critical, eight broken endpoints
+
+Found by **sweeping all 425 endpoints as a signed-in user**, which nothing in the suite had
+ever done. That sweep is `POST`/`GET` with an empty body against every path in the OpenAPI
+schema, counting 5xx. It is worth re-running after every merge from `main`.
+
+**CRITICAL — any signed-in user could destroy the whole instance.** `POST /v1/graph/restore`
+is an ordinary authenticated endpoint with no operator gate, and `substrate/backup.py` ran
+`DELETE FROM edges; DELETE FROM observations; DELETE FROM entities` with **no owner
+predicate**, then inserted `backup_data`, which for a `{}` body is nothing. Demonstrated
+before fixing: a second account posted an empty body, the first account's graph went to zero,
+and she could no longer log in — accounts are entities too. `export_backup` was the same hole
+pointed the other way, dumping every user's graph to anyone with a login. Both are
+owner-scoped now, and restore goes **through `substrate/graph.py`** instead of around it, so
+it cannot name someone else's `owner_id`, invent a kind, or skip provenance.
+
+The pre-existing `tests/test_backup.py` passed throughout — it asserted that restoring an
+empty backup returns 200, which *is* the wipe. A test can encode the vulnerability.
+
+**Eight endpoints had never worked**, each calling a function its module does not define:
+`export_graph_topology`, `get_mindfulness_summary`, `Graph.all_entities`, and
+`discover.create_event` (three call sites), plus `/v1/people/qr` looking up entity kind
+`identity`, which is not in `KINDS`. All 500'd or 400'd on every call, including the PWA's
+live "Export CSV" button.
+
+**`find_topology_hubs` is the one to read before touching.** It counted `SELECT src, dst FROM
+edges` with no join and resolved every node's name — every user's people and goals. It was
+unreachable behind the wrong function name, so the *obvious* fix (correct the name) is what
+would have shipped the leak. Scoping was the fix; the rename was incidental.
+
+Two smaller ones: the CSV export now defuses spreadsheet formula injection (a person named
+`=HYPERLINK(...)` executes on open in Excel), and two handlers raised bare `ValueError` for a
+missing field, which reached the client as a 500 rather than a 400.
 
 ## Email verification, and the secret-scanning alert
 

@@ -46,6 +46,21 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// A URL that is safe to put in an href. esc() is NOT enough here: it stops the attribute
+// breaking out, but `javascript:alert(1)` survives escaping completely intact and runs on
+// click. Only http/https get through; anything else — javascript:, data:, vbscript:, or a
+// value we cannot parse — becomes "#". Use this for every href, src or action built from a
+// response, and esc() for everything else.
+function safeUrl(u) {
+  const raw = String(u ?? "").trim();
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") ? esc(parsed.href) : "#";
+  } catch (e) {
+    return "#";
+  }
+}
+
 async function act(fn, okMsg) {
   if (state.busy) return;
   state.busy = true;
@@ -692,6 +707,308 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="join-art-crawl">Gallery Art Crawl 🎨</button>
     </div>
     <div id="flow-culture-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Nordic Sauna, Plant Swap & Natural Wine ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.16), rgba(16,185,129,0.16)); border:1px solid rgba(240,169,74,0.35);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🧖 Sauna Social, Plant Swap & Wine Club</h2>
+      <span class="badge good" style="font-weight:bold;">Community & Vibe</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">90°C Finnish saunas & ice baths, community plant cutting swaps, and rooftop natural wine tastings!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f0a94a, #ef4444);" data-act="join-sauna-social">Nordic Sauna (6 PM) 🧖</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="join-plant-swap">Plant & Seed Swap 🪴</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="join-wine-tasting">Natural Wine Tasting 🍷</button>
+    </div>
+    <div id="sauna-plant-wine-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Frontier Stack: Native Store, Wearables, Edge Mesh & AI Agents ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(139,92,246,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🚀 Frontier Engine: Native Apps, Wearables & AI Mesh</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">v2.4 Production</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Native iOS/Android App Store builds, Apple Watch/Whoop telemetry sync, sub-10ms global edge mesh, and multi-agent AI outing negotiators!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="build-native-manifest">App Store Manifest 📱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="sync-wearable-telemetry">Sync Wearable HRV ⌚</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="trigger-edge-mesh">Global Edge Mesh 🌍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="negotiate-ai-agents">AI Agent Consensus 🤖</button>
+    </div>
+    <div id="frontier-stack-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- City Pioneer & Cold-Start Seeding Engine ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌱 City Pioneer & Cold-Start Viral Engine</h2>
+      <span class="badge good" style="font-weight:bold;">Day-0 Seeding</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Auto-bootstrap new cities, mint Founding Pioneer Ambassador passes, generate 3x viral golden tickets, and activate weekly anchor crews!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="seed-city-bootstrap">Bootstrap City (Lisbon) 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">Mint Pioneer Pass #042 👑</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3x Golden Tickets 🎟️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="activate-anchor-outings">Weekly Anchor Crews ⚓</button>
+    </div>
+    <div id="seeding-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Universal ConnectOS Master Controller Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(99,102,241,0.22), rgba(16,185,129,0.22)); border:1.5px solid rgba(245,158,11,0.5); box-shadow: 0 8px 32px rgba(245,158,11,0.15);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="background: linear-gradient(135deg, #f59e0b, #ec4899, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">👑 Universal ConnectOS Master Controller</h2>
+      <span class="badge" style="background:#f59e0b; color:#000; font-weight:bold;">All 50+ Engines Unified</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Harmonize AI Butler, Stripe/PayPal, Hardware Whispers, Circadian Vitality, Offline Mesh & Planetary Impact with 1 tap!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="set-mode-adventure">🚀 High Adventure Mode</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="set-mode-recovery">🧘 Restorative Recovery</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="set-mode-flow">🎨 Creative Flow Mastery</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="set-mode-impact">🌍 Planetary Impact Guild</button>
+    </div>
+    <div id="master-controller-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Universal Stripe & PayPal Checkout Hub ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(0,112,186,0.18)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💳 Stripe & PayPal Global Payments</h2>
+      <span class="badge" style="color:var(--growth); border-color:var(--growth)40; font-weight:bold;">PCI-DSS Tier 1</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Instant Stripe Checkout (Card, Apple Pay, Google Pay, SEPA) and 1-Click PayPal Order Capture for outings and VIP perks!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="pay-stripe-checkout">Stripe Checkout (€21) 💳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #0070ba, #003087);" data-act="pay-paypal-order">PayPal 1-Click (€21) 🅿️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="test-stripe-webhook">Stripe Webhook Sync ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="capture-paypal-order">Capture PayPal 💰</button>
+    </div>
+    <div id="stripe-paypal-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Automated City Content & AI Pipeline Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(240,169,74,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📡 Automated City Content & AI Pipeline</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Autonomous Data</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Stream 280+ public event feeds, synthesize AI micro-itineraries, ingest 160+ third places, and trigger spontaneous weather outings!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="stream-auto-events">Stream Event Feeds (284) 📡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="synth-ai-outing">AI Outing Synthesizer 🤖</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="load-third-places">160 Third Places 📍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-weather-outings">Weather Triggers ☀️</button>
+    </div>
+    <div id="content-pipeline-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Multi-Hobby Passion & Craft Hub ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(236,72,153,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎨 Multi-Hobby Passion & Craft Hub</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">All Passions</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Bouldering & padel ladders, pottery & darkroom labs, park blitz chess, and sourdough fermentation swaps!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="view-sports-hobbies">Sports & Outdoors 🧗</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="view-creative-making">Creative Making 🏺</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-gaming-strategy">Chess & Gaming ♟️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="view-culinary-craft">Culinary & Brews 🍳</button>
+    </div>
+    <div id="hobbies-hub-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Global Landmark Festivals & Cultural Radar Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(234,179,8,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌍 Global Landmark Festivals Radar</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Mega-Events AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live radar for iconic global festivals: Edinburgh Fringe & Tattoo, Munich Oktoberfest & Surf Masters, Lisbon Festas & NOS Alive!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="radar-edinburgh-fringe">Edinburgh Fringe & Tattoo 🎭</button>
+      <button class="primary" style="background:linear-gradient(135deg, #3b82f6, #10b981);" data-act="radar-munich-oktoberfest">Munich Oktoberfest 🍺</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="radar-lisbon-festas">Lisbon Festas & Web Summit 🐟</button>
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="sync-ai-butler-landmarks">Sync AI Butler 🤖</button>
+    </div>
+    <div id="landmark-radar-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Frontier Voice, NFC & Culture Bridge Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(16,185,129,0.18)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎙️ Spatial Voice, NFC Handshake & Culture Bridge</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Frontier Social OS</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Spatial 3D festival walkie-talkie, NFC physical tap-to-synergy handshake, local dialect translator, and DAO community treasury!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">NFC Tap-to-Synergy 📳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-dao-treasury">DAO Community Treasury 🏛️</button>
+    </div>
+    <div id="frontier-social-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Anti-Boredom & Genuine Fulfillment Butler Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌟 Anti-Boredom & Genuine Fulfillment Butler</h2>
+      <span class="badge good" style="font-weight:bold;">Eudaimonia & Flow</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Instant 15-min spontaneous quests, Ikigai purpose alignment, 100% screen-free flow mastery labs, and deep vulnerability dinner salons!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-boredom-quest">I'm Bored (15m Quests) ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="align-ikigai-compass">Ikigai Fulfillment Compass 🧘</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Screen-Free Flow Lab 🌊</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Deep Dinner Salon 🕊️</button>
+    </div>
+    <div id="fulfillment-butler-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Proactive AI Butler 4.0 & Empathy Concierge Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(139,92,246,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🔮 Proactive AI Butler 4.0 & Empathy Concierge</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Superhuman AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Proactive serendipity prediction, emotional empathy vibe tuning, autonomous 1-tap group dining scheduling, and friendship compounding vault!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="predict-serendipity">Predict Serendipity 🔮</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="tune-empathy-vibe">Empathy Vibe Tuner 🧠</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="auto-group-concierge">Group Concierge (4p) 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-friendship-vault">Friendship Vault 🌱</button>
+    </div>
+    <div id="butler-4-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Butler of True Life Value & Fulfillment Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.18), rgba(16,185,129,0.18)); border:1px solid rgba(245,158,11,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌟 Butler of True Life Value & Longevity</h2>
+      <span class="badge good" style="font-weight:bold;">Lifelong Value</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Circadian vitality flow, lifelong regret minimization bucket-list, high-memory wealth optimizer, and stoic daily gratitude!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="optimize-circadian-vitality">Circadian Vitality 🧬</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="track-regret-minimization">Regret Minimizer 🌟</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="optimize-life-wealth">Wealth & Memory ROI 💰</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Stoic Presence Mirror 🕊️</button>
+    </div>
+    <div id="life-value-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Zero-User Autonomous Event Seeding & Tastemaker Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Zero-User Autonomous Event Seeding & Tastemaker</h2>
+      <span class="badge good" style="font-weight:bold;">Cold-Start Solved</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Multi-feed live event crawler (RA, Luma, Dice), hidden gem tastemaker scoring, recurring real-world gravity hubs, and 7-day city culture guide!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="crawl-zero-user-events">Crawl 220+ Events (RA/Luma) 📡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="curate-hidden-gems">Top Hidden Gems 💎</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="sync-gravity-hubs">Recurring Real Hubs 📍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="gen-city-culture-guide">7-Day Culture Guide 📅</button>
+    </div>
+    <div id="zero-user-seeding-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- 24-Hour User Day UX Simulation Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🕒 24-Hour User Day UX Simulation (All Demographics)</h2>
+      <span class="badge good" style="font-weight:bold;">Universal UX</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Simulate full 24-hour days across 6 archetypal human demographics (Nomads, Parents, Artists, Athletes, Retirees, Students)!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="run-full-day-simulation">Simulate Single Day 🚀</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="run-all-demographics">Simulate All 6 Demographics 👥</button>
+    </div>
+    <div id="day-simulation-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Ultimate Frontier Capabilities Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Ultimate Frontier Capabilities</h2>
+      <span class="badge good" style="font-weight:bold;">Final Frontier</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Offline P2P BLE mesh network, smart glasses ambient audio whispers, cryptographic Web of Trust, and 3D living memory atlas!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="sync-offline-mesh">Offline BLE Mesh Sync 📴</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="listen-wearable-whispers">Wearable Audio Whispers 🦻</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="verify-web-of-trust">Web of Trust (ZK) 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #10b981);" data-act="view-memory-atlas">Living Memory Atlas 🗺️</button>
+    </div>
+    <div id="ultimate-frontier-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Global Flourishing & Regenerative Earth Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌍 Global Flourishing & Regenerative Earth</h2>
+      <span class="badge good" style="font-weight:bold;">Planetary Impact</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Regenerative eco-quests, zero-waste food sharing pantries, mental health peer listeners, and intergenerational craft mentorship!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="view-eco-quests">Regenerative Eco-Quests 🌱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-zero-waste-pantry">Zero-Waste Food Pantry 🍲</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="connect-peer-listener">Compassion Listener 🧠</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="view-intergenerational-guild">Intergenerational Guild 🕊️</button>
+    </div>
+    <div id="global-flourishing-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Next-Gen Content Seeding & Insider Radar Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(236,72,153,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📡 Next-Gen Content Seeding & Insider Radar</h2>
+      <span class="badge good" style="font-weight:bold;">Insider Discovery</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Underground vinyl listening sessions, secret ramen test kitchens, unmapped wild waterfalls, and candlelit poetry bookshop salons!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="view-vinyl-radar">Underground Vinyl Radar 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="view-culinary-drops">Culinary Secret Drops 🥐</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="view-wild-nature">Wild Nature & Waterfalls ⛰️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #3b82f6);" data-act="view-literary-salons">Literary & Poetry Salons 📚</button>
+    </div>
+    <div id="nextgen-seeding-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Hyper-Autonomous Event & Spot Discovery Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🛰️ Hyper-Autonomous Event & Spot Discovery</h2>
+      <span class="badge good" style="font-weight:bold;">Live Real-Time APIs</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live Open-Meteo weather telemetry, Wikipedia encyclopedia feeds, Reddit/Instagram viral surges & OSM footfall anomalies!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="view-viral-pulse">Social & Viral Pulse 📱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-footfall-anomalies">Footfall Surge Anomaly 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-editorial-press">Cultural Press Scraper 📰</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #f59e0b);" data-act="view-weather-triggers">Weather & Tide Triggers ☀️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981); grid-column: 1 / -1;" data-act="fetch-live-apis">🌐 Ingest Live External APIs (Open-Meteo & Wiki) 🚀</button>
+    </div>
+    <div id="hyper-discovery-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Nightlife, Underground Clubs & Secret Speakeasies Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(168,85,247,0.2)); border:1px solid rgba(239,68,68,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🍸 Nightlife, Underground Clubs & Speakeasies</h2>
+      <span class="badge good" style="font-weight:bold; background:linear-gradient(135deg,#ef4444,#a855f7); color:#fff;">After-Dark Radar</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live underground warehouse raves, VOID sound systems, secret telephone-booth cocktail bars, 1-tap VIP guestlists & pre-game squads!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ef4444, #f97316);" data-act="view-nightlife-party">🔥 Live Party & Club Radar</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="view-nightlife-speakeasy">🍸 Secret Speakeasies & Dens</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #3b82f6);" data-act="rsvp-nightlife-fastpass">🎟️ 1-Tap Fast-Pass Guestlist</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="match-pregame-crew">🍻 Pre-Game Crew & SafeWalk</button>
+    </div>
+    <div id="nightlife-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
@@ -3804,6 +4121,1063 @@ function wire(root) {
       </div>
     `;
   }, "Art Gallery Crawl Confirmed! 🎨"));
+
+  on("[data-act=join-sauna-social]", () => act(async () => {
+    const res = await api("/v1/wellness/sauna-social", { venue: "Alfama Nordic Sauna & Bathhouse" });
+    const out = $("#sauna-plant-wine-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
+        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:4px;">🧖 Nordic Sauna Social Confirmed (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · ${esc(res.temperature_profile)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Guide: ${esc(res.breathwork_guide)} · ${res.participants_count} Members</div>
+      </div>
+    `;
+  }, "Nordic Sauna Social Confirmed! 🧖"));
+
+  on("[data-act=join-plant-swap]", () => act(async () => {
+    const res = await api("/v1/economy/plant-swap", { park: "Jardim da Estrela Community Greenhouse" });
+    const out = $("#sauna-plant-wine-output");
+    if (!out) return;
+    const items = res.items_to_trade || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🪴 Neighborhood Plant Swap Joined (${res.attendees_count} Gardeners):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · ${esc(res.meeting_time)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Trading: ${items.join(", ")} (${esc(res.cost)})</div>
+      </div>
+    `;
+  }, "Plant & Seed Swap Joined! 🪴"));
+
+  on("[data-act=join-wine-tasting]", () => act(async () => {
+    const res = await api("/v1/dining/wine-tasting", { rooftop: "Miradouro Rooftop Terrace" });
+    const out = $("#sauna-plant-wine-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🍷 Natural Wine Tasting Confirmed (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Rooftop: <strong>${esc(res.rooftop)}</strong> · Selection: ${esc(res.wine_selection)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Pairing: ${esc(res.pairing)} · ${esc(res.split_cost)}</div>
+      </div>
+    `;
+  }, "Natural Wine Tasting Confirmed! 🍷"));
+
+  on("[data-act=build-native-manifest]", () => act(async () => {
+    const res = await api("/v1/native/app-store-manifest", { platform: "ios_and_android" });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const caps = res.native_capabilities || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📱 Native App Store Manifest (${esc(res.version)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">iOS: <strong>${esc(res.ios_bundle_id)}</strong> · Android: ${esc(res.android_package)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Capabilities: ${caps.join(", ")}</div>
+      </div>
+    `;
+  }, "Native App Store Manifest Generated! 📱"));
+
+  on("[data-act=sync-wearable-telemetry]", () => act(async () => {
+    const res = await api("/v1/wearables/sync-telemetry", { device: "Apple Watch Ultra & Whoop 4.0", hrv_ms: 78, recovery_score: 92 });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const b = res.biometrics || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⌚ Wearable Telemetry Synced (${esc(res.device)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">HRV: <strong>${b.hrv_ms}ms</strong> · Recovery: <strong>${b.recovery_score_pct}%</strong> · Strain: ${b.daily_strain}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Status: ${esc(res.social_readiness)} (${esc(res.battery_boost)})</div>
+      </div>
+    `;
+  }, "Wearable Telemetry Synced! ⌚"));
+
+  on("[data-act=trigger-edge-mesh]", () => act(async () => {
+    const res = await api("/v1/infra/edge-replication", { primary_region: "eu-central (Frankfurt)" });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const nodes = res.edge_nodes || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌍 Global Edge Mesh Active (${esc(res.replication_latency)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Consensus: <strong>${esc(res.consensus_protocol)}</strong> · Health: ${esc(res.node_health)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Nodes: ${nodes.join(" · ")}</div>
+      </div>
+    `;
+  }, "Global Edge Mesh Replicated! 🌍"));
+
+  on("[data-act=negotiate-ai-agents]", () => act(async () => {
+    const res = await api("/v1/ai/agent-negotiator", { topic: "Weekend Sunset Surf & Dinner" });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const agents = res.participating_agents || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 Multi-Agent Consensus Confirmed (${agents.length} Agents):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Slot: <strong>${esc(res.unanimous_slot)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Venue: ${esc(res.selected_venue)} · Split: ${esc(res.split_agreement)}</div>
+      </div>
+    `;
+  }, "AI Multi-Agent Consensus Reached! 🤖"));
+
+  on("[data-act=seed-city-bootstrap]", () => act(async () => {
+    const res = await api("/v1/seeding/city-bootstrap", { city: "Lisbon" });
+    const out = $("#seeding-output");
+    if (!out) return;
+    const feeds = res.active_event_feeds || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🗺️ City Bootstrap Complete (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Seeded: <strong>${res.curated_third_places} Curated Third-Places</strong> (${esc(res.seed_density)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Feeds: ${feeds.join(", ")}</div>
+      </div>
+    `;
+  }, "City Bootstrapped with Zero Cold Start! 🗺️"));
+
+  on("[data-act=mint-pioneer-pass]", () => act(async () => {
+    const res = await api("/v1/seeding/pioneer-pass", { city: "Lisbon", pioneer_number: 42 });
+    const out = $("#seeding-output");
+    if (!out) return;
+    const perks = res.perks || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Pioneer Ambassador Pass Minted:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Title: <strong>${esc(res.badge_title)}</strong></div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Perks: ${perks.join(" · ")}</div>
+      </div>
+    `;
+  }, "City Pioneer Ambassador Pass Minted! 👑"));
+
+  on("[data-act=gen-golden-tickets]", () => act(async () => {
+    const res = await api("/v1/seeding/golden-tickets", { outing: "Sunset Catamaran Sailing (€30)" });
+    const out = $("#seeding-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ 3x Golden Crew Tickets Generated:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.outing)}</strong> (${esc(res.viral_multiplier)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Invite Link: ${esc(res.share_link)} (WhatsApp / iMessage)</div>
+      </div>
+    `;
+  }, "3x Golden Tickets Ready to Share! 🎟️"));
+
+  on("[data-act=activate-anchor-outings]", () => act(async () => {
+    const res = await api("/v1/seeding/anchor-outings", { city: "Lisbon" });
+    const out = $("#seeding-output");
+    if (!out) return;
+    const anchors = res.weekly_anchors || [];
+    const items = anchors.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.day)}</strong>: ${esc(a.title)} (${a.spots_reserved} spots)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⚓ Weekly Anchor Crews Active (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Guarantee: ${esc(res.steward_guarantee)}</div>
+      </div>
+    `;
+  }, "Weekly Anchor Crews Activated! ⚓"));
+
+  on("[data-act=pay-stripe-checkout]", () => act(async () => {
+    const res = await api("/v1/payments/stripe/checkout-session", { amount: 21.00, description: "Sunset Catamaran Co-Share Split" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    const methods = res.payment_methods || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💳 Stripe Checkout Ready (€${res.amount.toFixed(2)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Session ID: <strong style="font-family:monospace;">${esc(res.session_id)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Methods: ${methods.join(" · ")}</div>
+        <a href="${safeUrl(res.checkout_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
+      </div>
+    `;
+  }, "Stripe Checkout Session Created! 💳"));
+
+  on("[data-act=pay-paypal-order]", () => act(async () => {
+    const res = await api("/v1/payments/paypal/create-order", { amount: 21.00, item: "Sunset Catamaran Co-Share Split" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0070ba;">
+        <div style="font-size:14px; font-weight:700; color:#0070ba; margin-bottom:4px;">🅿️ PayPal Order Created (€${res.amount.toFixed(2)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Order ID: <strong style="font-family:monospace;">${esc(res.order_id)}</strong> (${esc(res.intent)})</div>
+        <a href="${safeUrl(res.approval_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
+      </div>
+    `;
+  }, "PayPal Order Created! 🅿️"));
+
+  on("[data-act=test-stripe-webhook]", () => act(async () => {
+    const res = await api("/v1/payments/stripe/webhook", { type: "checkout.session.completed" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⚡ Stripe Webhook Verified (${esc(res.event_type)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Status: <strong>${esc(res.settlement_status)}</strong> (Signature Verified)</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Receipt: ${esc(res.receipt_url)}</div>
+      </div>
+    `;
+  }, "Stripe Webhook Verified! ⚡"));
+
+  on("[data-act=capture-paypal-order]", () => act(async () => {
+    const res = await api("/v1/payments/paypal/capture-order", { order_id: "PAYPAL-ORDER-882194A" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
+        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:4px;">💰 PayPal Payment Captured (${esc(res.status)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Capture ID: <strong style="font-family:monospace;">${esc(res.capture_id)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Payer: ${esc(res.payer_email)} · Outing Confirmed</div>
+      </div>
+    `;
+  }, "PayPal Payment Captured! 💰"));
+
+  on("[data-act=stream-auto-events]", () => act(async () => {
+    const res = await api("/v1/seeding/auto-event-pipeline", { city: "Lisbon" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const cats = res.categories_covered || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📡 Live Event Feeds Synced (${res.events_ingested} Events):</div>
+        <div style="font-size:13px; margin-bottom:4px;">City: <strong>${esc(res.city)}</strong> · Frequency: ${esc(res.sync_frequency)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Categories: ${cats.join(" · ")}</div>
+      </div>
+    `;
+  }, "284 Live Event Feeds Streamed! 📡"));
+
+  on("[data-act=synth-ai-outing]", () => act(async () => {
+    const res = await api("/v1/seeding/ai-outing-synthesizer", { city: "Lisbon", theme: "Hidden Sunset Vinyl & Craft Beer Crawl" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const stops = res.generated_stops || [];
+    const items = stops.map(s => `<div style="margin-top:2px;">• <strong>Stop ${s.stop} (${esc(s.time)})</strong>: ${esc(s.place)} (${esc(s.vibe)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 AI Micro-Itinerary Synthesized:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> (Split: ${esc(res.estimated_split)})</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+      </div>
+    `;
+  }, "AI Outing Micro-Itinerary Synthesized! 🤖"));
+
+  on("[data-act=load-third-places]", () => act(async () => {
+    const res = await api("/v1/seeding/third-places-directory", { city: "Lisbon" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const b = res.breakdown || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📍 ${res.total_third_places} Verified Third Places Ingested:</div>
+        <div style="font-size:12px; margin-bottom:4px;">☕ ${b.specialty_coffee_workspaces} Cafes · 🧗 ${b.bouldering_and_calisthenics} Gyms · 🌅 ${b.sunset_viewpoints_miradouros} Viewpoints · 📚 ${b.quiet_reading_libraries} Reading Spots</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Status: ${esc(res.live_status)}</div>
+      </div>
+    `;
+  }, "160 Verified Third Places Ingested! 📍"));
+
+  on("[data-act=trigger-weather-outings]", () => act(async () => {
+    const res = await api("/v1/seeding/weather-triggers", { city: "Lisbon", condition: "Sunny 24°C with 4ft Ocean Swell" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const outings = res.auto_published_outings || [];
+    const items = outings.map(o => `<div style="margin-top:2px;">• ☀️ <strong>${esc(o.activity)}</strong> <span style="color:var(--growth); font-weight:bold;">[LIVE]</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">☀️ Weather Trigger Outings Published:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Condition: <strong>${esc(res.live_conditions)}</strong></div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Weather-Triggered Outings Published! ☀️"));
+
+  on("[data-act=view-sports-hobbies]", () => act(async () => {
+    const res = await api("/v1/hobbies/sports-outdoors", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧗 ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Sports & Outdoors Passions Loaded! 🧗"));
+
+  on("[data-act=view-creative-making]", () => act(async () => {
+    const res = await api("/v1/hobbies/creative-making", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🏺 ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Creative Making & Art Studios Loaded! 🏺"));
+
+  on("[data-act=view-gaming-strategy]", () => act(async () => {
+    const res = await api("/v1/hobbies/gaming-strategy", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">♟️ ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Strategy & Board Gaming Loaded! ♟️"));
+
+  on("[data-act=view-culinary-craft]", () => act(async () => {
+    const res = await api("/v1/hobbies/culinary-craft", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍳 ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Culinary & Fermentation Circles Loaded! 🍳"));
+
+  on("[data-act=radar-edinburgh-fringe]", () => act(async () => {
+    const res = await api("/v1/events/landmark-radar", { city: "Edinburgh", month: "August" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const events = res.landmark_events || [];
+    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌍 ${esc(res.season_title)} (${res.total_landmark_events} Iconic Landmarks):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Edinburgh Festival Fringe & Tattoo Radar Synced! 🎭"));
+
+  on("[data-act=radar-munich-oktoberfest]", () => act(async () => {
+    const res = await api("/v1/events/landmark-radar", { city: "Munich", month: "September" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const events = res.landmark_events || [];
+    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #3b82f6;">
+        <div style="font-size:14px; font-weight:700; color:#3b82f6; margin-bottom:4px;">🌍 ${esc(res.season_title)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Munich Oktoberfest Radar Synced! 🍺"));
+
+  on("[data-act=radar-lisbon-festas]", () => act(async () => {
+    const res = await api("/v1/events/landmark-radar", { city: "Lisbon", month: "June" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const events = res.landmark_events || [];
+    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌍 ${esc(res.season_title)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Lisbon Festas & Web Summit Radar Synced! 🐟"));
+
+  on("[data-act=sync-ai-butler-landmarks]", () => act(async () => {
+    const res = await api("/v1/ai/outing-butler", { weekend: "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const sched = res.curated_schedule || [];
+    const items = sched.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} @ <em>${esc(s.venue)}</em></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🤖 AI Outing Butler Landmark Blueprint (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Cost: ${esc(res.estimated_cost)} · Group Split Synchronized</div>
+      </div>
+    `;
+  }, "AI Outing Butler Synced with Landmark Festivals! 🤖"));
+
+  on("[data-act=open-voice-huddle]", () => act(async () => {
+    const res = await api("/v1/voice/crew-huddle", { event_name: "Edinburgh Festival Fringe Crowds" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    const speakers = res.active_speakers || [];
+    const items = speakers.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.name)}</strong>: ${esc(s.distance || s.status)} ${s.speaking ? '🔊 [Speaking]' : ''}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎙️ Spatial 3D Voice Huddle Active (${res.latency_ms}ms Latency):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Event: <strong>${esc(res.event)}</strong> · Codec: ${esc(res.codec)}</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Status: ${esc(res.noise_suppression)}</div>
+      </div>
+    `;
+  }, "Spatial Audio Crew Huddle Connected! 🎙️"));
+
+  on("[data-act=trigger-nfc-tap]", () => act(async () => {
+    const res = await api("/v1/nfc/tap-to-synergy", { peer: "Catriona (Nomad / Foodie)" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    const hobbies = res.shared_hobbies || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">📳 NFC Tap-to-Synergy Confirmed (${res.synergy_score}% Match):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Connected with: <strong>${esc(res.peer)}</strong> (${res.mutual_connections} Mutual Friends)</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shared Passions: ${hobbies.join(" · ")}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">ZK Contact Card Exchanged with Double Haptic Pulse</div>
+      </div>
+    `;
+  }, "NFC Tap-to-Synergy Handshake Verified! 📳"));
+
+  on("[data-act=translate-local-culture]", () => act(async () => {
+    const res = await api("/v1/ai/culture-bridge-translator", { city: "Edinburgh" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🗣️ Culture & Dialect Bridge (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Phrase: <em>"${esc(res.original_phrase)}"</em></div>
+        <div style="font-size:13px; font-weight:700; color:var(--growth); margin-bottom:4px;">➔ ${esc(res.translation)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Etiquette Tip: ${esc(res.cultural_etiquette_tip)}</div>
+      </div>
+    `;
+  }, "Local Culture & Dialect Translated! 🗣️"));
+
+  on("[data-act=view-dao-treasury]", () => act(async () => {
+    const res = await api("/v1/dao/community-treasury", { city: "Edinburgh" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    const props = res.active_proposals || [];
+    const items = props.map(p => `<div style="margin-top:2px;">• <strong>${esc(p.id)}</strong>: ${esc(p.title)} (${p.votes_for} votes - <span style="color:var(--growth); font-weight:bold;">${esc(p.status)}</span>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏛️ DAO Community Treasury (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Balance: <strong>${esc(res.treasury_balance)}</strong> (${esc(res.voting_mechanism)})</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Community DAO Treasury Synced! 🏛️"));
+
+  on("[data-act=trigger-boredom-quest]", () => act(async () => {
+    const res = await api("/v1/ai/spontaneous-quests", { city: "Edinburgh", time_available: "Right Now (Next 15 Mins)" });
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    const quests = res.anti_boredom_quests || [];
+    const items = quests.map(q => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(q.title)}</strong> (${esc(q.eta)})<br><span style="font-size:11px; color:var(--growth);">Host: ${esc(q.host)} · Crew: ${q.crew_size} ready</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">⚡ Instant 15-Min Anti-Boredom Quests (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "3 Instant Spontaneous Quests Ready! ⚡"));
+
+  on("[data-act=align-ikigai-compass]", () => act(async () => {
+    const res = await api("/v1/ai/ikigai-compass", {});
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    const sched = res.recommended_weekly_purpose_schedule || [];
+    const items = sched.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.day)}</strong>: ${esc(s.focus)} (<em>${esc(s.vibe)}</em>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Ikigai Purpose Compass (${res.fulfillment_score}% Alignment):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: Screen-free, deep-flow weekly fulfillment blueprint active</div>
+      </div>
+    `;
+  }, "Ikigai Purpose Blueprint Activated! 🧘"));
+
+  on("[data-act=book-flow-mastery]", () => act(async () => {
+    const res = await api("/v1/ai/flow-mastery", { skill: "Ceramics Wheel Throwing & Glaze Chemistry" });
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌊 Screen-Free Flow Lab Scheduled (${esc(res.duration)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Skill: <strong>${esc(res.skill)}</strong> with ${esc(res.flow_partner)}</div>
+        <div style="font-size:12px; margin-bottom:4px;">Creation: ${esc(res.hands_on_creation)} @ ${esc(res.venue)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.screen_free_guarantee)}</div>
+      </div>
+    `;
+  }, "Screen-Free Flow Lab Booked! 🌊"));
+
+  on("[data-act=book-meaningful-salon]", () => act(async () => {
+    const res = await api("/v1/ai/meaningful-salons", { theme: "Courage, Transition & The Next Chapter" });
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    const prompts = res.table_prompts || [];
+    const items = prompts.map(p => `<div style="margin-top:2px; font-style:italic;">"${esc(p)}"</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ ${esc(res.format)}:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> @ ${esc(res.venue)}</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Anti-Small-Talk Prompts:<br>${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Host: ${esc(res.host)} · Split: ${esc(res.split)}</div>
+      </div>
+    `;
+  }, "Meaningful Conversation Salon Booked! 🕊️"));
+
+  on("[data-act=predict-serendipity]", () => act(async () => {
+    const res = await api("/v1/ai/serendipity-engine", { user: "Robert" });
+    const out = $("#butler-4-output");
+    if (!out) return;
+    const friend = res.nearby_friend || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🔮 Proactive Serendipity Opportunity:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Window: <strong>${esc(res.opportunity_window)}</strong> (${esc(res.weather_condition)})</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Friend Proximity: <strong>${esc(friend.name)}</strong> (${esc(friend.distance)}) · ${esc(friend.availability)}</div>
+        <div style="font-size:12px; font-style:italic;">Suggestion: ${esc(res.proactive_suggestion)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Action: ${esc(res.one_tap_action)}</div>
+      </div>
+    `;
+  }, "Proactive Serendipity Predicted! 🔮"));
+
+  on("[data-act=tune-empathy-vibe]", () => act(async () => {
+    const res = await api("/v1/ai/empathy-vibe-tuner", { vibe: "Slightly Overstimulated & Reflective" });
+    const out = $("#butler-4-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧠 Empathy Vibe Tuner (${esc(res.detected_state)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Environment: <strong>${esc(res.tailored_environment)}</strong> @ ${esc(res.venue)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.social_battery_protection)} · Companion: ${esc(res.companion_match)}</div>
+        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Restorative Activity: ${esc(res.soothing_activity)}</div>
+      </div>
+    `;
+  }, "Empathy Vibe Tuned! 🧠"));
+
+  on("[data-act=auto-group-concierge]", () => act(async () => {
+    const res = await api("/v1/ai/group-concierge", { group: "Weekend Lisbon Crew (4 People)" });
+    const out = $("#butler-4-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🗺️ Group Concierge Negotiation Complete:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Time: <strong>${esc(res.mutually_free_slot)}</strong> @ <strong>${esc(res.booked_venue)}</strong></div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Dietary Consensus: ${esc(res.dietary_consensus)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Pre-Authorized Split: ${esc(res.apple_pay_split_pre_authorized)} · Calendar Invites Sent</div>
+      </div>
+    `;
+  }, "Autonomous Group Dining Booked! 🗺️"));
+
+  on("[data-act=view-friendship-vault]", () => act(async () => {
+    const res = await api("/v1/ai/friendship-compounding", {});
+    const out = $("#butler-4-output");
+    if (!out) return;
+    const stones = res.meaningful_milestones || [];
+    const items = stones.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.friend)}</strong>: ${esc(s.note)} ➔ <span style="color:var(--growth); font-weight:bold;">${esc(s.nudge)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Friendship Compounding Vault (${res.compounding_score}% Score):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Privacy: ${esc(res.privacy)}</div>
+      </div>
+    `;
+  }, "Friendship Vault Synced! 🌱"));
+
+  on("[data-act=optimize-circadian-vitality]", () => act(async () => {
+    const res = await api("/v1/ai/vitality-circadian-flow", {});
+    const out = $("#life-value-output");
+    if (!out) return;
+    const c = res.circadian_rhythm_sync || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧬 Circadian Vitality Flow (${res.longevity_score}% Longevity Score):</div>
+        <div style="font-size:12px; margin-bottom:2px;">☀️ Morning Lux: ${esc(c.morning_lux_window)}</div>
+        <div style="font-size:12px; margin-bottom:2px;">🏃 Zone-2 Movement: ${esc(c.optimal_zone2_window)}</div>
+        <div style="font-size:12px; margin-bottom:2px;">🌙 Melatonin Wind-Down: ${esc(c.melatonin_wind_down)} ➔ ${esc(c.recommended_sleep_time)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Sauna Contrast: ${esc(res.weekly_contrast_therapy)}</div>
+      </div>
+    `;
+  }, "Circadian Vitality Protocol Optimized! 🧬"));
+
+  on("[data-act=track-regret-minimization]", () => act(async () => {
+    const res = await api("/v1/ai/regret-minimization", {});
+    const out = $("#life-value-output");
+    if (!out) return;
+    const quests = res.top_aspirational_quests || [];
+    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.quest)}</strong> <span class="badge good" style="font-size:10px;">${esc(q.status)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(q.milestone)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌟 Regret Minimization Framework (${res.life_vision_score}% Vision):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-style:italic;">"${esc(res.be_present_reminder)}"</div>
+      </div>
+    `;
+  }, "Regret Minimization Quests Synced! 🌟"));
+
+  on("[data-act=optimize-life-wealth]", () => act(async () => {
+    const res = await api("/v1/ai/wealth-value-optimizer", {});
+    const out = $("#life-value-output");
+    if (!out) return;
+    const allocs = res.optimized_allocations || [];
+    const items = allocs.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.category)}</strong>: <span style="color:var(--growth); font-weight:bold;">${esc(a.roi || a.savings)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💰 Wealth & Memory ROI Optimizer:</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.total_annual_memory_dividends)}</div>
+      </div>
+    `;
+  }, "Wealth & Memory ROI Optimized! 💰"));
+
+  on("[data-act=log-stoic-reflection]", () => act(async () => {
+    const res = await api("/v1/ai/stoic-presence-mirror", { moment: "Sunset tea with good friends overlooking the sea", gratitude: "Health & genuine companionship" });
+    const out = $("#life-value-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Stoic Daily Presence Mirror (#${res.lifetime_gratitude_count}):</div>
+        <div style="font-size:13px; margin-bottom:2px;">Daily Peak Moment: <strong>"${esc(res.daily_peak_moment)}"</strong></div>
+        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Gratitude Anchor: ${esc(res.gratitude_anchor)}</div>
+        <div style="font-size:11px; color:var(--spark); font-style:italic;">Wisdom: "${esc(res.stoic_wisdom)}" (${esc(res.privacy)})</div>
+      </div>
+    `;
+  }, "Stoic Reflection Logged! 🕊️"));
+
+  on("[data-act=crawl-zero-user-events]", () => act(async () => {
+    const res = await api("/v1/seeding/zero-user-event-crawler", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const srcs = res.sources_aggregated || [];
+    const items = srcs.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.source)}</strong>: ${s.events_ingested} events (<em>${esc(s.category)}</em>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📡 Zero-User Event Ingestion (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Total Ingested: <strong>${res.total_verified_events} live events</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(res.quality_filter_pass_rate)}</span>)</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "220 Live Events Ingested from Multi-Sources! 📡"));
+
+  on("[data-act=curate-hidden-gems]", () => act(async () => {
+    const res = await api("/v1/seeding/tastemaker-curation", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const gems = res.top_hidden_gems || [];
+    const items = gems.map(g => `<div style="margin-top:3px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(g.name)}</strong> (${g.insider_score}/100 score)<br><span style="font-size:11px; color:var(--spark);">${esc(g.vibe)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(g.timing)} @ ${esc(g.neighborhood)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">💎 AI Tastemaker Top Hidden Gems (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Top Hidden Gems Curated! 💎"));
+
+  on("[data-act=sync-gravity-hubs]", () => act(async () => {
+    const res = await api("/v1/seeding/recurring-gravity-hubs", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const hubs = res.real_world_recurring_gatherings || [];
+    const items = hubs.map(h => `<div style="margin-top:3px;">• <strong>${esc(h.title)}</strong> (${esc(h.schedule)})<br><span style="font-size:11px; color:var(--growth);">Crowd: ${esc(h.real_world_crowd)} @ ${esc(h.venue)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📍 Recurring Real-World Gravity Hubs (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Real humans show up every week with 0 app downloads needed!</div>
+      </div>
+    `;
+  }, "Recurring Real-World Hubs Synced! 📍"));
+
+  on("[data-act=gen-city-culture-guide]", () => act(async () => {
+    const res = await api("/v1/seeding/city-culture-guide", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const days = res.weekly_highlights || [];
+    const items = days.map(d => `<div style="margin-top:2px;">• <strong>${esc(d.day)}</strong>: ${esc(d.highlight)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">📅 ${esc(res.title)}:</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700; margin-top:4px;">Status: ${esc(res.status)}</div>
+      </div>
+    `;
+  }, "7-Day City Culture Guide Synthesized! 📅"));
+
+  on("[data-act=run-full-day-simulation]", () => act(async () => {
+    const res = await api("/v1/simulation/full-day-ux-optimizer", { persona: "Digital Nomad Explorer", city: "Edinburgh" });
+    const out = $("#day-simulation-output");
+    if (!out) return;
+    const m = res.simulation_metrics || {};
+    const timeline = res.simulated_24h_timeline || [];
+    const items = timeline.map(t => `
+      <div style="margin-top:6px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">
+        <div style="font-weight:bold; font-size:12px; color:var(--growth);">${esc(t.time)} · ${esc(t.phase)}</div>
+        <div style="font-size:11px; margin-top:2px;">${esc(t.action)}</div>
+        <div style="font-size:10px; color:var(--spark); font-weight:700; margin-top:2px;">Friction: ${esc(t.ux_friction)}</div>
+      </div>
+    `).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🚀 24-Hour UX Day Simulation Results (${esc(res.city)}):</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:11px; margin-bottom:6px; background:rgba(0,0,0,0.25); padding:6px; border-radius:6px;">
+          <div>⏱️ Screen Time: <strong>${esc(m.total_screen_time_required)}</strong></div>
+          <div>❤️ Real Connection: <strong>${esc(m.real_world_connection_time)}</strong></div>
+          <div>⚡ Vitality Score: <strong>${esc(m.dopamine_vitality_score)}</strong></div>
+          <div>🌟 Memory Dividends: <strong>${m.lifelong_memory_dividends} Created</strong></div>
+        </div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Full-Day UX Simulation Completed! 🚀"));
+
+  on("[data-act=run-all-demographics]", () => act(async () => {
+    const res = await api("/v1/simulation/multi-demographic-suite", { profile: "ALL" });
+    const out = $("#day-simulation-output");
+    if (!out) return;
+    const profs = res.profiles_evaluated || [];
+    const items = profs.map(p => `
+      <div style="margin-top:6px; padding:8px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #ec4899;">
+        <div style="font-weight:bold; font-size:13px; color:#ec4899;">${esc(p.title)}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Need: ${esc(p.core_need)}</div>
+        <div style="font-size:11px; color:var(--growth); margin-top:2px;">Day: ${esc(p.sample_day)}</div>
+        <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--spark); font-weight:700; margin-top:4px;">
+          <span>Screen Time: ${esc(p.screen_time)}</span>
+          <span>Real Flow: ${esc(p.real_world_flow)}</span>
+        </div>
+        <div style="font-size:10px; color:#f59e0b; margin-top:2px; font-style:italic;">Memory: ${esc(p.memory_dividend)}</div>
+      </div>
+    `).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">👥 Multi-Demographic UX Simulation Suite (${res.total_demographics_covered} Profiles):</div>
+        <div style="font-size:12px; margin-bottom:6px; color:var(--growth); font-weight:bold;">Universal UX Score: ${esc(res.universal_ux_score)}</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Multi-Demographic Simulation Suite Complete! 👥"));
+
+  on("[data-act=sync-offline-mesh]", () => act(async () => {
+    const res = await api("/v1/mesh/offline-peer-sync", { peers: ["Alex (12m)", "Sofia (34m)", "Marco (48m)"] });
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const peers = res.connected_peers || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📴 Offline BLE Mesh Network (${esc(res.transport_protocol)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Connected Peers: <strong>${peers.join(", ")}</strong></div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Off-grid location radar & P2P emergency SOS active with zero internet!</div>
+      </div>
+    `;
+  }, "Offline BLE Mesh Synchronized! 📴"));
+
+  on("[data-act=listen-wearable-whispers]", () => act(async () => {
+    const res = await api("/v1/wearables/ambient-whispers", { device: "AirPods Pro / Ray-Ban Meta" });
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const whispers = res.sub_vocal_whispers || [];
+    const items = whispers.map(w => `<div style="margin-top:3px;">• <strong>${esc(w.context)}</strong>: "${esc(w.whisper)}" <span style="color:var(--spark); font-size:10px;">(${esc(w.audio_cue)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🦻 Smart Wearables Ambient Whispers (${esc(res.device)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.eyes_up_guarantee)}</div>
+      </div>
+    `;
+  }, "Wearable Audio Whispers Active! 🦻"));
+
+  on("[data-act=verify-web-of-trust]", () => act(async () => {
+    const res = await api("/v1/trust/web-of-trust", { target_user: "Elena Rostova" });
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const chain = res.vouching_chain || [];
+    const items = chain.map(c => `<div style="margin-top:2px;">• ${esc(c)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤝 Cryptographic Web of Trust (${esc(res.user)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Trust Score: <strong>${esc(res.trust_score)}</strong> <span class="badge good" style="font-size:10px;">${esc(res.community_status)}</span></div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Privacy: ${esc(res.privacy_standard)}</div>
+      </div>
+    `;
+  }, "Web of Trust Verified! 🤝"));
+
+  on("[data-act=view-memory-atlas]", () => act(async () => {
+    const res = await api("/v1/atlas/living-memory-map", {});
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const mems = res.recent_geo_memories || [];
+    const items = mems.map(m => `<div style="margin-top:3px;">• <strong>${esc(m.location)}</strong>: "${esc(m.memory)}" (<em>${esc(m.date)}</em>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Living Real-World Memory Atlas (${res.memory_pins_count} Pinned Moments):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.time_capsule_status)}</div>
+      </div>
+    `;
+  }, "Living Memory Atlas Loaded! 🗺️"));
+
+  on("[data-act=view-eco-quests]", () => act(async () => {
+    const res = await api("/v1/impact/regenerative-earth", { city: "Edinburgh" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const imp = res.collective_city_impact || {};
+    const quests = res.spontaneous_eco_quests || [];
+    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.title)}</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(q.reward)}</span>) · <em>${esc(q.crew)}</em></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Regenerative Earth Impact (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth); font-weight:bold;">${imp.plastic_removed_kg} kg Plastic Removed · ${imp.trees_and_pollinators_planted} Native Trees Planted</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Regenerative Eco-Quests Synced! 🌱"));
+
+  on("[data-act=view-zero-waste-pantry]", () => act(async () => {
+    const res = await api("/v1/impact/zero-waste-pantry", { city: "Edinburgh" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const meals = res.available_rescued_delicacies || [];
+    const items = meals.map(m => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(m.item)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(m.donor)} · ${esc(m.availability)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍲 Zero-Waste Food Sharing (${res.meals_rescued_this_month} Meals Rescued This Month):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Zero-Waste Communal Pantry Synced! 🍲"));
+
+  on("[data-act=connect-peer-listener]", () => act(async () => {
+    const res = await api("/v1/impact/compassion-listener-network", { vibe: "Seeking a Gentle Ear" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const l = res.matched_peer_listener || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🧠 Compassionate Peer Listener Matched:</div>
+        <div style="font-size:13px; margin-bottom:2px;">Listener: <strong>${esc(l.name)}</strong> (${esc(l.experience)})</div>
+        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Format: ${esc(l.format)} · Wait: ${esc(l.wait_time)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(l.cost)}</div>
+      </div>
+    `;
+  }, "Compassionate Peer Listener Ready! 🧠"));
+
+  on("[data-act=view-intergenerational-guild]", () => act(async () => {
+    const res = await api("/v1/impact/intergenerational-guild", { city: "Edinburgh" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const ex = res.active_exchanges || [];
+    const items = ex.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.elder)}</strong> ⇄ <strong>${esc(e.young_learner)}</strong><br><span style="font-size:11px; color:var(--growth);">${esc(e.exchange)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Intergenerational Mentorship Guild (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-style:italic;">${esc(res.community_impact)}</div>
+      </div>
+    `;
+  }, "Intergenerational Mentorship Guild Synced! 🕊️"));
+
+  const handleMasterMode = (modeName) => act(async () => {
+    const res = await api("/v1/os/master-controller", { mode: modeName, city: "Edinburgh" });
+    const out = $("#master-controller-output");
+    if (!out) return;
+    const subs = res.orchestrated_subsystems || {};
+    const items = Object.entries(subs).map(([k, v]) => `<div style="margin-top:2px;">• <strong style="color:var(--spark);">${esc(k.replace(/_/g, " ").toUpperCase())}</strong>: ${esc(v)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Master Controller Mode Active: "${esc(res.active_mode)}" (${esc(res.city)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:bold; margin-bottom:4px;">System Health: ${esc(res.system_health)}</div>
+        <div style="font-size:11px; background:rgba(0,0,0,0.25); padding:8px; border-radius:6px; margin-top:4px;">${items}</div>
+      </div>
+    `;
+  }, `ConnectOS Mode set to: ${modeName}! 👑`);
+
+  on("[data-act=set-mode-adventure]", () => handleMasterMode("High Growth & Adventure")());
+  on("[data-act=set-mode-recovery]", () => handleMasterMode("Restorative Deep Recovery")());
+  on("[data-act=set-mode-flow]", () => handleMasterMode("Creative Flow Mastery")());
+  on("[data-act=set-mode-impact]", () => handleMasterMode("Planetary Impact Guild")());
+
+  on("[data-act=view-vinyl-radar]", () => act(async () => {
+    const res = await api("/v1/seeding/underground-vinyl-radar", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const sess = res.curated_underground_sessions || [];
+    const items = sess.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(s.venue)} · ${esc(s.time)} (${esc(s.vibe)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎙️ Underground Vinyl & Secret DJ Radar (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Underground Vinyl Radar Synced! 🎙️"));
+
+  on("[data-act=view-culinary-drops]", () => act(async () => {
+    const res = await api("/v1/seeding/culinary-popup-drops", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const drops = res.exclusive_food_drops || [];
+    const items = drops.map(d => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(d.title)}</strong><br><span style="font-size:11px; color:var(--growth);">${esc(d.bakery || d.chef || d.host)} · ${esc(d.time)} (<em>${esc(d.quantity || d.access)}</em>)</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🥐 Culinary Secret Pop-Up Drops (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Culinary Pop-Up Drops Synced! 🥐"));
+
+  on("[data-act=view-wild-nature]", () => act(async () => {
+    const res = await api("/v1/seeding/wild-nature-trails", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const spots = res.secret_nature_spots || [];
+    const items = spots.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong> (${esc(s.distance)})<br><span style="font-size:11px; color:var(--spark);">${esc(s.difficulty)} · ${esc(s.stargazing_rating || s.water_quality)} · GPX Cached: 🟢</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⛰️ Wild Nature & Hidden Coordinates (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:bold; margin-top:4px;">${esc(res.offline_maps_ready)}</div>
+      </div>
+    `;
+  }, "Wild Nature Trails Synced! ⛰️"));
+
+  on("[data-act=view-literary-salons]", () => act(async () => {
+    const res = await api("/v1/seeding/literary-salon-radar", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const salons = res.curated_salons || [];
+    const items = salons.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(s.venue)} · ${esc(s.time)} (<em>${esc(s.entry || s.topic)}</em>)</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📚 Literary Salons & Bookshop Radar (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Literary Salons Synced! 📚"));
+
+  on("[data-act=view-viral-pulse]", () => act(async () => {
+    const res = await api("/v1/seeding/social-viral-pulse", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const sigs = res.social_signals_detected || [];
+    const items = sigs.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.venue)}</strong> (<span style="color:var(--spark);">${esc(s.signal)}</span>)<br><span style="font-size:11px; color:var(--growth);">${esc(s.insight)} · <em>${esc(s.velocity)}</em></span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📱 Social & Viral Pulse Surges (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Social Viral Pulse Synced! 📱"));
+
+  on("[data-act=view-footfall-anomalies]", () => act(async () => {
+    const res = await api("/v1/seeding/live-footfall-anomalies", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const spots = res.detected_footfall_hotspots || [];
+    const items = spots.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.zone)}</strong>: ${esc(s.probable_event)}<br><span style="font-size:11px; color:var(--spark);">${esc(s.anomaly_type)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Live Footfall & OSM Anomalies (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:bold; margin-top:4px;">Confidence: ${esc(res.confidence_score)}</div>
+      </div>
+    `;
+  }, "Footfall Anomalies Synced! 🗺️"));
+
+  on("[data-act=view-editorial-press]", () => act(async () => {
+    const res = await api("/v1/seeding/editorial-press-scraper", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const recs = res.editorial_recommendations || [];
+    const items = recs.map(r => `<div style="margin-top:3px;">• <strong style="color:var(--spark);">${esc(r.source)}</strong>: ${esc(r.highlight)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📰 Cultural Press & Critic Picks (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Editorial Cultural Press Synced! 📰"));
+
+  on("[data-act=view-weather-triggers]", () => act(async () => {
+    const res = await api("/v1/seeding/weather-tide-triggers", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const trigs = res.spontaneous_weather_triggers || [];
+    const items = trigs.map(t => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(t.trigger)}</strong> (<span style="color:var(--growth);">${esc(t.condition)}</span>)<br><span style="font-size:11px; color:var(--spark);">${esc(t.action)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">☀️ Weather & Tide Activity Triggers (${esc(res.current_conditions)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Weather & Tide Triggers Synced! ☀️"));
+
+  on("[data-act=fetch-live-apis]", () => act(async () => {
+    const res = await api("/v1/seeding/live-external-api-ingest", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const w = res.live_weather || {};
+    const events = res.live_cultural_events || [];
+    const items = events.map(e => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(e.title)}</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(e.source)}</span>)<br><span style="font-size:11px; color:var(--spark);">${esc(e.extract)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌐 Live External APIs Ingested (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth); font-weight:bold;">⛅ Live Weather: ${w.temp_c}°C · Wind: ${w.wind_kmh} km/h (${esc(w.status)})</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:10px; color:var(--muted); margin-top:4px;">Connected: ${esc((res.connected_apis || []).join(", "))}</div>
+      </div>
+    `;
+  }, "Live External APIs Ingested! 🌐"));
+
+  on("[data-act=view-nightlife-party]", () => act(async () => {
+    const res = await api("/v1/nightlife/party-radar", { city: "Munich" });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    const clubs = res.curated_clubs_and_parties || [];
+    const items = clubs.map(c => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #ef4444;">• <strong>${esc(c.name)}</strong> (${esc(c.timing)})<br><span style="font-size:11px; color:var(--growth);">${esc(c.genre)} · ${esc(c.location)}</span><br><span style="font-size:10px; color:var(--spark);">${esc(c.insider_tip)} (${esc(c.queue_status)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ef4444;">
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">🔥 Live Underground Clubs & Parties (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Live Party & Rave Radar Synced! 🔥"));
+
+  on("[data-act=view-nightlife-speakeasy]", () => act(async () => {
+    const res = await api("/v1/nightlife/secret-speakeasies", { city: "Munich" });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    const bars = res.secret_cocktail_dens || [];
+    const items = bars.map(b => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #a855f7;">• <strong>${esc(b.name)}</strong><br><span style="font-size:11px; color:#a855f7; font-weight:bold;">🔑 Entrance: ${esc(b.entrance)}</span><br><span style="font-size:11px; color:var(--muted);">${esc(b.vibe)} (${esc(b.address)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🍸 Secret Speakeasies & Passcodes (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Secret Speakeasies Unlocked! 🍸"));
+
+  on("[data-act=rsvp-nightlife-fastpass]", () => act(async () => {
+    const res = await api("/v1/nightlife/guestlist-vip", { venue: "Blitz Club", crew_size: 2 });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ Fast-Pass VIP Guestlist Confirmed:</div>
+        <div style="font-size:12px; font-weight:bold; color:var(--growth);">${esc(res.venue)} · Code: ${esc(res.fastpass_code)} (${res.crew_size} guests)</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Curfew: ${esc(res.entry_curfew)}</div>
+        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Perks: ${(res.perks_included || []).join(" · ")}</div>
+      </div>
+    `;
+  }, "Fast-Pass Guestlist Issued! 🎟️"));
+
+  on("[data-act=match-pregame-crew]", () => act(async () => {
+    const res = await api("/v1/nightlife/crew-pregame", { destination: "Blitz Club", city: "Munich" });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    const pg = res.pregame_gathering || {};
+    const squad = (pg.squad || []).map(s => `• <strong>${esc(s.name)}</strong>: ${esc(s.vibe)}`).join("<br>");
+    const sw = res.safewalk_home_escort || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🍻 Pre-Game Squad & SafeWalk Escort:</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:bold;">📍 Gathering: ${esc(pg.venue)} (${esc(pg.time)})</div>
+        <div style="font-size:11px; margin-top:3px;">${squad}</div>
+        <div style="font-size:11px; color:#10b981; margin-top:4px; font-weight:bold;">🛡️ SafeWalk Home at 04:00 AM: ${esc(sw.buddy)} (${esc(sw.status)})</div>
+      </div>
+    `;
+  }, "Pre-Game Squad Matched! 🍻"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

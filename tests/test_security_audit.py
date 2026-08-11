@@ -596,5 +596,261 @@ def test_the_pwa_builds_no_link_target_out_of_response_data():
     import re
     app_js = (pathlib.Path(__file__).resolve().parent.parent
               / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
-    sinks = re.findall(r'(href|action|formaction)\s*=\s*.\$\{', app_js)
-    assert sinks == [], f"a URL attribute is now built from data: {sinks}"
+    unguarded = re.findall(r'(?:href|action|formaction)\s*=\s*.\$\{(?!safeUrl\()([^}]*)\}',
+                           app_js)
+    assert unguarded == [], f"a URL attribute skips safeUrl(): {unguarded}"
+
+
+def test_safe_url_passes_links_through_and_defuses_script_urls():
+    """This guard caught two real `<a href="${res.checkout_url}">` sinks the moment they
+    arrived from `main`, which is the whole reason it exists. Both were hardcoded payment
+    URLs, so neither was exploitable — but they were one endpoint change away from being an
+    open redirect and one `javascript:` away from running as the signed-in user.
+
+    The logic is asserted here rather than only in JS, because nothing else in CI runs the
+    PWA. Kept deliberately in step with `safeUrl` in app.js."""
+    from urllib.parse import urlparse
+
+    def safe_url(raw):
+        try:
+            parsed = urlparse(str(raw or "").strip())
+        except ValueError:
+            return "#"
+        return raw if parsed.scheme in ("http", "https") else "#"
+
+    for good in ("https://checkout.stripe.com/c/pay/x", "http://example.com/a?b=c"):
+        assert safe_url(good) == good
+    for bad in ("javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,<script>",
+                "vbscript:msgbox", "", "   ", None):
+        assert safe_url(bad) == "#", bad
+
+
+# ---- endpoints that had never worked ------------------------------------------
+
+@pytest.fixture
+def two_graphs(cfg):
+    """Ana and Mallory as separate owner slices on one database."""
+    from gateway import accounts
+    from substrate.graph import Graph
+    from substrate.migrate import migrate
+    from substrate.bus import Bus
+    from substrate import load_config
+    import substrate
+
+    base = TestClient(create_app(cfg))          # builds and migrates the db
+    root = base.app.state.graph
+    made = {}
+    for name in ("ana", "mallory"):
+        account = accounts.register(root, name, PW)
+        made[name] = Graph(root.conn, root.bus, default_owner=account["owner_id"])
+    return made
+
+
+def test_the_topology_hubs_are_the_callers_own(two_graphs):
+    """`find_topology_hubs` read `SELECT src, dst FROM edges` with no join to entities, then
+    resolved every node's name — on a shared box that is every other user's people, goals
+    and memories by name.
+
+    It was unreachable, because the endpoint called `export_graph_topology`, which does not
+    exist, so it 500'd on every call. That is the trap: the obvious fix is to correct the
+    function name, and correcting the function name alone is what would have shipped the
+    leak."""
+    from substrate import topology
+
+    ana, mallory = two_graphs["ana"], two_graphs["mallory"]
+    session = ana.session("t", {"people:write", "events:write", "people:read"})
+    person = session.create_entity("person", {"name": "Rui-THERAPIST"}, source="t")
+    event = session.create_entity("event", {"title": "Thursday session"}, source="t")
+    session.create_edge(person, event, "attended", source="t")
+
+    mine = topology.find_topology_hubs(ana)
+    assert {hub["name"] for hub in mine} == {"Rui-THERAPIST", "Thursday session"}
+    assert topology.find_topology_hubs(mallory) == [], "another owner's graph is not yours"
+
+
+def test_the_csv_export_is_owner_scoped_and_actually_works(cfg):
+    """`Graph.all_entities()` does not exist, so this 500'd every time — and the PWA has a
+    live Export CSV button wired to it."""
+    client = TestClient(create_app(cfg))
+    heads = {}
+    for name in ("ana", "mallory"):
+        client.post("/v1/auth/register", json={"handle": name, "password": PW})
+        token = client.post("/v1/auth/login",
+                            json={"handle": name, "password": PW}).json()["token"]
+        heads[name] = {"Authorization": f"Bearer {token}"}
+
+    client.post("/v1/people", headers=heads["ana"], json={"name": "Rui-THERAPIST"})
+
+    mine = client.get("/v1/graph/export/csv", headers=heads["ana"])
+    assert mine.status_code == 200 and "Rui-THERAPIST" in mine.text
+    theirs = client.get("/v1/graph/export/csv", headers=heads["mallory"])
+    assert theirs.status_code == 200 and "Rui-THERAPIST" not in theirs.text
+
+
+@pytest.mark.parametrize("payload", ['=HYPERLINK("http://evil.example","x")',
+                                     "+1+1", "-2+3", "@SUM(A1:A9)"])
+def test_the_csv_export_cannot_carry_a_spreadsheet_formula(cfg, payload):
+    """Names are user-typed and this endpoint returns a file people open in Excel. A cell
+    starting `=`, `+`, `-` or `@` is a *formula* there, and `=HYPERLINK(...)` or a DDE
+    payload runs on open — the export is the delivery mechanism."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.post("/v1/people", headers=headers, json={"name": payload})
+
+    import csv
+    import io
+
+    body = client.get("/v1/graph/export/csv", headers=headers).text
+    rows = list(csv.reader(io.StringIO(body)))
+    cells = [cell for row in rows for cell in row]
+
+    # The text survives — defusing must not mean mangling somebody's data.
+    assert any(payload in cell for cell in cells), "the user's own text is preserved"
+    # ...but no cell is handed to the spreadsheet as a formula.
+    assert not any(cell[:1] in ("=", "+", "-", "@") for cell in cells), \
+        f"a live formula cell in {cells}"
+
+
+def test_the_endpoints_that_called_functions_that_do_not_exist(cfg):
+    """Four handlers named functions their module had never defined, so they returned a 500
+    on every call. Found by sweeping all 425 endpoints as a signed-in user, not by a test —
+    nothing in the suite touched them."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for path in ("/v1/graph/topology", "/v1/routines/mindfulness/summary",
+                 "/v1/graph/export/csv", "/v1/people/qr"):
+        assert client.get(path, headers=headers).status_code == 200, path
+
+
+def test_the_vcard_carries_the_callers_own_handle(cfg):
+    """It looked up entity kind `identity`, which is not in KINDS, so every call 400'd."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    card = client.get("/v1/people/qr",
+                      headers={"Authorization": f"Bearer {token}"}).json()
+    assert card["name"] == "ana" and "FN:ana" in card["vcard"]
+
+
+# ---- CRITICAL: any user could destroy the whole instance ----------------------
+
+@pytest.fixture
+def pair(cfg):
+    client = TestClient(create_app(cfg))
+    heads = {}
+    for name in ("ana", "mallory"):
+        client.post("/v1/auth/register", json={"handle": name, "password": PW})
+        token = client.post("/v1/auth/login",
+                            json={"handle": name, "password": PW}).json()["token"]
+        heads[name] = {"Authorization": f"Bearer {token}"}
+    client.post("/v1/people", headers=heads["ana"], json={"name": "Rui-THERAPIST"})
+    client.post("/v1/capture", headers=heads["ana"], json={"text": "Therapy notes"})
+    return client, heads
+
+
+def test_a_signed_in_stranger_cannot_wipe_the_instance(pair):
+    """The worst finding of the fourth audit, demonstrated end to end before it was fixed.
+
+    `POST /v1/graph/restore` is an ordinary authenticated endpoint with no operator gate,
+    and `import_restore` ran `DELETE FROM edges; DELETE FROM observations; DELETE FROM
+    entities` with **no owner predicate anywhere** before inserting `backup_data` — which,
+    for a `{}` body, is nothing. One empty POST from any account destroyed every graph on
+    the box. Accounts are entities too, so the victim could not even log in afterwards."""
+    client, heads = pair
+    before = client.get("/v1/graph", headers=heads["ana"]).json()["entities"]
+    assert before > 0
+
+    attack = client.post("/v1/graph/restore", headers=heads["mallory"], json={})
+    assert attack.status_code == 400
+
+    assert client.get("/v1/graph", headers=heads["ana"]).json()["entities"] == before
+    assert client.post("/v1/auth/login",
+                       json={"handle": "ana", "password": PW}).status_code == 200
+
+
+def test_a_restore_that_puts_nothing_back_is_refused(pair):
+    """Distinct from the wipe above: a well-formed body with an empty entity list is still
+    a request to delete everything and restore nothing, which is never what anyone means."""
+    client, heads = pair
+    refused = client.post("/v1/graph/restore", headers=heads["ana"],
+                          json={"entities": [], "edges": []})
+    assert refused.status_code == 400
+    assert client.get("/v1/graph", headers=heads["ana"]).json()["entities"] > 0
+
+
+def test_a_backup_contains_only_your_own_graph(pair):
+    """`export_backup` was the same hole pointed the other way — raw SQL over the whole
+    entities table, so any login dumped every other user's people and memories."""
+    client, heads = pair
+    mine = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    theirs = client.post("/v1/graph/backup", headers=heads["mallory"]).json()
+
+    assert "Rui-THERAPIST" in repr(mine["entities"])
+    assert theirs["entities"] == [] and theirs["edges"] == []
+
+
+def test_a_backup_restores_your_graph_exactly(pair):
+    """The feature has to still work, or the fix is just a removal."""
+    client, heads = pair
+    saved = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    client.post("/v1/people", headers=heads["ana"], json={"name": "MISTAKE"})
+
+    result = client.post("/v1/graph/restore", headers=heads["ana"], json=saved).json()
+    assert result["restored"] is True and result["entities"] == len(saved["entities"])
+
+    after = repr(client.post("/v1/graph/backup", headers=heads["ana"]).json())
+    assert "Rui-THERAPIST" in after and "MISTAKE" not in after
+    assert client.post("/v1/auth/login",
+                       json={"handle": "ana", "password": PW}).status_code == 200
+
+
+def test_a_crafted_backup_cannot_write_into_another_account(pair):
+    """Every row in a backup carries an `owner_id`, and the file is attacker-controlled. It
+    is ignored in favour of the caller's own — otherwise 'restore' is a write primitive
+    aimed at any slice you can name."""
+    client, heads = pair
+    stolen = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    for entity in stolen["entities"]:
+        entity["attrs"] = {**entity["attrs"], "name": "PLANTED-BY-MALLORY"}
+
+    assert client.post("/v1/graph/restore", headers=heads["mallory"],
+                       json=stolen).status_code == 200
+
+    ana_now = repr(client.post("/v1/graph/backup", headers=heads["ana"]).json())
+    assert "PLANTED-BY-MALLORY" not in ana_now
+    assert "Rui-THERAPIST" in ana_now, "Ana's own rows are untouched"
+
+
+def test_a_restore_writes_provenance_like_every_other_write(pair):
+    """It talked to the connection directly, so restored rows had no observation trail and
+    skipped kind validation. Going through the session API is what makes those automatic."""
+    client, heads = pair
+    saved = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    client.post("/v1/graph/restore", headers=heads["ana"], json=saved)
+
+    exported = client.get("/v1/export", headers=heads["ana"]).json()
+    owned = {entity["id"] for entity in exported["entities"]}
+    assert exported["observations"], "a restore leaves a provenance trail"
+    assert all(row["entity_id"] in owned for row in exported["observations"])
+
+
+@pytest.mark.parametrize("body", [
+    {"entities": [{"kind": "not_a_kind", "attrs": {}}], "edges": []},
+    {"entities": [{"kind": "person", "attrs": "not a dict"}], "edges": []},
+    {"entities": "nope", "edges": []},
+    {"entities": [{"kind": "person", "attrs": {"name": "ok"}}], "edges": "nope"},
+])
+def test_a_malformed_backup_is_a_400_not_a_500(pair, body):
+    client, heads = pair
+    assert client.post("/v1/graph/restore", headers=heads["ana"],
+                       json=body).status_code in (200, 400)
+    assert client.post("/v1/auth/login",
+                       json={"handle": "ana", "password": PW}).status_code == 200

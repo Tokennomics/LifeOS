@@ -40,7 +40,7 @@ MODULE = "feeds"
 FEED = "venue_feed"
 ORIGIN = "feed"
 MAX_ITEMS = 200
-STALE_DAYS = 2          # listings that finished before this are not worth carrying
+STALE_DAYS = 30          # listings that finished before this are not worth carrying
 HORIZON_DAYS = 120
 
 
