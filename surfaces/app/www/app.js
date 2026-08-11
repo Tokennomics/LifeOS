@@ -967,14 +967,15 @@ function todayView() {
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <h2>🛰️ Hyper-Autonomous Event & Spot Discovery</h2>
-      <span class="badge good" style="font-weight:bold;">Autonomous Intelligence</span>
+      <span class="badge good" style="font-weight:bold;">Live Real-Time APIs</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Reddit & Instagram viral surge radar, OpenStreetMap footfall anomaly detector, cultural press reader, and weather/tide triggers!</p>
+    <p class="hint" style="margin-bottom:8px;">Live Open-Meteo weather telemetry, Wikipedia encyclopedia feeds, Reddit/Instagram viral surges & OSM footfall anomalies!</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="view-viral-pulse">Social & Viral Pulse 📱</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-footfall-anomalies">Footfall Surge Anomaly 🗺️</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-editorial-press">Cultural Press Scraper 📰</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #f59e0b);" data-act="view-weather-triggers">Weather & Tide Triggers ☀️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981); grid-column: 1 / -1;" data-act="fetch-live-apis">🌐 Ingest Live External APIs (Open-Meteo & Wiki) 🚀</button>
     </div>
     <div id="hyper-discovery-output" style="margin-top:10px;"></div>
   </div>`;
@@ -5070,6 +5071,23 @@ function wire(root) {
       </div>
     `;
   }, "Weather & Tide Triggers Synced! ☀️"));
+
+  on("[data-act=fetch-live-apis]", () => act(async () => {
+    const res = await api("/v1/seeding/live-external-api-ingest", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const w = res.live_weather || {};
+    const events = res.live_cultural_events || [];
+    const items = events.map(e => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(e.title)}</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(e.source)}</span>)<br><span style="font-size:11px; color:var(--spark);">${esc(e.extract)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌐 Live External APIs Ingested (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth); font-weight:bold;">⛅ Live Weather: ${w.temp_c}°C · Wind: ${w.wind_kmh} km/h (${esc(w.status)})</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:10px; color:var(--muted); margin-top:4px;">Connected: ${esc((res.connected_apis || []).join(", "))}</div>
+      </div>
+    `;
+  }, "Live External APIs Ingested! 🌐"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

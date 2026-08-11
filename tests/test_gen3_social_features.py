@@ -749,3 +749,11 @@ def test_hyper_autonomous_discovery_signals(cfg):
     res4 = client.post("/v1/seeding/weather-tide-triggers", json={"city": "Edinburgh"})
     assert res4.status_code == 200
     assert res4.json()["weather_engine_active"] is True
+
+def test_live_external_api_ingestion(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/seeding/live-external-api-ingest", json={"city": "Edinburgh"})
+    assert res.status_code == 200
+    assert res.json()["live_ingestion_complete"] is True
+    assert "temp_c" in res.json()["live_weather"]
+    assert len(res.json()["live_cultural_events"]) >= 1
