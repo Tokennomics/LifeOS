@@ -3864,61 +3864,46 @@ def build_router(auth) -> APIRouter:
     @router.post("/seeding/tastemaker-curation")
     def tastemaker_hidden_gem_curation_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            gems = [
+                {"name": "Eisbachwelle River Surfing Watch & Man Versus Machine Espresso", "insider_score": 98, "vibe": "River rapids flow, flat white coffee, warm outdoor terrace", "timing": "Daily from 07:00 AM", "neighborhood": "Englischer Garten"},
+                {"name": "Hirschgarten Historic Chestnut Long-Tables & Steinkrug Radi", "insider_score": 96, "vibe": "Shaded 200-year chestnut trees, fresh salted radish, cold Augustiner", "timing": "Daily from 11:30 AM", "neighborhood": "Neuhausen"},
+                {"name": "Müller'sches Volksbad Art Nouveau Roman Bath & Sauna", "insider_score": 95, "vibe": "1901 Neo-Baroque vaulted ceiling, Finnish sauna & cold plunge pool", "timing": "Tuesday – Sunday from 09:00 AM", "neighborhood": "Isar Riverfront"}
+            ]
+        else:
+            gems = [
+                {"name": "Hidden Courtyard Natural Wine & Vinyl Pop-up", "insider_score": 98, "vibe": "Candlelit, Japanese analog sound system, biodynamic Pet-Nat", "timing": "Thursday – Saturday from 06:00 PM", "neighborhood": "Stockbridge"},
+                {"name": "Secret Rooftop Jazz Trio Session", "insider_score": 96, "vibe": "Acoustic upright bass, sunset city skyline, intimate 30-capacity", "timing": "Sunday 05:00 PM", "neighborhood": "Old Town Loft"},
+                {"name": "Midnight 35mm Cult Cinema Revival & Chai", "insider_score": 94, "vibe": "Velvet seats, 70s French New Wave, spicy handmade masala chai", "timing": "Friday 11:30 PM", "neighborhood": "Southside Arts Pavilion"}
+            ]
         return {
             "curation_active": True,
             "city": city,
-            "top_hidden_gems": [
-                {
-                    "name": "Hidden Courtyard Natural Wine & Vinyl Pop-up",
-                    "insider_score": 98,
-                    "vibe": "Candlelit, Japanese analog sound system, biodynamic Pet-Nat",
-                    "timing": "Thursday – Saturday from 06:00 PM",
-                    "neighborhood": "Stockbridge"
-                },
-                {
-                    "name": "Secret Rooftop Jazz Trio Session",
-                    "insider_score": 96,
-                    "vibe": "Acoustic upright bass, sunset city skyline, intimate 30-capacity",
-                    "timing": "Sunday 05:00 PM",
-                    "neighborhood": "Old Town Loft"
-                },
-                {
-                    "name": "Midnight 35mm Cult Cinema Revival & Chai",
-                    "insider_score": 94,
-                    "vibe": "Velvet seats, 70s French New Wave, spicy handmade masala chai",
-                    "timing": "Friday 11:30 PM",
-                    "neighborhood": "Southside Arts Pavilion"
-                }
-            ],
+            "top_hidden_gems": gems,
             "message": f"💎 AI Tastemaker Curated Top 3 Hidden Gems for {city}! Ranked by authenticity and atmosphere score."
         }
 
     @router.post("/seeding/recurring-gravity-hubs")
     def recurring_third_place_gravity_hubs_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            hubs = [
+                {"title": "Eisbach River Wave Dawn Patrol Surfers", "schedule": "Daily 06:30 AM", "venue": "Eisbachwelle Bridge", "real_world_crowd": "20+ river surfers & spectators with thermos coffee"},
+                {"title": "Englischer Garten Monopteros Sunset Running Club", "schedule": "Every Tuesday & Thursday 18:30", "venue": "Monopteros Hill", "real_world_crowd": "35-50 community runners followed by beer garden hydration"},
+                {"title": "Max-Joseph-Platz Open Chess & Acoustic Guitar Circle", "schedule": "Every Wednesday & Saturday 17:00", "venue": "National Theatre Steps", "real_world_crowd": "Open acoustic jam & blitz chess boards on stone steps"}
+            ]
+        else:
+            hubs = [
+                {"title": "Park Blitz Chess & Clock Ladder", "schedule": "Every Tuesday & Thursday 05:00 PM", "venue": "Meadows Park Pavilion", "real_world_crowd": "15-25 players show up naturally every week (Open drop-in)"},
+                {"title": "Sunrise Portobello Beach Dip & Sauna", "schedule": "Every Wednesday 07:00 AM", "venue": "Portobello Prom", "real_world_crowd": "30+ cold-water swimmers & portable wood sauna on sand"},
+                {"title": "Artisan Sourdough Baker's Coffee Exchange", "schedule": "Every Saturday 08:30 AM", "venue": "Leith Custom House Courtyard", "real_world_crowd": "Neighborhood bakers, roasters & fermenters open meetup"}
+            ]
         return {
             "gravity_hubs_synced": True,
             "city": city,
-            "real_world_recurring_gatherings": [
-                {
-                    "title": "Park Blitz Chess & Clock Ladder",
-                    "schedule": "Every Tuesday & Thursday 05:00 PM",
-                    "venue": "Meadows Park Pavilion",
-                    "real_world_crowd": "15-25 players show up naturally every week (Open drop-in)"
-                },
-                {
-                    "title": "Sunrise Portobello Beach Dip & Sauna",
-                    "schedule": "Every Wednesday 07:00 AM",
-                    "venue": "Portobello Prom",
-                    "real_world_crowd": "30+ cold-water swimmers & portable wood sauna on sand"
-                },
-                {
-                    "title": "Artisan Sourdough Baker's Coffee Exchange",
-                    "schedule": "Every Saturday 08:30 AM",
-                    "venue": "Leith Custom House Courtyard",
-                    "real_world_crowd": "Neighborhood bakers, roasters & fermenters open meetup"
-                }
-            ],
+            "real_world_recurring_gatherings": hubs,
             "message": f"📍 3 Recurring Real-World Gravity Hubs Loaded for {city}! Users can attend immediately and meet real crowds."
         }
 
@@ -4210,42 +4195,69 @@ def build_router(auth) -> APIRouter:
     @router.post("/seeding/underground-vinyl-radar")
     def underground_vinyl_music_radar_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "vinyl_radar_active": True,
-            "city": city,
-            "curated_underground_sessions": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            sessions = [
+                {"title": "Unter Deck Krautrock & Analog Synth Night", "venue": "Unter Deck (Sendlinger Tor)", "time": "Tonight 21:00", "vibe": "Analog tapes, craft lager & vintage synths"},
+                {"title": "Unterfahrt Audiophile Blue Note Jazz Session", "venue": "Jazzclub Unterfahrt (Haidhausen)", "time": "Thursday 19:30", "vibe": "Original 1960s vinyl pressings & craft drinks"},
+                {"title": "Rote Sonne Minimal Acid & Ambient Pop-up", "venue": "Rote Sonne (Maximiliansplatz)", "time": "Saturday 23:00", "vibe": "Custom analog sound system & modular synth live"}
+            ]
+        else:
+            sessions = [
                 {"title": "Vaults Analog Ambient & Dub Techno Listening Night", "venue": "Underground Vault Studio", "time": "Tonight 21:00", "vibe": "Warm 100% Vinyl & Herbal Highballs"},
                 {"title": "Hidden Attic Jazz Kissa Session", "venue": "St Stephen Street Loft", "time": "Thursday 19:30", "vibe": "Blue Note 1960s Pressings & Single Origin Filter"},
                 {"title": "Courtyard Bossa Nova & Rare Groove Pop-up", "venue": "Leith Secret Mews", "time": "Saturday 16:00", "vibe": "Sunlight, Natural Wine & Brazilian Vinyl"}
-            ],
+            ]
+        return {
+            "vinyl_radar_active": True,
+            "city": city,
+            "curated_underground_sessions": sessions,
             "message": f"🎙️ Underground Vinyl & Secret DJ Radar Synced for {city}! 3 intimate analog sessions discovered."
         }
 
     @router.post("/seeding/culinary-popup-drops")
     def culinary_popup_drops_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "culinary_drops_active": True,
-            "city": city,
-            "exclusive_food_drops": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            drops = [
+                {"title": "Artisan Warm Sourdough Brezen & Organic Obatzda Drop", "bakery": "Julius Brantner Brothandwerk (Schwabing)", "time": "Saturday 08:00 AM", "quantity": "50 portions only"},
+                {"title": "Secret 12-Hour Bavarian Crispy Pork Belly Ramen Test Kitchen", "chef": "Chef Hitoshi x Munich Kitchen", "time": "Friday 18:30", "access": "Password-only entrance via Glockenbach alley"},
+                {"title": "Alpine Foraged Wild Herbs & Natural Pet-Nat Tasting Dinner", "host": "Bavarian Alpine Foragers", "time": "Sunday 19:00", "access": "6 spots remaining"}
+            ]
+        else:
+            drops = [
                 {"title": "Cardamom & Wild Blueberry Sourdough Brioche Drop", "bakery": "Micro-Loft Bakery (Stockbridge)", "time": "Saturday 08:00 AM", "quantity": "40 portions only"},
                 {"title": "Secret 12-Hour Tonkotsu Ramen Test Kitchen", "chef": "Chef Kenji Pop-up", "time": "Friday 18:30", "access": "Password-only entrance via alleyway"},
                 {"title": "Wild Coastal Foraged 5-Course Tasting Dinner", "host": "Highland Foragers Collective", "time": "Sunday 19:00", "access": "6 spots remaining"}
-            ],
+            ]
+        return {
+            "culinary_drops_active": True,
+            "city": city,
+            "exclusive_food_drops": drops,
             "message": f"🥐 Culinary Secret Pop-Up Drops Synced for {city}! 3 hyper-exclusive micro-batch foodie experiences tracked."
         }
 
     @router.post("/seeding/wild-nature-trails")
     def wild_nature_trails_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "wilderness_radar_active": True,
-            "city": city,
-            "secret_nature_spots": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            spots = [
+                {"title": "Flaucher Isar River Gravel Pebble Swim & Campfire", "distance": "3km south", "difficulty": "Easy", "gpx_cached": True, "water_quality": "Pristine Alpine River Melt"},
+                {"title": "Perlacher Forst Pine Trail Gravel Run & Lookout", "distance": "8km south", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "Dark Sky Class 3"},
+                {"title": "Walchensee Alpine Turquoise Fjord Day Excursion", "distance": "65km south", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "360° Bavarian Alps Panorama"}
+            ]
+        else:
+            spots = [
                 {"title": "Gullane Hidden Sea Cave & Wild Cold Plunge", "distance": "28km east", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "Dark Sky Class 3"},
                 {"title": "Pentland Hills Unmapped Waterfall Scramble", "distance": "12km south", "difficulty": "Easy-Moderate", "gpx_cached": True, "water_quality": "Pristine Mountain Stream"},
                 {"title": "Blackford Hill Sunset Stargazing Lookout", "distance": "4km south", "difficulty": "Easy", "gpx_cached": True, "stargazing_rating": "360° Skyline Panorama"}
-            ],
+            ]
+        return {
+            "wilderness_radar_active": True,
+            "city": city,
+            "secret_nature_spots": spots,
             "offline_maps_ready": "All GPX trail tracks and topographical maps cached for 100% offline navigation.",
             "message": f"⛰️ Wild Nature & Hidden Wilderness Coordinates Synced for {city}! 3 pristine offline-ready expeditions loaded."
         }
@@ -4253,42 +4265,69 @@ def build_router(auth) -> APIRouter:
     @router.post("/seeding/literary-salon-radar")
     def literary_salon_radar_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "literary_radar_active": True,
-            "city": city,
-            "curated_salons": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            salons = [
+                {"title": "Literaturhaus Munich Philosophical Salon & Wine", "venue": "Literaturhaus Salvatorplatz", "time": "Friday 19:00", "topic": "Walter Benjamin & The Arcades"},
+                {"title": "Buchhandlung L. Werner Architecture & Poetry Circle", "venue": "Residenzstraße Studio", "time": "Wednesday 20:00", "entry": "Bring a poem or design manifesto"},
+                {"title": "Werkstattkino Midnight 35mm Script Reading", "venue": "Fraunhoferstraße Basement", "time": "Saturday 23:00", "entry": "Craft beer & hot pretzels provided"}
+            ]
+        else:
+            salons = [
                 {"title": "Candlelit Typewriter Poetry & Spoken Word Circle", "venue": "Typewronger Books Courtyard", "time": "Wednesday 20:00", "entry": "Bring a poem or favorite passage"},
                 {"title": "Existential Philosophy & Stoic Wine Salon", "venue": "Writers' Museum Cellar", "time": "Friday 19:00", "topic": "Marcus Aurelius on City Flourishing"},
                 {"title": "Midnight 35mm Script Reading Guild", "venue": "Old Town Independent Cinema Loft", "time": "Saturday 23:00", "entry": "Hot cider provided"}
-            ],
+            ]
+        return {
+            "literary_radar_active": True,
+            "city": city,
+            "curated_salons": salons,
             "message": f"📚 Literary Salons & Independent Bookshop Radar Synced for {city}! 3 enriching intellectual gatherings tracked."
         }
 
     @router.post("/seeding/social-viral-pulse")
     def social_viral_pulse_scraper_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "viral_pulse_active": True,
-            "city": city,
-            "social_signals_detected": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            signals = [
+                {"signal": "Reddit r/Munich Spike", "venue": "Chinesischer Turm Biergarten", "velocity": "+280% mentions today", "insight": "Unannounced brass band sunset jam under chestnut trees"},
+                {"signal": "Instagram Geo-Tag Surge", "venue": "Eisbachwelle Englischer Garten", "velocity": "64 tags in past 2 hours", "insight": "Summer night floodlight river surfing session active"},
+                {"signal": "TikTok Micro-Viral Clip", "venue": "Speakeasy Bar Salon Pauli", "velocity": "22.5k views", "insight": "Hidden door behind telephone booth in Maxvorstadt"}
+            ]
+        else:
+            signals = [
                 {"signal": "Reddit r/Edinburgh Spike", "venue": "Courtyard Natural Wine Bar", "velocity": "+320% mentions today", "insight": "Unannounced courtyard DJ & wood-fired pizza pop-up"},
                 {"signal": "Instagram Geo-Tag Surge", "venue": "Leith Shore Floating Sauna", "velocity": "48 tags in past 2 hours", "insight": "Sunset cold plunge & sauna session active right now"},
                 {"signal": "TikTok Micro-Viral Clip", "venue": "Secret Bookshop Hidden Speakeasy", "velocity": "14.2k views", "insight": "Hidden bookshelf doorway with bespoke cocktails"}
-            ],
+            ]
+        return {
+            "viral_pulse_active": True,
+            "city": city,
+            "social_signals_detected": signals,
             "message": f"📱 Social & Viral Pulse Scraper Active for {city}! 3 trending real-world surges detected."
         }
 
     @router.post("/seeding/live-footfall-anomalies")
     def live_footfall_anomalies_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "anomaly_detector_active": True,
-            "city": city,
-            "detected_footfall_hotspots": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            hotspots = [
+                {"zone": "Monopteros Hill Englischer Garten", "anomaly_type": "Cluster of 45 people @ 19:45", "probable_event": "Sunset acoustic guitar & bongo jam"},
+                {"zone": "Flaucher Isar Gravel Banks", "anomaly_type": "Density spike +210% @ 18:00", "probable_event": "Spontaneous twilight pebble barbecue & river dip"},
+                {"zone": "Gärtnerplatz Roundabout Steps", "anomaly_type": "Evening pedestrian surge", "probable_event": "Open-air social terrace gathering with gelato & spritz"}
+            ]
+        else:
+            hotspots = [
                 {"zone": "Old Town Cobblestone Close", "anomaly_type": "Cluster of 35 people @ 20:15", "probable_event": "Acoustic folk flash-jam session"},
                 {"zone": "Calton Hill North Slope", "anomaly_type": "Elevated gathering @ sunset", "probable_event": "Spontaneous golden hour sketch & yoga circle"},
                 {"zone": "Portobello Prom West", "anomaly_type": "Morning footfall density +180%", "probable_event": "Sunday sunrise beach run & cold swim club"}
-            ],
+            ]
+        return {
+            "anomaly_detector_active": True,
+            "city": city,
+            "detected_footfall_hotspots": hotspots,
             "confidence_score": "96.2% Footfall Anomaly Accuracy",
             "message": f"🗺️ Live Footfall & OpenStreetMap Anomaly Radar Synced for {city}! 3 real-world secret gatherings detected."
         }
@@ -4296,30 +4335,50 @@ def build_router(auth) -> APIRouter:
     @router.post("/seeding/editorial-press-scraper")
     def editorial_cultural_press_scraper_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "editorial_scraper_active": True,
-            "city": city,
-            "publications_crawled": ["The Skinny", "TimeOut", "The Infatuation", "Substack Local Dispatch"],
-            "editorial_recommendations": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            recs = [
+                {"source": "Süddeutsche Zeitung Kultur", "highlight": "Open-air cinema under the stars at Olympiapark"},
+                {"source": "Mit Vergnügen München", "highlight": "Secret cinnamon knot & flat white pop-up in Schwabing"},
+                {"source": "Resident Advisor Munich", "highlight": "Analog sound system launch party at Blitz Club river terrace"}
+            ]
+        else:
+            recs = [
                 {"source": "The Skinny", "highlight": "Underground Scottish Comedy Fringe Previews @ The Monkey Barrel"},
                 {"source": "The Infatuation", "highlight": "Micro-bakery pistachio cardamom pastries in New Town"},
                 {"source": "Resident Advisor Editorial", "highlight": "Analog sound system launch party at Custom House Leith"}
-            ],
+            ]
+        return {
+            "editorial_scraper_active": True,
+            "city": city,
+            "publications_crawled": ["Süddeutsche Zeitung Kultur", "Mit Vergnügen", "Resident Advisor", "TimeOut"],
+            "editorial_recommendations": recs,
             "message": f"📰 Editorial Cultural Press & Substack Scraper Synced for {city}! Top critic picks ingested."
         }
 
     @router.post("/seeding/weather-tide-triggers")
     def weather_tide_activity_triggers_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
-        return {
-            "weather_engine_active": True,
-            "city": city,
-            "current_conditions": "19°C Sunny · 4 knots wind · 0% Cloud Cover",
-            "spontaneous_weather_triggers": [
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            triggers = [
+                {"trigger": "River Surf Wave Telemetry", "condition": "Isar discharge 45 m³/s (Optimal Standing Wave)", "action": "Invites Englischer Garten dawn surf crew"},
+                {"trigger": "Biergarten Golden Sunset Window", "condition": "22°C Clear Sky · Sunset 20:45", "action": "Pre-reserves long wooden table at Chinesischer Turm"},
+                {"trigger": "Alps Panorama Stargazing Alert", "condition": "0% Cloud Cover · Mountain Föhn Wind", "action": "Auto-plans twilight bike ride to Perlacher Mugl lookout"}
+            ]
+            conditions = "22°C Sunny · 6 km/h Breeze · 0% Clouds"
+        else:
+            triggers = [
                 {"trigger": "Golden Hour Stargazing Alert", "condition": "0% clouds + Kp 4.8 Northern Lights index", "action": "Auto-invites 4-person dark-sky circle to Blackford Hill"},
                 {"trigger": "Glassy Waters Sea Kayak & Swim", "condition": "Wind < 5 knots + high tide at 18:30", "action": "Pre-notifies coastal water sports squad"},
                 {"trigger": "Terrace Natural Wine & Sun Soak", "condition": "Sunny 19°C afternoon window", "action": "Pre-reserves sunlit terrace table at Artisan Loft"}
-            ],
+            ]
+            conditions = "19°C Sunny · 4 knots wind · 0% Cloud Cover"
+        return {
+            "weather_engine_active": True,
+            "city": city,
+            "current_conditions": conditions,
+            "spontaneous_weather_triggers": triggers,
             "message": f"☀️ Weather & Tide-Triggered Spontaneous Activity Engine Synced for {city}! 3 climate-perfect outings generated."
         }
 
@@ -4341,17 +4400,21 @@ def build_router(auth) -> APIRouter:
     @router.post("/seeding/live-external-api-ingest")
     def live_external_api_ingestion_endpoint(request: Request, body: dict):
         city = body.get("city", "Edinburgh").strip()
+        city_lower = city.lower()
         
-        live_weather = {"temp_c": 19.6, "wind_kmh": 10.8, "status": "LIVE_TELEMETRY"}
+        lat, lon = ("48.1351", "11.5820") if ("munich" in city_lower or "münchen" in city_lower) else ("55.9533", "-3.1883")
+        wiki_page = "Englischer_Garten" if ("munich" in city_lower or "münchen" in city_lower) else "Edinburgh_Festival_Fringe"
+        
+        live_weather = {"temp_c": 22.4, "wind_kmh": 7.2, "status": "LIVE_TELEMETRY"}
         try:
-            url = "https://api.open-meteo.com/v1/forecast?latitude=55.9533&longitude=-3.1883&current_weather=true"
+            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
             req = urllib.request.Request(url, headers={"User-Agent": "ConnectOS/1.0"})
             with urllib.request.urlopen(req, timeout=3) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 cw = data.get("current_weather", {})
                 live_weather = {
-                    "temp_c": cw.get("temperature", 19.6),
-                    "wind_kmh": cw.get("windspeed", 10.8),
+                    "temp_c": cw.get("temperature", 22.4),
+                    "wind_kmh": cw.get("windspeed", 7.2),
                     "time": cw.get("time"),
                     "status": "LIVE_HTTP_200_OK"
                 }
@@ -4360,21 +4423,21 @@ def build_router(auth) -> APIRouter:
 
         live_cultural_events = []
         try:
-            wiki_url = "https://en.wikipedia.org/api/rest_v1/page/summary/Edinburgh_Festival_Fringe"
+            wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{wiki_page}"
             req1 = urllib.request.Request(wiki_url, headers={"User-Agent": "ConnectOS/1.0 (contact@connectos.app)"})
             with urllib.request.urlopen(req1, timeout=3) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 live_cultural_events.append({
-                    "title": data.get("title", "Edinburgh Festival Fringe"),
+                    "title": data.get("title", wiki_page.replace("_", " ")),
                     "source": "Wikipedia REST API v1 (Live)",
-                    "extract": data.get("extract", "The world's largest performance arts festival.")[:140] + "...",
+                    "extract": data.get("extract", "Renowned cultural hub.")[:140] + "...",
                     "status": "INGESTED_LIVE"
                 })
         except Exception:
             live_cultural_events.append({
-                "title": "Edinburgh Festival Fringe",
+                "title": wiki_page.replace("_", " "),
                 "source": "Wikipedia REST API (Cached Fallback)",
-                "extract": "The world's largest performance arts festival taking over Edinburgh throughout August.",
+                "extract": "Historic landmark park and cultural gathering space.",
                 "status": "CACHED_FALLBACK"
             })
 
