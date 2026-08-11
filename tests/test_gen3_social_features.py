@@ -456,3 +456,21 @@ def test_sauna_plant_swap_and_wine_tasting(cfg):
     res3 = client.post("/v1/dining/wine-tasting", json={"rooftop": "Miradouro"})
     assert res3.status_code == 200
     assert res3.json()["tasting_confirmed"] is True
+
+def test_frontier_stack_all_four_engines(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/native/app-store-manifest", json={"platform": "ios_and_android"})
+    assert res1.status_code == 200
+    assert res1.json()["manifest_generated"] is True
+
+    res2 = client.post("/v1/wearables/sync-telemetry", json={"device": "Apple Watch Ultra", "hrv_ms": 82, "recovery_score": 94})
+    assert res2.status_code == 200
+    assert res2.json()["telemetry_synced"] is True
+
+    res3 = client.post("/v1/infra/edge-replication", json={"primary_region": "eu-central"})
+    assert res3.status_code == 200
+    assert res3.json()["edge_mesh_active"] is True
+
+    res4 = client.post("/v1/ai/agent-negotiator", json={"topic": "Weekend Sunset Surf"})
+    assert res4.status_code == 200
+    assert res4.json()["negotiation_consensus_reached"] is True

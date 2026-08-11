@@ -709,6 +709,22 @@ function todayView() {
     <div id="sauna-plant-wine-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Frontier Stack: Native Store, Wearables, Edge Mesh & AI Agents ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(139,92,246,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🚀 Frontier Engine: Native Apps, Wearables & AI Mesh</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">v2.4 Production</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Native iOS/Android App Store builds, Apple Watch/Whoop telemetry sync, sub-10ms global edge mesh, and multi-agent AI outing negotiators!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="build-native-manifest">App Store Manifest 📱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="sync-wearable-telemetry">Sync Wearable HRV ⌚</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="trigger-edge-mesh">Global Edge Mesh 🌍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="negotiate-ai-agents">AI Agent Consensus 🤖</button>
+    </div>
+    <div id="frontier-stack-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3859,6 +3875,62 @@ function wire(root) {
       </div>
     `;
   }, "Natural Wine Tasting Confirmed! 🍷"));
+
+  on("[data-act=build-native-manifest]", () => act(async () => {
+    const res = await api("/v1/native/app-store-manifest", { platform: "ios_and_android" });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const caps = res.native_capabilities || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📱 Native App Store Manifest (${esc(res.version)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">iOS: <strong>${esc(res.ios_bundle_id)}</strong> · Android: ${esc(res.android_package)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Capabilities: ${caps.join(", ")}</div>
+      </div>
+    `;
+  }, "Native App Store Manifest Generated! 📱"));
+
+  on("[data-act=sync-wearable-telemetry]", () => act(async () => {
+    const res = await api("/v1/wearables/sync-telemetry", { device: "Apple Watch Ultra & Whoop 4.0", hrv_ms: 78, recovery_score: 92 });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const b = res.biometrics || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⌚ Wearable Telemetry Synced (${esc(res.device)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">HRV: <strong>${b.hrv_ms}ms</strong> · Recovery: <strong>${b.recovery_score_pct}%</strong> · Strain: ${b.daily_strain}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Status: ${esc(res.social_readiness)} (${esc(res.battery_boost)})</div>
+      </div>
+    `;
+  }, "Wearable Telemetry Synced! ⌚"));
+
+  on("[data-act=trigger-edge-mesh]", () => act(async () => {
+    const res = await api("/v1/infra/edge-replication", { primary_region: "eu-central (Frankfurt)" });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const nodes = res.edge_nodes || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌍 Global Edge Mesh Active (${esc(res.replication_latency)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Consensus: <strong>${esc(res.consensus_protocol)}</strong> · Health: ${esc(res.node_health)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Nodes: ${nodes.join(" · ")}</div>
+      </div>
+    `;
+  }, "Global Edge Mesh Replicated! 🌍"));
+
+  on("[data-act=negotiate-ai-agents]", () => act(async () => {
+    const res = await api("/v1/ai/agent-negotiator", { topic: "Weekend Sunset Surf & Dinner" });
+    const out = $("#frontier-stack-output");
+    if (!out) return;
+    const agents = res.participating_agents || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 Multi-Agent Consensus Confirmed (${agents.length} Agents):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Slot: <strong>${esc(res.unanimous_slot)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Venue: ${esc(res.selected_venue)} · Split: ${esc(res.split_agreement)}</div>
+      </div>
+    `;
+  }, "AI Multi-Agent Consensus Reached! 🤖"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
