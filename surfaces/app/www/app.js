@@ -888,12 +888,13 @@ function todayView() {
   /* ---- 24-Hour User Day UX Simulation Studio ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(99,102,241,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🕒 24-Hour User Day UX Simulation</h2>
-      <span class="badge good" style="font-weight:bold;">UX Optimization</span>
+      <h2>🕒 24-Hour User Day UX Simulation (All Demographics)</h2>
+      <span class="badge good" style="font-weight:bold;">Universal UX</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Simulate full 24-hour user experience to maximize real-world human connection and minimize screen time!</p>
-    <div style="display:flex; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6); flex:1;" data-act="run-full-day-simulation">Run 24-Hour UX Day Simulation 🚀</button>
+    <p class="hint" style="margin-bottom:8px;">Simulate full 24-hour days across 6 archetypal human demographics (Nomads, Parents, Artists, Athletes, Retirees, Students)!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="run-full-day-simulation">Simulate Single Day 🚀</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="run-all-demographics">Simulate All 6 Demographics 👥</button>
     </div>
     <div id="day-simulation-output" style="margin-top:10px;"></div>
   </div>`;
@@ -4709,6 +4710,32 @@ function wire(root) {
       </div>
     `;
   }, "Full-Day UX Simulation Completed! 🚀"));
+
+  on("[data-act=run-all-demographics]", () => act(async () => {
+    const res = await api("/v1/simulation/multi-demographic-suite", { profile: "ALL" });
+    const out = $("#day-simulation-output");
+    if (!out) return;
+    const profs = res.profiles_evaluated || [];
+    const items = profs.map(p => `
+      <div style="margin-top:6px; padding:8px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #ec4899;">
+        <div style="font-weight:bold; font-size:13px; color:#ec4899;">${esc(p.title)}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Need: ${esc(p.core_need)}</div>
+        <div style="font-size:11px; color:var(--growth); margin-top:2px;">Day: ${esc(p.sample_day)}</div>
+        <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--spark); font-weight:700; margin-top:4px;">
+          <span>Screen Time: ${esc(p.screen_time)}</span>
+          <span>Real Flow: ${esc(p.real_world_flow)}</span>
+        </div>
+        <div style="font-size:10px; color:#f59e0b; margin-top:2px; font-style:italic;">Memory: ${esc(p.memory_dividend)}</div>
+      </div>
+    `).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">👥 Multi-Demographic UX Simulation Suite (${res.total_demographics_covered} Profiles):</div>
+        <div style="font-size:12px; margin-bottom:6px; color:var(--growth); font-weight:bold;">Universal UX Score: ${esc(res.universal_ux_score)}</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Multi-Demographic Simulation Suite Complete! 👥"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

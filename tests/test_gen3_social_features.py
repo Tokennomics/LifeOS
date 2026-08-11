@@ -662,3 +662,10 @@ def test_full_day_user_ux_simulation(cfg):
     assert res.json()["simulation_complete"] is True
     assert len(res.json()["simulated_24h_timeline"]) >= 6
     assert res.json()["simulation_metrics"]["lifelong_memory_dividends"] >= 3
+
+def test_multi_demographic_simulation_suite(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/simulation/multi-demographic-suite", json={"profile": "ALL"})
+    assert res.status_code == 200
+    assert res.json()["suite_simulation_complete"] is True
+    assert res.json()["total_demographics_covered"] >= 6
