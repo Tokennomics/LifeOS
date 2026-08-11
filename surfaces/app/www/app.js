@@ -885,6 +885,19 @@ function todayView() {
     <div id="zero-user-seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- 24-Hour User Day UX Simulation Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🕒 24-Hour User Day UX Simulation</h2>
+      <span class="badge good" style="font-weight:bold;">UX Optimization</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Simulate full 24-hour user experience to maximize real-world human connection and minimize screen time!</p>
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6); flex:1;" data-act="run-full-day-simulation">Run 24-Hour UX Day Simulation 🚀</button>
+    </div>
+    <div id="day-simulation-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4669,6 +4682,33 @@ function wire(root) {
       </div>
     `;
   }, "7-Day City Culture Guide Synthesized! 📅"));
+
+  on("[data-act=run-full-day-simulation]", () => act(async () => {
+    const res = await api("/v1/simulation/full-day-ux-optimizer", { persona: "Digital Nomad Explorer", city: "Edinburgh" });
+    const out = $("#day-simulation-output");
+    if (!out) return;
+    const m = res.simulation_metrics || {};
+    const timeline = res.simulated_24h_timeline || [];
+    const items = timeline.map(t => `
+      <div style="margin-top:6px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">
+        <div style="font-weight:bold; font-size:12px; color:var(--growth);">${esc(t.time)} · ${esc(t.phase)}</div>
+        <div style="font-size:11px; margin-top:2px;">${esc(t.action)}</div>
+        <div style="font-size:10px; color:var(--spark); font-weight:700; margin-top:2px;">Friction: ${esc(t.ux_friction)}</div>
+      </div>
+    `).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🚀 24-Hour UX Day Simulation Results (${esc(res.city)}):</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:11px; margin-bottom:6px; background:rgba(0,0,0,0.25); padding:6px; border-radius:6px;">
+          <div>⏱️ Screen Time: <strong>${esc(m.total_screen_time_required)}</strong></div>
+          <div>❤️ Real Connection: <strong>${esc(m.real_world_connection_time)}</strong></div>
+          <div>⚡ Vitality Score: <strong>${esc(m.dopamine_vitality_score)}</strong></div>
+          <div>🌟 Memory Dividends: <strong>${m.lifelong_memory_dividends} Created</strong></div>
+        </div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Full-Day UX Simulation Completed! 🚀"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

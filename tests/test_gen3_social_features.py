@@ -654,3 +654,11 @@ def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
     res4 = client.post("/v1/seeding/city-culture-guide", json={"city": "Edinburgh"})
     assert res4.status_code == 200
     assert res4.json()["guide_generated"] is True
+
+def test_full_day_user_ux_simulation(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/simulation/full-day-ux-optimizer", json={"persona": "Digital Nomad", "city": "Edinburgh"})
+    assert res.status_code == 200
+    assert res.json()["simulation_complete"] is True
+    assert len(res.json()["simulated_24h_timeline"]) >= 6
+    assert res.json()["simulation_metrics"]["lifelong_memory_dividends"] >= 3

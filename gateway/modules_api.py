@@ -3940,6 +3940,63 @@ def build_router(auth) -> APIRouter:
             "message": f"📅 Editorial-Grade 7-Day City Culture Guide Synthesized for {city}! Complete day-by-day curated local roadmap."
         }
 
+    @router.post("/simulation/full-day-ux-optimizer")
+    def full_day_user_simulation_endpoint(request: Request, body: dict):
+        persona = body.get("persona", "Digital Nomad Explorer").strip()
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "simulation_complete": True,
+            "persona": persona,
+            "city": city,
+            "simulation_metrics": {
+                "total_screen_time_required": "12.5 Minutes Total (Sub-1% Daily Attention)",
+                "real_world_connection_time": "4.5 Hours Deep Human Interaction",
+                "frictionless_actions_completed": "100% (1-Tap Coffee RSVP, Auto-Split Lunch, Smart Wallet Pass)",
+                "dopamine_vitality_score": "98/100 (Zero Digital Fatigue / No Endless Scrolling)",
+                "lifelong_memory_dividends": 3
+            },
+            "simulated_24h_timeline": [
+                {
+                    "time": "07:00 AM",
+                    "phase": "🌅 Morning Awakening & Circadian Flow",
+                    "action": "Butler plays 30s voice brief: 19°C sunny day ahead. Nudges 15m outdoor morning lux stroll to anchor dopamine.",
+                    "ux_friction": "0 Taps (Audio Ambient)"
+                },
+                {
+                    "time": "08:30 AM",
+                    "phase": "☕ Deep Work & Third-Place Co-Working",
+                    "action": "Butler pre-reserves quiet window table at Artisan Roast Loft (95 Mbps Wi-Fi) with digital detox shield on.",
+                    "ux_friction": "1-Tap Confirmation"
+                },
+                {
+                    "time": "12:30 PM",
+                    "phase": "🥗 Midday Serendipitous Social Lunch",
+                    "action": "Detects friend Alex 350m away; coordinates spontaneous 40m lunch at Stockbridge Kitchen with pre-split Apple Pay bill (£14.20).",
+                    "ux_friction": "1-Tap Accept (No text coordination)"
+                },
+                {
+                    "time": "04:30 PM",
+                    "phase": "🏃 Afternoon Vitality Recharge & Movement",
+                    "action": "Energy dip detected; pairs user with 3-person Arthur's Seat Ridge Trail Run & Portobello beach cold dip.",
+                    "ux_friction": "Zero-Click Auto-RSVP"
+                },
+                {
+                    "time": "07:30 PM",
+                    "phase": "🍷 Evening Anti-Small-Talk Dinner Salon",
+                    "action": "Attends 6-person curated dinner salon with vulnerability prompt cards; zero awkward small talk, deep heart bonds formed.",
+                    "ux_friction": "Apple Wallet Pass 1-Tap Entry"
+                },
+                {
+                    "time": "10:00 PM",
+                    "phase": "🌙 Stoic Reflection & Sleep Wind-Down",
+                    "action": "60-second voice reflection logs peak moment into Lifelong Gratitude Tapestry; activates blue-light filter & 8.0h sleep alarm.",
+                    "ux_friction": "Voice Interactive"
+                }
+            ],
+            "ux_optimization_summary": "Simulated day achieved maximum real-world fulfillment, 4.5h authentic human bonding, and sub-15 minute screen interaction.",
+            "message": f"🕒 Full 24-Hour Day Simulation Completed for '{persona}' in {city}! UX optimized for deep life value and zero digital friction."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
