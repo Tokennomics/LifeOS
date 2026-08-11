@@ -899,6 +899,22 @@ function todayView() {
     <div id="day-simulation-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Ultimate Frontier Capabilities Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Ultimate Frontier Capabilities</h2>
+      <span class="badge good" style="font-weight:bold;">Final Frontier</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Offline P2P BLE mesh network, smart glasses ambient audio whispers, cryptographic Web of Trust, and 3D living memory atlas!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="sync-offline-mesh">Offline BLE Mesh Sync 📴</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="listen-wearable-whispers">Wearable Audio Whispers 🦻</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="verify-web-of-trust">Web of Trust (ZK) 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #10b981);" data-act="view-memory-atlas">Living Memory Atlas 🗺️</button>
+    </div>
+    <div id="ultimate-frontier-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4736,6 +4752,66 @@ function wire(root) {
       </div>
     `;
   }, "Multi-Demographic Simulation Suite Complete! 👥"));
+
+  on("[data-act=sync-offline-mesh]", () => act(async () => {
+    const res = await api("/v1/mesh/offline-peer-sync", { peers: ["Alex (12m)", "Sofia (34m)", "Marco (48m)"] });
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const peers = res.connected_peers || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📴 Offline BLE Mesh Network (${esc(res.transport_protocol)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Connected Peers: <strong>${peers.join(", ")}</strong></div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Off-grid location radar & P2P emergency SOS active with zero internet!</div>
+      </div>
+    `;
+  }, "Offline BLE Mesh Synchronized! 📴"));
+
+  on("[data-act=listen-wearable-whispers]", () => act(async () => {
+    const res = await api("/v1/wearables/ambient-whispers", { device: "AirPods Pro / Ray-Ban Meta" });
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const whispers = res.sub_vocal_whispers || [];
+    const items = whispers.map(w => `<div style="margin-top:3px;">• <strong>${esc(w.context)}</strong>: "${esc(w.whisper)}" <span style="color:var(--spark); font-size:10px;">(${esc(w.audio_cue)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🦻 Smart Wearables Ambient Whispers (${esc(res.device)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.eyes_up_guarantee)}</div>
+      </div>
+    `;
+  }, "Wearable Audio Whispers Active! 🦻"));
+
+  on("[data-act=verify-web-of-trust]", () => act(async () => {
+    const res = await api("/v1/trust/web-of-trust", { target_user: "Elena Rostova" });
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const chain = res.vouching_chain || [];
+    const items = chain.map(c => `<div style="margin-top:2px;">• ${esc(c)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤝 Cryptographic Web of Trust (${esc(res.user)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Trust Score: <strong>${esc(res.trust_score)}</strong> <span class="badge good" style="font-size:10px;">${esc(res.community_status)}</span></div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Privacy: ${esc(res.privacy_standard)}</div>
+      </div>
+    `;
+  }, "Web of Trust Verified! 🤝"));
+
+  on("[data-act=view-memory-atlas]", () => act(async () => {
+    const res = await api("/v1/atlas/living-memory-map", {});
+    const out = $("#ultimate-frontier-output");
+    if (!out) return;
+    const mems = res.recent_geo_memories || [];
+    const items = mems.map(m => `<div style="margin-top:3px;">• <strong>${esc(m.location)}</strong>: "${esc(m.memory)}" (<em>${esc(m.date)}</em>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Living Real-World Memory Atlas (${res.memory_pins_count} Pinned Moments):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.time_capsule_status)}</div>
+      </div>
+    `;
+  }, "Living Memory Atlas Loaded! 🗺️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

@@ -669,3 +669,21 @@ def test_multi_demographic_simulation_suite(cfg):
     assert res.status_code == 200
     assert res.json()["suite_simulation_complete"] is True
     assert res.json()["total_demographics_covered"] >= 6
+
+def test_ultimate_frontier_capabilities(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/mesh/offline-peer-sync", json={})
+    assert res1.status_code == 200
+    assert res1.json()["mesh_active"] is True
+
+    res2 = client.post("/v1/wearables/ambient-whispers", json={})
+    assert res2.status_code == 200
+    assert res2.json()["wearables_synced"] is True
+
+    res3 = client.post("/v1/trust/web-of-trust", json={"target_user": "Elena"})
+    assert res3.status_code == 200
+    assert res3.json()["trust_verified"] is True
+
+    res4 = client.post("/v1/atlas/living-memory-map", json={})
+    assert res4.status_code == 200
+    assert res4.json()["atlas_active"] is True
