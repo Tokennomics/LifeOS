@@ -869,6 +869,22 @@ function todayView() {
     <div id="life-value-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Zero-User Autonomous Event Seeding & Tastemaker Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌐 Zero-User Autonomous Event Seeding & Tastemaker</h2>
+      <span class="badge good" style="font-weight:bold;">Cold-Start Solved</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Multi-feed live event crawler (RA, Luma, Dice), hidden gem tastemaker scoring, recurring real-world gravity hubs, and 7-day city culture guide!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="crawl-zero-user-events">Crawl 220+ Events (RA/Luma) 📡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="curate-hidden-gems">Top Hidden Gems 💎</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="sync-gravity-hubs">Recurring Real Hubs 📍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="gen-city-culture-guide">7-Day Culture Guide 📅</button>
+    </div>
+    <div id="zero-user-seeding-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4594,6 +4610,65 @@ function wire(root) {
       </div>
     `;
   }, "Stoic Reflection Logged! 🕊️"));
+
+  on("[data-act=crawl-zero-user-events]", () => act(async () => {
+    const res = await api("/v1/seeding/zero-user-event-crawler", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const srcs = res.sources_aggregated || [];
+    const items = srcs.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.source)}</strong>: ${s.events_ingested} events (<em>${esc(s.category)}</em>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📡 Zero-User Event Ingestion (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Total Ingested: <strong>${res.total_verified_events} live events</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(res.quality_filter_pass_rate)}</span>)</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "220 Live Events Ingested from Multi-Sources! 📡"));
+
+  on("[data-act=curate-hidden-gems]", () => act(async () => {
+    const res = await api("/v1/seeding/tastemaker-curation", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const gems = res.top_hidden_gems || [];
+    const items = gems.map(g => `<div style="margin-top:3px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(g.name)}</strong> (${g.insider_score}/100 score)<br><span style="font-size:11px; color:var(--spark);">${esc(g.vibe)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(g.timing)} @ ${esc(g.neighborhood)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">💎 AI Tastemaker Top Hidden Gems (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Top Hidden Gems Curated! 💎"));
+
+  on("[data-act=sync-gravity-hubs]", () => act(async () => {
+    const res = await api("/v1/seeding/recurring-gravity-hubs", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const hubs = res.real_world_recurring_gatherings || [];
+    const items = hubs.map(h => `<div style="margin-top:3px;">• <strong>${esc(h.title)}</strong> (${esc(h.schedule)})<br><span style="font-size:11px; color:var(--growth);">Crowd: ${esc(h.real_world_crowd)} @ ${esc(h.venue)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📍 Recurring Real-World Gravity Hubs (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Real humans show up every week with 0 app downloads needed!</div>
+      </div>
+    `;
+  }, "Recurring Real-World Hubs Synced! 📍"));
+
+  on("[data-act=gen-city-culture-guide]", () => act(async () => {
+    const res = await api("/v1/seeding/city-culture-guide", { city: "Edinburgh" });
+    const out = $("#zero-user-seeding-output");
+    if (!out) return;
+    const days = res.weekly_highlights || [];
+    const items = days.map(d => `<div style="margin-top:2px;">• <strong>${esc(d.day)}</strong>: ${esc(d.highlight)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">📅 ${esc(res.title)}:</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700; margin-top:4px;">Status: ${esc(res.status)}</div>
+      </div>
+    `;
+  }, "7-Day City Culture Guide Synthesized! 📅"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

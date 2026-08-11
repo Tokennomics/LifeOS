@@ -634,3 +634,23 @@ def test_butler_of_true_life_value(cfg):
     res4 = client.post("/v1/ai/stoic-presence-mirror", json={"moment": "Sunset tea", "gratitude": "Health"})
     assert res4.status_code == 200
     assert res4.json()["reflection_logged"] is True
+
+def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/zero-user-event-crawler", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["crawler_active"] is True
+    assert res1.json()["total_verified_events"] >= 200
+
+    res2 = client.post("/v1/seeding/tastemaker-curation", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["curation_active"] is True
+    assert len(res2.json()["top_hidden_gems"]) >= 3
+
+    res3 = client.post("/v1/seeding/recurring-gravity-hubs", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["gravity_hubs_synced"] is True
+
+    res4 = client.post("/v1/seeding/city-culture-guide", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["guide_generated"] is True
