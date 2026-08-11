@@ -731,3 +731,21 @@ def test_nextgen_content_seeding_engines(cfg):
     res4 = client.post("/v1/seeding/literary-salon-radar", json={"city": "Edinburgh"})
     assert res4.status_code == 200
     assert res4.json()["literary_radar_active"] is True
+
+def test_hyper_autonomous_discovery_signals(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/social-viral-pulse", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["viral_pulse_active"] is True
+
+    res2 = client.post("/v1/seeding/live-footfall-anomalies", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["anomaly_detector_active"] is True
+
+    res3 = client.post("/v1/seeding/editorial-press-scraper", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["editorial_scraper_active"] is True
+
+    res4 = client.post("/v1/seeding/weather-tide-triggers", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["weather_engine_active"] is True

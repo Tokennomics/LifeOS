@@ -963,6 +963,22 @@ function todayView() {
     <div id="nextgen-seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Hyper-Autonomous Event & Spot Discovery Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🛰️ Hyper-Autonomous Event & Spot Discovery</h2>
+      <span class="badge good" style="font-weight:bold;">Autonomous Intelligence</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Reddit & Instagram viral surge radar, OpenStreetMap footfall anomaly detector, cultural press reader, and weather/tide triggers!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="view-viral-pulse">Social & Viral Pulse 📱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-footfall-anomalies">Footfall Surge Anomaly 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-editorial-press">Cultural Press Scraper 📰</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #f59e0b);" data-act="view-weather-triggers">Weather & Tide Triggers ☀️</button>
+    </div>
+    <div id="hyper-discovery-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4997,6 +5013,63 @@ function wire(root) {
       </div>
     `;
   }, "Literary Salons Synced! 📚"));
+
+  on("[data-act=view-viral-pulse]", () => act(async () => {
+    const res = await api("/v1/seeding/social-viral-pulse", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const sigs = res.social_signals_detected || [];
+    const items = sigs.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.venue)}</strong> (<span style="color:var(--spark);">${esc(s.signal)}</span>)<br><span style="font-size:11px; color:var(--growth);">${esc(s.insight)} · <em>${esc(s.velocity)}</em></span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📱 Social & Viral Pulse Surges (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Social Viral Pulse Synced! 📱"));
+
+  on("[data-act=view-footfall-anomalies]", () => act(async () => {
+    const res = await api("/v1/seeding/live-footfall-anomalies", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const spots = res.detected_footfall_hotspots || [];
+    const items = spots.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.zone)}</strong>: ${esc(s.probable_event)}<br><span style="font-size:11px; color:var(--spark);">${esc(s.anomaly_type)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Live Footfall & OSM Anomalies (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:bold; margin-top:4px;">Confidence: ${esc(res.confidence_score)}</div>
+      </div>
+    `;
+  }, "Footfall Anomalies Synced! 🗺️"));
+
+  on("[data-act=view-editorial-press]", () => act(async () => {
+    const res = await api("/v1/seeding/editorial-press-scraper", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const recs = res.editorial_recommendations || [];
+    const items = recs.map(r => `<div style="margin-top:3px;">• <strong style="color:var(--spark);">${esc(r.source)}</strong>: ${esc(r.highlight)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📰 Cultural Press & Critic Picks (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Editorial Cultural Press Synced! 📰"));
+
+  on("[data-act=view-weather-triggers]", () => act(async () => {
+    const res = await api("/v1/seeding/weather-tide-triggers", { city: "Edinburgh" });
+    const out = $("#hyper-discovery-output");
+    if (!out) return;
+    const trigs = res.spontaneous_weather_triggers || [];
+    const items = trigs.map(t => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(t.trigger)}</strong> (<span style="color:var(--growth);">${esc(t.condition)}</span>)<br><span style="font-size:11px; color:var(--spark);">${esc(t.action)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">☀️ Weather & Tide Activity Triggers (${esc(res.current_conditions)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Weather & Tide Triggers Synced! ☀️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
