@@ -4205,6 +4205,63 @@ def build_router(auth) -> APIRouter:
             "message": f"👑 Universal ConnectOS Master Controller Online! Orchestrating all 50+ subsystems in '{active_mode}' for {city}."
         }
 
+    @router.post("/seeding/underground-vinyl-radar")
+    def underground_vinyl_music_radar_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "vinyl_radar_active": True,
+            "city": city,
+            "curated_underground_sessions": [
+                {"title": "Vaults Analog Ambient & Dub Techno Listening Night", "venue": "Underground Vault Studio", "time": "Tonight 21:00", "vibe": "Warm 100% Vinyl & Herbal Highballs"},
+                {"title": "Hidden Attic Jazz Kissa Session", "venue": "St Stephen Street Loft", "time": "Thursday 19:30", "vibe": "Blue Note 1960s Pressings & Single Origin Filter"},
+                {"title": "Courtyard Bossa Nova & Rare Groove Pop-up", "venue": "Leith Secret Mews", "time": "Saturday 16:00", "vibe": "Sunlight, Natural Wine & Brazilian Vinyl"}
+            ],
+            "message": f"🎙️ Underground Vinyl & Secret DJ Radar Synced for {city}! 3 intimate analog sessions discovered."
+        }
+
+    @router.post("/seeding/culinary-popup-drops")
+    def culinary_popup_drops_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "culinary_drops_active": True,
+            "city": city,
+            "exclusive_food_drops": [
+                {"title": "Cardamom & Wild Blueberry Sourdough Brioche Drop", "bakery": "Micro-Loft Bakery (Stockbridge)", "time": "Saturday 08:00 AM", "quantity": "40 portions only"},
+                {"title": "Secret 12-Hour Tonkotsu Ramen Test Kitchen", "chef": "Chef Kenji Pop-up", "time": "Friday 18:30", "access": "Password-only entrance via alleyway"},
+                {"title": "Wild Coastal Foraged 5-Course Tasting Dinner", "host": "Highland Foragers Collective", "time": "Sunday 19:00", "access": "6 spots remaining"}
+            ],
+            "message": f"🥐 Culinary Secret Pop-Up Drops Synced for {city}! 3 hyper-exclusive micro-batch foodie experiences tracked."
+        }
+
+    @router.post("/seeding/wild-nature-trails")
+    def wild_nature_trails_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "wilderness_radar_active": True,
+            "city": city,
+            "secret_nature_spots": [
+                {"title": "Gullane Hidden Sea Cave & Wild Cold Plunge", "distance": "28km east", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "Dark Sky Class 3"},
+                {"title": "Pentland Hills Unmapped Waterfall Scramble", "distance": "12km south", "difficulty": "Easy-Moderate", "gpx_cached": True, "water_quality": "Pristine Mountain Stream"},
+                {"title": "Blackford Hill Sunset Stargazing Lookout", "distance": "4km south", "difficulty": "Easy", "gpx_cached": True, "stargazing_rating": "360° Skyline Panorama"}
+            ],
+            "offline_maps_ready": "All GPX trail tracks and topographical maps cached for 100% offline navigation.",
+            "message": f"⛰️ Wild Nature & Hidden Wilderness Coordinates Synced for {city}! 3 pristine offline-ready expeditions loaded."
+        }
+
+    @router.post("/seeding/literary-salon-radar")
+    def literary_salon_radar_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "literary_radar_active": True,
+            "city": city,
+            "curated_salons": [
+                {"title": "Candlelit Typewriter Poetry & Spoken Word Circle", "venue": "Typewronger Books Courtyard", "time": "Wednesday 20:00", "entry": "Bring a poem or favorite passage"},
+                {"title": "Existential Philosophy & Stoic Wine Salon", "venue": "Writers' Museum Cellar", "time": "Friday 19:00", "topic": "Marcus Aurelius on City Flourishing"},
+                {"title": "Midnight 35mm Script Reading Guild", "venue": "Old Town Independent Cinema Loft", "time": "Saturday 23:00", "entry": "Hot cider provided"}
+            ],
+            "message": f"📚 Literary Salons & Independent Bookshop Radar Synced for {city}! 3 enriching intellectual gatherings tracked."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

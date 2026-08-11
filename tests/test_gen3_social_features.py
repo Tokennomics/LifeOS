@@ -713,3 +713,21 @@ def test_universal_master_controller(cfg):
     assert res.json()["master_controller_online"] is True
     assert "ai_butler_v4" in res.json()["orchestrated_subsystems"]
     assert res.json()["active_mode"] == "High Growth & Adventure"
+
+def test_nextgen_content_seeding_engines(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/underground-vinyl-radar", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["vinyl_radar_active"] is True
+
+    res2 = client.post("/v1/seeding/culinary-popup-drops", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["culinary_drops_active"] is True
+
+    res3 = client.post("/v1/seeding/wild-nature-trails", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["wilderness_radar_active"] is True
+
+    res4 = client.post("/v1/seeding/literary-salon-radar", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["literary_radar_active"] is True

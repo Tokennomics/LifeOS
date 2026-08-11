@@ -947,6 +947,22 @@ function todayView() {
     <div id="global-flourishing-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Next-Gen Content Seeding & Insider Radar Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(236,72,153,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📡 Next-Gen Content Seeding & Insider Radar</h2>
+      <span class="badge good" style="font-weight:bold;">Insider Discovery</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Underground vinyl listening sessions, secret ramen test kitchens, unmapped wild waterfalls, and candlelit poetry bookshop salons!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="view-vinyl-radar">Underground Vinyl Radar 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="view-culinary-drops">Culinary Secret Drops 🥐</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="view-wild-nature">Wild Nature & Waterfalls ⛰️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #3b82f6);" data-act="view-literary-salons">Literary & Poetry Salons 📚</button>
+    </div>
+    <div id="nextgen-seeding-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4924,6 +4940,63 @@ function wire(root) {
   on("[data-act=set-mode-recovery]", () => handleMasterMode("Restorative Deep Recovery")());
   on("[data-act=set-mode-flow]", () => handleMasterMode("Creative Flow Mastery")());
   on("[data-act=set-mode-impact]", () => handleMasterMode("Planetary Impact Guild")());
+
+  on("[data-act=view-vinyl-radar]", () => act(async () => {
+    const res = await api("/v1/seeding/underground-vinyl-radar", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const sess = res.curated_underground_sessions || [];
+    const items = sess.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(s.venue)} · ${esc(s.time)} (${esc(s.vibe)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎙️ Underground Vinyl & Secret DJ Radar (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Underground Vinyl Radar Synced! 🎙️"));
+
+  on("[data-act=view-culinary-drops]", () => act(async () => {
+    const res = await api("/v1/seeding/culinary-popup-drops", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const drops = res.exclusive_food_drops || [];
+    const items = drops.map(d => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(d.title)}</strong><br><span style="font-size:11px; color:var(--growth);">${esc(d.bakery || d.chef || d.host)} · ${esc(d.time)} (<em>${esc(d.quantity || d.access)}</em>)</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🥐 Culinary Secret Pop-Up Drops (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Culinary Pop-Up Drops Synced! 🥐"));
+
+  on("[data-act=view-wild-nature]", () => act(async () => {
+    const res = await api("/v1/seeding/wild-nature-trails", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const spots = res.secret_nature_spots || [];
+    const items = spots.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong> (${esc(s.distance)})<br><span style="font-size:11px; color:var(--spark);">${esc(s.difficulty)} · ${esc(s.stargazing_rating || s.water_quality)} · GPX Cached: 🟢</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⛰️ Wild Nature & Hidden Coordinates (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:bold; margin-top:4px;">${esc(res.offline_maps_ready)}</div>
+      </div>
+    `;
+  }, "Wild Nature Trails Synced! ⛰️"));
+
+  on("[data-act=view-literary-salons]", () => act(async () => {
+    const res = await api("/v1/seeding/literary-salon-radar", { city: "Edinburgh" });
+    const out = $("#nextgen-seeding-output");
+    if (!out) return;
+    const salons = res.curated_salons || [];
+    const items = salons.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(s.venue)} · ${esc(s.time)} (<em>${esc(s.entry || s.topic)}</em>)</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📚 Literary Salons & Bookshop Radar (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Literary Salons Synced! 📚"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
