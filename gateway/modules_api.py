@@ -2973,10 +2973,20 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/outing-butler")
     def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
-        weekend = body.get("weekend", "Tomorrow All Day in Munich").strip()
-        city = body.get("city", "Munich" if "munich" in weekend.lower() else "Lisbon").strip()
+        weekend = body.get("weekend", "Wednesday to Wednesday in Edinburgh").strip()
+        city = body.get("city", "Edinburgh" if "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower() else ("Munich" if "munich" in weekend.lower() else "Lisbon")).strip()
         
-        if "munich" in city.lower() or "munich" in weekend.lower():
+        if "edinburgh" in city.lower() or "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower():
+            schedule = [
+                {"time": "Wednesday 06:00 PM", "activity": "🧖 Portobello Beach Nordic Sauna & North Sea Cold Plunge", "venue": "Soul Water Sauna @ Portobello Beach", "crew": ["Callum (Sauna Master)", "Isla"]},
+                {"time": "Thursday 07:30 AM", "activity": "⛰️ Arthur's Seat Sunrise Ridge Hike & Single-Origin Roast", "venue": "Holyrood Park Summit ➔ Artisan Roast (Broughton St)", "crew": ["Hamish (Trail Runner)", "Fiona"]},
+                {"time": "Friday 07:00 PM", "activity": "🥃 Leith Shore Seafood & Speyside Single Malt Tasting", "venue": "The Shore Leith ➔ Nauticus Maritime Lounge", "crew": ["Ewan (Whisky Sommelier)", "Alastair", "Morag"]},
+                {"time": "Saturday 10:30 AM", "activity": "🥐 Stockbridge Farmers Market & Dean Village Sourdough Stroll", "venue": "Stockbridge Market @ Saunders St", "crew": ["Catriona (Foodie)", "Craig"]},
+                {"time": "Sunday 01:00 PM", "activity": "🔥 Pentland Hills Ridge Walk & Fireside Pub Roast", "venue": "Flotterstone Inn (Pentland Hills Regional Park)", "crew": ["Gregor (Mountain Guide)", "Maisie", "You"]}
+            ]
+            total_split = "£26.50 (split)"
+            msg = "🏴󠁧󠁢󠁳󠁣󠁴󠁿 AI Outing Butler Synthesized your 1-Week Edinburgh Adventure Blueprint! 5 iconic Scottish nature, food & sauna experiences planned."
+        elif "munich" in city.lower() or "munich" in weekend.lower():
             schedule = [
                 {"time": "08:30 AM", "activity": "🏄 Eisbachwelle River Surfing & Specialty Flat White", "venue": "Eisbach River Wave @ Englischer Garten ➔ Man Versus Machine Coffee", "crew": ["Felix (River Surfer)", "Lukas (Barista)"]},
                 {"time": "01:00 PM", "activity": "🥨 Viktualienmarkt Farmers Market & Communal Feast", "venue": "Viktualienmarkt Organic Market Stalls", "crew": ["Hanna (Foodie)", "Maximilian (Chef)", "Elena"]},
