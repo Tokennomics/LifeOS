@@ -3423,6 +3423,63 @@ def build_router(auth) -> APIRouter:
             "message": f"☀️ Weather Trigger Engine Published 3 Spontaneous Outings for {city} based on live conditions!"
         }
 
+    @router.post("/hobbies/sports-outdoors")
+    def sports_outdoors_hobby_hub_endpoint(request: Request, body: dict):
+        category = body.get("category", "Bouldering & Padel").strip()
+        return {
+            "hobby_feed_synced": True,
+            "category": "Sports & Outdoor Adventures",
+            "active_activities": [
+                {"title": "🧗 V4-V7 Boulder Problem Solving Session", "venue": "Escala25 Lisboa", "time": "Today @ 6:30 PM", "crew": 6},
+                {"title": "🎾 Padel 4th Player Matcher (Intermediate 3.5)", "venue": "Padel Campo Grande", "time": "Tomorrow @ 7:00 PM", "crew": 4},
+                {"title": "🚴 45km Gravel Peloton Coastal Ride", "venue": "Cascais Bike Path", "time": "Saturday @ 8:00 AM", "crew": 12},
+                {"title": "🤿 Ocean Scuba & Free-Dive Buddy Match", "venue": "Sesimbra Marine Reserve", "time": "Sunday @ 9:00 AM", "crew": 4}
+            ],
+            "message": f"🧗 Sports & Outdoors Hub Synced! 4 active sessions live across climbing, padel, cycling & diving."
+        }
+
+    @router.post("/hobbies/creative-making")
+    def creative_making_hobby_hub_endpoint(request: Request, body: dict):
+        return {
+            "hobby_feed_synced": True,
+            "category": "Creative Arts, Crafts & Making",
+            "active_activities": [
+                {"title": "🏺 Pottery Wheel Throwing & Glazing Open Studio", "venue": "Santos Ceramic Loft", "time": "Tonight @ 6:00 PM", "materials_included": True},
+                {"title": "📸 35mm B&W Darkroom Film Developing Lab", "venue": "Alfama Analog Collective", "time": "Thursday @ 7:00 PM", "materials_included": True},
+                {"title": "✏️ Life Drawing & Sourdough Sketch Session", "venue": "Bica Art Atelier", "time": "Friday @ 6:30 PM", "materials_included": True},
+                {"title": "🪵 Japanese Woodworking & Joinery Intro", "venue": "Mouraria Maker Space", "time": "Saturday @ 11:00 AM", "materials_included": True}
+            ],
+            "message": f"🎨 Creative Arts & Making Hub Synced! 4 studio sessions live across ceramics, darkroom, drawing & woodcraft."
+        }
+
+    @router.post("/hobbies/gaming-strategy")
+    def gaming_strategy_hobby_hub_endpoint(request: Request, body: dict):
+        return {
+            "hobby_feed_synced": True,
+            "category": "Board Games, Chess & Strategy",
+            "active_activities": [
+                {"title": "♟️ Sunny Park Blitz & Rapid Chess Meetup", "venue": "Jardim da Estrela Kiosk", "time": "Today @ 4:30 PM", "boards_provided": 10},
+                {"title": "🎲 Settlers of Catan & Dune Strategy Night", "venue": "GameCraft Board Game Lounge", "time": "Tomorrow @ 7:30 PM", "tables_active": 6},
+                {"title": "🐉 Dungeons & Dragons (D&D 5e) 1-Shot Quest", "venue": "The Guildhall Tavern", "time": "Friday @ 7:00 PM", "dm_lead": "Marcus (Level 12 DM)"},
+                {"title": "⌨️ Custom Mechanical Keyboard Switch Modding", "venue": "Lisbon Tech Hacker Loft", "time": "Saturday @ 2:00 PM", "tools_provided": True}
+            ],
+            "message": f"♟️ Strategy & Gaming Hub Synced! 4 meetups active across park chess, Catan, D&D & keyboard modding."
+        }
+
+    @router.post("/hobbies/culinary-craft")
+    def culinary_craft_hobby_hub_endpoint(request: Request, body: dict):
+        return {
+            "hobby_feed_synced": True,
+            "category": "Culinary, Fermentation & Specialty Brews",
+            "active_activities": [
+                {"title": "🍞 Wild Sourdough Starter & Loaf Swap", "venue": "Ribeira Baker Collective", "time": "Sunday @ 10:30 AM", "starters_to_trade": 8},
+                {"title": "☕ Geisha & Natural Ethiopian Cupping Flight", "venue": "Fabrica Specialty Roastery", "time": "Saturday @ 10:00 AM", "coffees_tasted": 6},
+                {"title": "🥬 Kimchi & Kombucha Fermentation Circle", "venue": "Santos Community Kitchen", "time": "Wednesday @ 6:30 PM", "jars_provided": True},
+                {"title": "🍕 Wood-Fired Neapolitan Pizza Making Jam", "venue": "Graça Rooftop Oven", "time": "Friday @ 7:30 PM", "dough_included": True}
+            ],
+            "message": f"🍳 Culinary & Craft Brewing Hub Synced! 4 workshops active across sourdough, coffee cupping, kimchi & pizza."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

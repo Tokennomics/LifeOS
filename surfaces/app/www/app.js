@@ -773,6 +773,22 @@ function todayView() {
     <div id="content-pipeline-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Multi-Hobby Passion & Craft Hub ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(236,72,153,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎨 Multi-Hobby Passion & Craft Hub</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">All Passions</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Bouldering & padel ladders, pottery & darkroom labs, park blitz chess, and sourdough fermentation swaps!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="view-sports-hobbies">Sports & Outdoors 🧗</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="view-creative-making">Creative Making 🏺</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-gaming-strategy">Chess & Gaming ♟️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="view-culinary-craft">Culinary & Brews 🍳</button>
+    </div>
+    <div id="hobbies-hub-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4147,6 +4163,62 @@ function wire(root) {
       </div>
     `;
   }, "Weather-Triggered Outings Published! ☀️"));
+
+  on("[data-act=view-sports-hobbies]", () => act(async () => {
+    const res = await api("/v1/hobbies/sports-outdoors", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧗 ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Sports & Outdoors Passions Loaded! 🧗"));
+
+  on("[data-act=view-creative-making]", () => act(async () => {
+    const res = await api("/v1/hobbies/creative-making", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🏺 ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Creative Making & Art Studios Loaded! 🏺"));
+
+  on("[data-act=view-gaming-strategy]", () => act(async () => {
+    const res = await api("/v1/hobbies/gaming-strategy", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">♟️ ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Strategy & Board Gaming Loaded! ♟️"));
+
+  on("[data-act=view-culinary-craft]", () => act(async () => {
+    const res = await api("/v1/hobbies/culinary-craft", {});
+    const out = $("#hobbies-hub-output");
+    if (!out) return;
+    const acts = res.active_activities || [];
+    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍳 ${esc(res.category)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Culinary & Fermentation Circles Loaded! 🍳"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
