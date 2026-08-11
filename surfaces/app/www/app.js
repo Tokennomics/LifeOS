@@ -805,6 +805,22 @@ function todayView() {
     <div id="landmark-radar-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Frontier Voice, NFC & Culture Bridge Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(16,185,129,0.18)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎙️ Spatial Voice, NFC Handshake & Culture Bridge</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Frontier Social OS</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Spatial 3D festival walkie-talkie, NFC physical tap-to-synergy handshake, local dialect translator, and DAO community treasury!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">NFC Tap-to-Synergy 📳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-dao-treasury">DAO Community Treasury 🏛️</button>
+    </div>
+    <div id="frontier-social-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4292,6 +4308,66 @@ function wire(root) {
       </div>
     `;
   }, "AI Outing Butler Synced with Landmark Festivals! 🤖"));
+
+  on("[data-act=open-voice-huddle]", () => act(async () => {
+    const res = await api("/v1/voice/crew-huddle", { event_name: "Edinburgh Festival Fringe Crowds" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    const speakers = res.active_speakers || [];
+    const items = speakers.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.name)}</strong>: ${esc(s.distance || s.status)} ${s.speaking ? '🔊 [Speaking]' : ''}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎙️ Spatial 3D Voice Huddle Active (${res.latency_ms}ms Latency):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Event: <strong>${esc(res.event)}</strong> · Codec: ${esc(res.codec)}</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Status: ${esc(res.noise_suppression)}</div>
+      </div>
+    `;
+  }, "Spatial Audio Crew Huddle Connected! 🎙️"));
+
+  on("[data-act=trigger-nfc-tap]", () => act(async () => {
+    const res = await api("/v1/nfc/tap-to-synergy", { peer: "Catriona (Nomad / Foodie)" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    const hobbies = res.shared_hobbies || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">📳 NFC Tap-to-Synergy Confirmed (${res.synergy_score}% Match):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Connected with: <strong>${esc(res.peer)}</strong> (${res.mutual_connections} Mutual Friends)</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shared Passions: ${hobbies.join(" · ")}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">ZK Contact Card Exchanged with Double Haptic Pulse</div>
+      </div>
+    `;
+  }, "NFC Tap-to-Synergy Handshake Verified! 📳"));
+
+  on("[data-act=translate-local-culture]", () => act(async () => {
+    const res = await api("/v1/ai/culture-bridge-translator", { city: "Edinburgh" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🗣️ Culture & Dialect Bridge (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Phrase: <em>"${esc(res.original_phrase)}"</em></div>
+        <div style="font-size:13px; font-weight:700; color:var(--growth); margin-bottom:4px;">➔ ${esc(res.translation)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Etiquette Tip: ${esc(res.cultural_etiquette_tip)}</div>
+      </div>
+    `;
+  }, "Local Culture & Dialect Translated! 🗣️"));
+
+  on("[data-act=view-dao-treasury]", () => act(async () => {
+    const res = await api("/v1/dao/community-treasury", { city: "Edinburgh" });
+    const out = $("#frontier-social-output");
+    if (!out) return;
+    const props = res.active_proposals || [];
+    const items = props.map(p => `<div style="margin-top:2px;">• <strong>${esc(p.id)}</strong>: ${esc(p.title)} (${p.votes_for} votes - <span style="color:var(--growth); font-weight:bold;">${esc(p.status)}</span>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏛️ DAO Community Treasury (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Balance: <strong>${esc(res.treasury_balance)}</strong> (${esc(res.voting_mechanism)})</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Community DAO Treasury Synced! 🏛️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

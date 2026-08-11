@@ -561,3 +561,21 @@ def test_landmark_mega_festival_radar(cfg):
     res3 = client.post("/v1/events/landmark-radar", json={"city": "Lisbon", "month": "June"})
     assert res3.status_code == 200
     assert res3.json()["landmark_radar_active"] is True
+
+def test_frontier_voice_nfc_culture_and_dao(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/voice/crew-huddle", json={"event_name": "Fringe Festival"})
+    assert res1.status_code == 200
+    assert res1.json()["huddle_active"] is True
+
+    res2 = client.post("/v1/nfc/tap-to-synergy", json={"peer": "Catriona"})
+    assert res2.status_code == 200
+    assert res2.json()["handshake_verified"] is True
+
+    res3 = client.post("/v1/ai/culture-bridge-translator", json={"city": "Edinburgh"})
+    assert res3.status_code == 200
+    assert res3.json()["translation_active"] is True
+
+    res4 = client.post("/v1/dao/community-treasury", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["treasury_synced"] is True
