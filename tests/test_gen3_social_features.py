@@ -757,3 +757,24 @@ def test_live_external_api_ingestion(cfg):
     assert res.json()["live_ingestion_complete"] is True
     assert "temp_c" in res.json()["live_weather"]
     assert len(res.json()["live_cultural_events"]) >= 1
+
+def test_nightlife_party_and_speakeasy_engine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/nightlife/party-radar", json={"city": "Munich"})
+    assert res1.status_code == 200
+    assert res1.json()["nightlife_radar_active"] is True
+    assert len(res1.json()["curated_clubs_and_parties"]) >= 3
+
+    res2 = client.post("/v1/nightlife/secret-speakeasies", json={"city": "Munich"})
+    assert res2.status_code == 200
+    assert res2.json()["speakeasies_active"] is True
+    assert len(res2.json()["secret_cocktail_dens"]) >= 3
+
+    res3 = client.post("/v1/nightlife/guestlist-vip", json={"venue": "Blitz Club", "crew_size": 2})
+    assert res3.status_code == 200
+    assert res3.json()["guestlist_confirmed"] is True
+    assert res3.json()["fastpass_code"] == "CONNECT-VIP-882"
+
+    res4 = client.post("/v1/nightlife/crew-pregame", json={"destination": "Blitz Club", "city": "Munich"})
+    assert res4.status_code == 200
+    assert res4.json()["pregame_squad_matched"] is True

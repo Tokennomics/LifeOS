@@ -980,6 +980,22 @@ function todayView() {
     <div id="hyper-discovery-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Nightlife, Underground Clubs & Secret Speakeasies Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(239,68,68,0.2), rgba(168,85,247,0.2)); border:1px solid rgba(239,68,68,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🍸 Nightlife, Underground Clubs & Speakeasies</h2>
+      <span class="badge good" style="font-weight:bold; background:linear-gradient(135deg,#ef4444,#a855f7); color:#fff;">After-Dark Radar</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live underground warehouse raves, VOID sound systems, secret telephone-booth cocktail bars, 1-tap VIP guestlists & pre-game squads!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #ef4444, #f97316);" data-act="view-nightlife-party">🔥 Live Party & Club Radar</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="view-nightlife-speakeasy">🍸 Secret Speakeasies & Dens</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #3b82f6);" data-act="rsvp-nightlife-fastpass">🎟️ 1-Tap Fast-Pass Guestlist</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="match-pregame-crew">🍻 Pre-Game Crew & SafeWalk</button>
+    </div>
+    <div id="nightlife-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -5088,6 +5104,65 @@ function wire(root) {
       </div>
     `;
   }, "Live External APIs Ingested! 🌐"));
+
+  on("[data-act=view-nightlife-party]", () => act(async () => {
+    const res = await api("/v1/nightlife/party-radar", { city: "Munich" });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    const clubs = res.curated_clubs_and_parties || [];
+    const items = clubs.map(c => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #ef4444;">• <strong>${esc(c.name)}</strong> (${esc(c.timing)})<br><span style="font-size:11px; color:var(--growth);">${esc(c.genre)} · ${esc(c.location)}</span><br><span style="font-size:10px; color:var(--spark);">${esc(c.insider_tip)} (${esc(c.queue_status)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ef4444;">
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">🔥 Live Underground Clubs & Parties (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Live Party & Rave Radar Synced! 🔥"));
+
+  on("[data-act=view-nightlife-speakeasy]", () => act(async () => {
+    const res = await api("/v1/nightlife/secret-speakeasies", { city: "Munich" });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    const bars = res.secret_cocktail_dens || [];
+    const items = bars.map(b => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #a855f7;">• <strong>${esc(b.name)}</strong><br><span style="font-size:11px; color:#a855f7; font-weight:bold;">🔑 Entrance: ${esc(b.entrance)}</span><br><span style="font-size:11px; color:var(--muted);">${esc(b.vibe)} (${esc(b.address)})</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
+        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🍸 Secret Speakeasies & Passcodes (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Secret Speakeasies Unlocked! 🍸"));
+
+  on("[data-act=rsvp-nightlife-fastpass]", () => act(async () => {
+    const res = await api("/v1/nightlife/guestlist-vip", { venue: "Blitz Club", crew_size: 2 });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ Fast-Pass VIP Guestlist Confirmed:</div>
+        <div style="font-size:12px; font-weight:bold; color:var(--growth);">${esc(res.venue)} · Code: ${esc(res.fastpass_code)} (${res.crew_size} guests)</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Curfew: ${esc(res.entry_curfew)}</div>
+        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Perks: ${(res.perks_included || []).join(" · ")}</div>
+      </div>
+    `;
+  }, "Fast-Pass Guestlist Issued! 🎟️"));
+
+  on("[data-act=match-pregame-crew]", () => act(async () => {
+    const res = await api("/v1/nightlife/crew-pregame", { destination: "Blitz Club", city: "Munich" });
+    const out = $("#nightlife-output");
+    if (!out) return;
+    const pg = res.pregame_gathering || {};
+    const squad = (pg.squad || []).map(s => `• <strong>${esc(s.name)}</strong>: ${esc(s.vibe)}`).join("<br>");
+    const sw = res.safewalk_home_escort || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🍻 Pre-Game Squad & SafeWalk Escort:</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:bold;">📍 Gathering: ${esc(pg.venue)} (${esc(pg.time)})</div>
+        <div style="font-size:11px; margin-top:3px;">${squad}</div>
+        <div style="font-size:11px; color:#10b981; margin-top:4px; font-weight:bold;">🛡️ SafeWalk Home at 04:00 AM: ${esc(sw.buddy)} (${esc(sw.status)})</div>
+      </div>
+    `;
+  }, "Pre-Game Squad Matched! 🍻"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
