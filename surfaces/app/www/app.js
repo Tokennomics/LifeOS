@@ -789,6 +789,22 @@ function todayView() {
     <div id="hobbies-hub-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Global Landmark Festivals & Cultural Radar Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(234,179,8,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌍 Global Landmark Festivals Radar</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Mega-Events AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Live radar for iconic global festivals: Edinburgh Fringe & Tattoo, Munich Oktoberfest & Surf Masters, Lisbon Festas & NOS Alive!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="radar-edinburgh-fringe">Edinburgh Fringe & Tattoo 🎭</button>
+      <button class="primary" style="background:linear-gradient(135deg, #3b82f6, #10b981);" data-act="radar-munich-oktoberfest">Munich Oktoberfest 🍺</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="radar-lisbon-festas">Lisbon Festas & Web Summit 🐟</button>
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="sync-ai-butler-landmarks">Sync AI Butler 🤖</button>
+    </div>
+    <div id="landmark-radar-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4219,6 +4235,63 @@ function wire(root) {
       </div>
     `;
   }, "Culinary & Fermentation Circles Loaded! 🍳"));
+
+  on("[data-act=radar-edinburgh-fringe]", () => act(async () => {
+    const res = await api("/v1/events/landmark-radar", { city: "Edinburgh", month: "August" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const events = res.landmark_events || [];
+    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌍 ${esc(res.season_title)} (${res.total_landmark_events} Iconic Landmarks):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Edinburgh Festival Fringe & Tattoo Radar Synced! 🎭"));
+
+  on("[data-act=radar-munich-oktoberfest]", () => act(async () => {
+    const res = await api("/v1/events/landmark-radar", { city: "Munich", month: "September" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const events = res.landmark_events || [];
+    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #3b82f6;">
+        <div style="font-size:14px; font-weight:700; color:#3b82f6; margin-bottom:4px;">🌍 ${esc(res.season_title)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Munich Oktoberfest Radar Synced! 🍺"));
+
+  on("[data-act=radar-lisbon-festas]", () => act(async () => {
+    const res = await api("/v1/events/landmark-radar", { city: "Lisbon", month: "June" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const events = res.landmark_events || [];
+    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌍 ${esc(res.season_title)}:</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Lisbon Festas & Web Summit Radar Synced! 🐟"));
+
+  on("[data-act=sync-ai-butler-landmarks]", () => act(async () => {
+    const res = await api("/v1/ai/outing-butler", { weekend: "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting" });
+    const out = $("#landmark-radar-output");
+    if (!out) return;
+    const sched = res.curated_schedule || [];
+    const items = sched.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} @ <em>${esc(s.venue)}</em></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🤖 AI Outing Butler Landmark Blueprint (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Cost: ${esc(res.estimated_cost)} · Group Split Synchronized</div>
+      </div>
+    `;
+  }, "AI Outing Butler Synced with Landmark Festivals! 🤖"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

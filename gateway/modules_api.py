@@ -3507,6 +3507,51 @@ def build_router(auth) -> APIRouter:
             "message": f"🍳 Culinary & Craft Brewing Hub Synced! 4 workshops active across sourdough, coffee cupping, kimchi & pizza."
         }
 
+    @router.post("/events/landmark-radar")
+    def landmark_mega_festival_radar_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        month = body.get("month", "August").strip()
+        
+        city_lower = city.lower()
+        if "edinburgh" in city_lower or "endivurgh" in city_lower:
+            events = [
+                {"name": "🎭 Edinburgh Festival Fringe", "type": "Global Mega-Festival", "dates": "August 1 - August 25", "scale": "3,500+ Shows across Comedy, Theatre & Street Arts", "status": "ACTIVE_NOW", "icon": "🎭"},
+                {"name": "🏰 The Royal Edinburgh Military Tattoo", "type": "Historic Spectacular", "dates": "August 2 - August 24", "scale": "Castle Esplanade Bagpipe Massed Fanfare & Fireworks", "status": "RESERVED_SEATING_LIVE", "icon": "🏰"},
+                {"name": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Traditional Scottish Highland Games", "type": "Cultural Heavy Athletics", "dates": "August Weekends", "scale": "Caber Toss, Hammer Throw, Pipe Bands & Ceilidh", "status": "CREW_CONFIRMED", "icon": "🏴󠁧󠁢󠁳󠁣󠁴󠁿"},
+                {"name": "🍸 Edinburgh Gin Botanical Distillation & Tasting", "type": "Artisan Distillery", "dates": "Year-Round / August Seasonal", "scale": "Copper Still Botanical Flights & Seaside Gin", "status": "VIP_FAST_PASS", "icon": "🍸"}
+            ]
+            season_title = "Edinburgh August World Festival Season"
+        elif "munich" in city_lower:
+            events = [
+                {"name": "🍺 Oktoberfest & Wiesn Long-Tables", "type": "Global Folk Festival", "dates": "Mid-September - October", "scale": "6M Visitors, 14 Traditional Brewery Tents", "status": "TABLE_BLOCK_RESERVED", "icon": "🍺"},
+                {"name": "🏄 Eisbachwelle European River Surf Masters", "type": "Action Sports Championship", "dates": "August - September", "scale": "Englischer Garten World Surf Jam", "status": "LIVE_NOW", "icon": "🏄"},
+                {"name": "🥨 Starkbierfest (Strong Beer Spring)", "type": "Bavarian Tradition", "dates": "March - April", "scale": "Nockherberg Triumphator & Salvator Jams", "status": "UPCOMING", "icon": "🥨"}
+            ]
+            season_title = "Munich Bavarian Folk & River Surf Season"
+        elif "lisbon" in city_lower:
+            events = [
+                {"name": "🐟 Festas de Lisboa & Santo António", "type": "Citywide Street Carnival", "dates": "June 1 - June 30", "scale": "Alfama Grilled Sardines, Fado & Street Parades", "status": "HISTORIC_FESTA", "icon": "🐟"},
+                {"name": "🎸 NOS Alive Music Festival", "type": "Major Music Festival", "dates": "July", "scale": "Passeio Marítimo de Algés 3-Day Music Giant", "status": "HEADLINERS_CONFIRMED", "icon": "🎸"},
+                {"name": "💻 Web Summit Global Tech Summit", "type": "Global Tech Gathering", "dates": "November", "scale": "70,000+ Founders, Nomads & Creators", "status": "COMMUNITY_SIDE_EVENTS_LIVE", "icon": "💻"}
+            ]
+            season_title = "Lisbon Summer Festas & Tech Summit Season"
+        else:
+            events = [
+                {"name": "🎉 City Cultural Mega-Fest", "type": "Civic Landmark", "dates": "Seasonal", "scale": "Citywide Celebration & Arts", "status": "RADAR_SYNCED", "icon": "🎉"}
+            ]
+            season_title = f"{city} Cultural Landmark Radar"
+
+        return {
+            "landmark_radar_active": True,
+            "city": city,
+            "season_title": season_title,
+            "month": month,
+            "total_landmark_events": len(events),
+            "landmark_events": events,
+            "ai_butler_synchronized": True,
+            "message": f"🌍 Global Landmark Radar Synced for {city}! {len(events)} iconic mega-events detected & integrated into AI planning."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

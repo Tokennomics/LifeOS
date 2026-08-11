@@ -546,3 +546,18 @@ def test_multi_hobby_passion_content_hubs(cfg):
     res4 = client.post("/v1/hobbies/culinary-craft", json={})
     assert res4.status_code == 200
     assert res4.json()["hobby_feed_synced"] is True
+
+def test_landmark_mega_festival_radar(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/events/landmark-radar", json={"city": "Edinburgh", "month": "August"})
+    assert res1.status_code == 200
+    assert res1.json()["landmark_radar_active"] is True
+    assert res1.json()["total_landmark_events"] >= 4
+
+    res2 = client.post("/v1/events/landmark-radar", json={"city": "Munich", "month": "September"})
+    assert res2.status_code == 200
+    assert res2.json()["landmark_radar_active"] is True
+
+    res3 = client.post("/v1/events/landmark-radar", json={"city": "Lisbon", "month": "June"})
+    assert res3.status_code == 200
+    assert res3.json()["landmark_radar_active"] is True
