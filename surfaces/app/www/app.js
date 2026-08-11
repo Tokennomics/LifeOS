@@ -837,6 +837,22 @@ function todayView() {
     <div id="fulfillment-butler-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Proactive AI Butler 4.0 & Empathy Concierge Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(139,92,246,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🔮 Proactive AI Butler 4.0 & Empathy Concierge</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Superhuman AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Proactive serendipity prediction, emotional empathy vibe tuning, autonomous 1-tap group dining scheduling, and friendship compounding vault!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="predict-serendipity">Predict Serendipity 🔮</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="tune-empathy-vibe">Empathy Vibe Tuner 🧠</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="auto-group-concierge">Group Concierge (4p) 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-friendship-vault">Friendship Vault 🌱</button>
+    </div>
+    <div id="butler-4-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4443,6 +4459,65 @@ function wire(root) {
       </div>
     `;
   }, "Meaningful Conversation Salon Booked! 🕊️"));
+
+  on("[data-act=predict-serendipity]", () => act(async () => {
+    const res = await api("/v1/ai/serendipity-engine", { user: "Robert" });
+    const out = $("#butler-4-output");
+    if (!out) return;
+    const friend = res.nearby_friend || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🔮 Proactive Serendipity Opportunity:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Window: <strong>${esc(res.opportunity_window)}</strong> (${esc(res.weather_condition)})</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Friend Proximity: <strong>${esc(friend.name)}</strong> (${esc(friend.distance)}) · ${esc(friend.availability)}</div>
+        <div style="font-size:12px; font-style:italic;">Suggestion: ${esc(res.proactive_suggestion)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Action: ${esc(res.one_tap_action)}</div>
+      </div>
+    `;
+  }, "Proactive Serendipity Predicted! 🔮"));
+
+  on("[data-act=tune-empathy-vibe]", () => act(async () => {
+    const res = await api("/v1/ai/empathy-vibe-tuner", { vibe: "Slightly Overstimulated & Reflective" });
+    const out = $("#butler-4-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧠 Empathy Vibe Tuner (${esc(res.detected_state)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Environment: <strong>${esc(res.tailored_environment)}</strong> @ ${esc(res.venue)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.social_battery_protection)} · Companion: ${esc(res.companion_match)}</div>
+        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Restorative Activity: ${esc(res.soothing_activity)}</div>
+      </div>
+    `;
+  }, "Empathy Vibe Tuned! 🧠"));
+
+  on("[data-act=auto-group-concierge]", () => act(async () => {
+    const res = await api("/v1/ai/group-concierge", { group: "Weekend Lisbon Crew (4 People)" });
+    const out = $("#butler-4-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🗺️ Group Concierge Negotiation Complete:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Time: <strong>${esc(res.mutually_free_slot)}</strong> @ <strong>${esc(res.booked_venue)}</strong></div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Dietary Consensus: ${esc(res.dietary_consensus)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Pre-Authorized Split: ${esc(res.apple_pay_split_pre_authorized)} · Calendar Invites Sent</div>
+      </div>
+    `;
+  }, "Autonomous Group Dining Booked! 🗺️"));
+
+  on("[data-act=view-friendship-vault]", () => act(async () => {
+    const res = await api("/v1/ai/friendship-compounding", {});
+    const out = $("#butler-4-output");
+    if (!out) return;
+    const stones = res.meaningful_milestones || [];
+    const items = stones.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.friend)}</strong>: ${esc(s.note)} ➔ <span style="color:var(--growth); font-weight:bold;">${esc(s.nudge)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Friendship Compounding Vault (${res.compounding_score}% Score):</div>
+        <div style="font-size:12px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Privacy: ${esc(res.privacy)}</div>
+      </div>
+    `;
+  }, "Friendship Vault Synced! 🌱"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

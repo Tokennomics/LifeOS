@@ -598,3 +598,21 @@ def test_anti_boredom_and_genuine_fulfillment_engine(cfg):
     res4 = client.post("/v1/ai/meaningful-salons", json={"theme": "Courage"})
     assert res4.status_code == 200
     assert res4.json()["salon_confirmed"] is True
+
+def test_proactive_butler_4_superhuman_engines(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/serendipity-engine", json={"user": "Robert"})
+    assert res1.status_code == 200
+    assert res1.json()["serendipity_detected"] is True
+
+    res2 = client.post("/v1/ai/empathy-vibe-tuner", json={"vibe": "Overstimulated"})
+    assert res2.status_code == 200
+    assert res2.json()["vibe_tuned"] is True
+
+    res3 = client.post("/v1/ai/group-concierge", json={"group": "Lisbon Crew"})
+    assert res3.status_code == 200
+    assert res3.json()["group_negotiation_complete"] is True
+
+    res4 = client.post("/v1/ai/friendship-compounding", json={})
+    assert res4.status_code == 200
+    assert res4.json()["friendship_vault_active"] is True

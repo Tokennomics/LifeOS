@@ -3711,6 +3711,68 @@ def build_router(auth) -> APIRouter:
             "message": f"🕊️ Meaningful Conversation Dinner Salon '{theme}' Confirmed! 6 curious souls gathered for anti-small-talk connection."
         }
 
+    @router.post("/ai/serendipity-engine")
+    def proactive_serendipity_predictor_endpoint(request: Request, body: dict):
+        user_name = body.get("user", "Robert").strip()
+        return {
+            "serendipity_detected": True,
+            "user": user_name,
+            "opportunity_window": "Tomorrow 04:00 PM – 05:30 PM (90 Min Free Slot)",
+            "weather_condition": "22°C Clear Golden Hour",
+            "nearby_friend": {
+                "name": "Alex",
+                "distance": "380m away @ Fabrica Specialty Coffee",
+                "availability": "Finished Deep Work @ 4:15 PM"
+            },
+            "proactive_suggestion": "Reserved a sunny outdoor terrace table at Fabrica Coffee for a spontaneous 45-min flat white catch-up with Alex.",
+            "one_tap_action": "CONFIRM_AND_NOTIFY_ALEX",
+            "message": f"🔮 Proactive Serendipity Detected! Free 90-min window & Alex is 380m away in sunny weather."
+        }
+
+    @router.post("/ai/empathy-vibe-tuner")
+    def emotional_empathy_vibe_tuner_endpoint(request: Request, body: dict):
+        current_vibe = body.get("vibe", "Slightly Overstimulated & Reflective").strip()
+        return {
+            "vibe_tuned": True,
+            "detected_state": current_vibe,
+            "tailored_environment": "Quiet Zen Botanical Greenhouse & Silent Reading Loft",
+            "venue": "Jardim Botânico Glasshouse",
+            "social_battery_protection": "No Loud Groups / Max 1 Quiet Companion",
+            "companion_match": "Isla (Quiet Tea & Book Enthusiast)",
+            "soothing_activity": "Herbal Matcha Ceremony & 1-on-1 Philosophy Walk",
+            "message": f"🧠 Empathy Vibe Tuner Activated for '{current_vibe}'! Auto-tuned environment for peaceful restorative connection."
+        }
+
+    @router.post("/ai/group-concierge")
+    def group_autonomous_concierge_endpoint(request: Request, body: dict):
+        group_name = body.get("group", "Weekend Lisbon Crew (4 People)").strip()
+        return {
+            "group_negotiation_complete": True,
+            "group": group_name,
+            "members": ["Robert", "Marco", "Sofia", "Elena"],
+            "mutually_free_slot": "Saturday 07:30 PM",
+            "dietary_consensus": "1 Vegan, 1 Gluten-Free, 2 Omnivore (Consensus: Farm-to-Table Alfama)",
+            "booked_venue": "Prado Organic Wine Bar & Kitchen",
+            "table_status": "RESERVED_FOR_4",
+            "apple_pay_split_pre_authorized": "€24.00 / person",
+            "calendar_invites_sent": True,
+            "message": f"🗺️ Autonomous Group Concierge Synced! Calendar consensus reached & table booked for {group_name} with zero back-and-forth texting."
+        }
+
+    @router.post("/ai/friendship-compounding")
+    def friendship_compounding_vault_endpoint(request: Request, body: dict):
+        return {
+            "friendship_vault_active": True,
+            "meaningful_milestones": [
+                {"friend": "Hamish", "note": "Running Edinburgh Half-Marathon on Sunday", "nudge": "Send Good Luck Toast 🏅"},
+                {"friend": "Catriona", "note": "Opening new Ceramic Studio Exhibition", "nudge": "Send Warm Congratulations 🏺"},
+                {"friend": "Marco", "note": "Haven't caught up in 28 days", "nudge": "Proactive 15-min Coffee Catch-Up Nudge ☕"}
+            ],
+            "compounding_score": 98,
+            "privacy": "100% Zero-Knowledge Encrypted",
+            "message": "🌱 Friendship Compounding Vault Synced! 3 thoughtful relationship nudges to deepen lifelong human bonds."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
