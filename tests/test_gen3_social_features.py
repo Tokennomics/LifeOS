@@ -616,3 +616,21 @@ def test_proactive_butler_4_superhuman_engines(cfg):
     res4 = client.post("/v1/ai/friendship-compounding", json={})
     assert res4.status_code == 200
     assert res4.json()["friendship_vault_active"] is True
+
+def test_butler_of_true_life_value(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/vitality-circadian-flow", json={})
+    assert res1.status_code == 200
+    assert res1.json()["vitality_engine_active"] is True
+
+    res2 = client.post("/v1/ai/regret-minimization", json={})
+    assert res2.status_code == 200
+    assert res2.json()["regret_minimization_active"] is True
+
+    res3 = client.post("/v1/ai/wealth-value-optimizer", json={})
+    assert res3.status_code == 200
+    assert res3.json()["wealth_optimizer_active"] is True
+
+    res4 = client.post("/v1/ai/stoic-presence-mirror", json={"moment": "Sunset tea", "gratitude": "Health"})
+    assert res4.status_code == 200
+    assert res4.json()["reflection_logged"] is True

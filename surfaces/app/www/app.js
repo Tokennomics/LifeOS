@@ -853,6 +853,22 @@ function todayView() {
     <div id="butler-4-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Butler of True Life Value & Fulfillment Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.18), rgba(16,185,129,0.18)); border:1px solid rgba(245,158,11,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌟 Butler of True Life Value & Longevity</h2>
+      <span class="badge good" style="font-weight:bold;">Lifelong Value</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Circadian vitality flow, lifelong regret minimization bucket-list, high-memory wealth optimizer, and stoic daily gratitude!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="optimize-circadian-vitality">Circadian Vitality 🧬</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="track-regret-minimization">Regret Minimizer 🌟</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="optimize-life-wealth">Wealth & Memory ROI 💰</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Stoic Presence Mirror 🕊️</button>
+    </div>
+    <div id="life-value-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4518,6 +4534,66 @@ function wire(root) {
       </div>
     `;
   }, "Friendship Vault Synced! 🌱"));
+
+  on("[data-act=optimize-circadian-vitality]", () => act(async () => {
+    const res = await api("/v1/ai/vitality-circadian-flow", {});
+    const out = $("#life-value-output");
+    if (!out) return;
+    const c = res.circadian_rhythm_sync || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧬 Circadian Vitality Flow (${res.longevity_score}% Longevity Score):</div>
+        <div style="font-size:12px; margin-bottom:2px;">☀️ Morning Lux: ${esc(c.morning_lux_window)}</div>
+        <div style="font-size:12px; margin-bottom:2px;">🏃 Zone-2 Movement: ${esc(c.optimal_zone2_window)}</div>
+        <div style="font-size:12px; margin-bottom:2px;">🌙 Melatonin Wind-Down: ${esc(c.melatonin_wind_down)} ➔ ${esc(c.recommended_sleep_time)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Sauna Contrast: ${esc(res.weekly_contrast_therapy)}</div>
+      </div>
+    `;
+  }, "Circadian Vitality Protocol Optimized! 🧬"));
+
+  on("[data-act=track-regret-minimization]", () => act(async () => {
+    const res = await api("/v1/ai/regret-minimization", {});
+    const out = $("#life-value-output");
+    if (!out) return;
+    const quests = res.top_aspirational_quests || [];
+    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.quest)}</strong> <span class="badge good" style="font-size:10px;">${esc(q.status)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(q.milestone)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌟 Regret Minimization Framework (${res.life_vision_score}% Vision):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-style:italic;">"${esc(res.be_present_reminder)}"</div>
+      </div>
+    `;
+  }, "Regret Minimization Quests Synced! 🌟"));
+
+  on("[data-act=optimize-life-wealth]", () => act(async () => {
+    const res = await api("/v1/ai/wealth-value-optimizer", {});
+    const out = $("#life-value-output");
+    if (!out) return;
+    const allocs = res.optimized_allocations || [];
+    const items = allocs.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.category)}</strong>: <span style="color:var(--growth); font-weight:bold;">${esc(a.roi || a.savings)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💰 Wealth & Memory ROI Optimizer:</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.total_annual_memory_dividends)}</div>
+      </div>
+    `;
+  }, "Wealth & Memory ROI Optimized! 💰"));
+
+  on("[data-act=log-stoic-reflection]", () => act(async () => {
+    const res = await api("/v1/ai/stoic-presence-mirror", { moment: "Sunset tea with good friends overlooking the sea", gratitude: "Health & genuine companionship" });
+    const out = $("#life-value-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Stoic Daily Presence Mirror (#${res.lifetime_gratitude_count}):</div>
+        <div style="font-size:13px; margin-bottom:2px;">Daily Peak Moment: <strong>"${esc(res.daily_peak_moment)}"</strong></div>
+        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Gratitude Anchor: ${esc(res.gratitude_anchor)}</div>
+        <div style="font-size:11px; color:var(--spark); font-style:italic;">Wisdom: "${esc(res.stoic_wisdom)}" (${esc(res.privacy)})</div>
+      </div>
+    `;
+  }, "Stoic Reflection Logged! 🕊️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

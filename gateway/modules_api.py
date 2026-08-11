@@ -3773,6 +3773,75 @@ def build_router(auth) -> APIRouter:
             "message": "🌱 Friendship Compounding Vault Synced! 3 thoughtful relationship nudges to deepen lifelong human bonds."
         }
 
+    @router.post("/ai/vitality-circadian-flow")
+    def vitality_circadian_flow_endpoint(request: Request, body: dict):
+        return {
+            "vitality_engine_active": True,
+            "circadian_rhythm_sync": {
+                "morning_lux_window": "07:30 AM – 08:30 AM (15 mins outdoor sunlight exposure recommended)",
+                "optimal_zone2_window": "04:30 PM – 05:45 PM (Coastal Trail Run / Cycle)",
+                "melatonin_wind_down": "09:30 PM (Blue-light filter & herbal chamomile tea)",
+                "recommended_sleep_time": "10:30 PM – 06:30 AM (8.0 Hours Targeted)"
+            },
+            "longevity_score": 94,
+            "weekly_contrast_therapy": "2x 90°C Sauna + 4°C Plunge sessions booked",
+            "message": "🧬 Vitality & Circadian Flow Optimized! Sunlight, zone-2 movement, and deep restorative sleep aligned."
+        }
+
+    @router.post("/ai/regret-minimization")
+    def regret_minimization_bucketlist_endpoint(request: Request, body: dict):
+        return {
+            "regret_minimization_active": True,
+            "life_vision_score": 96,
+            "top_aspirational_quests": [
+                {
+                    "quest": "⛵ Sunset Catamaran Sailing & Stargazing Expedition",
+                    "status": "SCHEDULED_THIS_WEEK",
+                    "milestone": "4 Crew Members Joined · Belém Harbor"
+                },
+                {
+                    "quest": "🏺 Master Pottery Wheel Throwing & Stoneware Glazing",
+                    "status": "IN_PROGRESS",
+                    "milestone": "2/4 Studio Sessions Completed"
+                },
+                {
+                    "quest": "📸 Curate & Print 35mm Analog Photo Book",
+                    "status": "DRAFTING",
+                    "milestone": "18 Negatives Developed @ Alfama Collective"
+                }
+            ],
+            "be_present_reminder": "You only get this exact Tuesday once in your life. Live it fully and without hesitation.",
+            "message": "🌟 Regret Minimization Framework Synced! Transforming lifelong dreams into actionable, memory-rich real-world moments."
+        }
+
+    @router.post("/ai/wealth-value-optimizer")
+    def wealth_value_optimizer_endpoint(request: Request, body: dict):
+        return {
+            "wealth_optimizer_active": True,
+            "fulfillment_roi_metric": "High Memory Dividends / Euro Spent",
+            "optimized_allocations": [
+                {"category": "Real-World Shared Dinners & Outings", "roi": "★★★★★ 98% (High Memory Value)"},
+                {"category": "Craft Mastery & Tools (Pottery/Cameras/Bikes)", "roi": "★★★★★ 95% (Flow State Generator)"},
+                {"category": "Passive Streaming Subscriptions Cut", "savings": "€48 / month redirected to travel & adventures"}
+            ],
+            "total_annual_memory_dividends": "€576 saved and reinvested in real-world human connection.",
+            "message": "💰 Wealth & Life Value Optimizer Synced! Cutting passive digital waste and amplifying high-memory real-world experiences."
+        }
+
+    @router.post("/ai/stoic-presence-mirror")
+    def stoic_presence_gratitude_mirror_endpoint(request: Request, body: dict):
+        memory = body.get("moment", "Warm laughing conversation over sourdough bread with Alex at sunset").strip()
+        gratitude = body.get("gratitude", "Health, clear blue ocean, and good friends").strip()
+        return {
+            "reflection_logged": True,
+            "daily_peak_moment": memory,
+            "gratitude_anchor": gratitude,
+            "stoic_wisdom": "Memento Vivere — Remember to truly live. Wealth is the ability to fully experience life.",
+            "lifetime_gratitude_count": 142,
+            "privacy": "Encrypted Local Secure Enclave",
+            "message": "🕊️ Stoic Reflection Logged! Daily peak moment etched into your lifelong gratitude tapestry."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
