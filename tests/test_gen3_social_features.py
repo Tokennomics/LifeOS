@@ -579,3 +579,22 @@ def test_frontier_voice_nfc_culture_and_dao(cfg):
     res4 = client.post("/v1/dao/community-treasury", json={"city": "Edinburgh"})
     assert res4.status_code == 200
     assert res4.json()["treasury_synced"] is True
+
+def test_anti_boredom_and_genuine_fulfillment_engine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/ai/spontaneous-quests", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["quests_generated"] is True
+    assert len(res1.json()["anti_boredom_quests"]) >= 3
+
+    res2 = client.post("/v1/ai/ikigai-compass", json={})
+    assert res2.status_code == 200
+    assert res2.json()["ikigai_aligned"] is True
+
+    res3 = client.post("/v1/ai/flow-mastery", json={"skill": "Ceramics"})
+    assert res3.status_code == 200
+    assert res3.json()["flow_lab_scheduled"] is True
+
+    res4 = client.post("/v1/ai/meaningful-salons", json={"theme": "Courage"})
+    assert res4.status_code == 200
+    assert res4.json()["salon_confirmed"] is True

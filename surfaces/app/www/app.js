@@ -821,6 +821,22 @@ function todayView() {
     <div id="frontier-social-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Anti-Boredom & Genuine Fulfillment Butler Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌟 Anti-Boredom & Genuine Fulfillment Butler</h2>
+      <span class="badge good" style="font-weight:bold;">Eudaimonia & Flow</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Instant 15-min spontaneous quests, Ikigai purpose alignment, 100% screen-free flow mastery labs, and deep vulnerability dinner salons!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-boredom-quest">I'm Bored (15m Quests) ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="align-ikigai-compass">Ikigai Fulfillment Compass 🧘</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Screen-Free Flow Lab 🌊</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Deep Dinner Salon 🕊️</button>
+    </div>
+    <div id="fulfillment-butler-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4368,6 +4384,65 @@ function wire(root) {
       </div>
     `;
   }, "Community DAO Treasury Synced! 🏛️"));
+
+  on("[data-act=trigger-boredom-quest]", () => act(async () => {
+    const res = await api("/v1/ai/spontaneous-quests", { city: "Edinburgh", time_available: "Right Now (Next 15 Mins)" });
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    const quests = res.anti_boredom_quests || [];
+    const items = quests.map(q => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(q.title)}</strong> (${esc(q.eta)})<br><span style="font-size:11px; color:var(--growth);">Host: ${esc(q.host)} · Crew: ${q.crew_size} ready</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">⚡ Instant 15-Min Anti-Boredom Quests (${esc(res.city)}):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "3 Instant Spontaneous Quests Ready! ⚡"));
+
+  on("[data-act=align-ikigai-compass]", () => act(async () => {
+    const res = await api("/v1/ai/ikigai-compass", {});
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    const sched = res.recommended_weekly_purpose_schedule || [];
+    const items = sched.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.day)}</strong>: ${esc(s.focus)} (<em>${esc(s.vibe)}</em>)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Ikigai Purpose Compass (${res.fulfillment_score}% Alignment):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: Screen-free, deep-flow weekly fulfillment blueprint active</div>
+      </div>
+    `;
+  }, "Ikigai Purpose Blueprint Activated! 🧘"));
+
+  on("[data-act=book-flow-mastery]", () => act(async () => {
+    const res = await api("/v1/ai/flow-mastery", { skill: "Ceramics Wheel Throwing & Glaze Chemistry" });
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌊 Screen-Free Flow Lab Scheduled (${esc(res.duration)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Skill: <strong>${esc(res.skill)}</strong> with ${esc(res.flow_partner)}</div>
+        <div style="font-size:12px; margin-bottom:4px;">Creation: ${esc(res.hands_on_creation)} @ ${esc(res.venue)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.screen_free_guarantee)}</div>
+      </div>
+    `;
+  }, "Screen-Free Flow Lab Booked! 🌊"));
+
+  on("[data-act=book-meaningful-salon]", () => act(async () => {
+    const res = await api("/v1/ai/meaningful-salons", { theme: "Courage, Transition & The Next Chapter" });
+    const out = $("#fulfillment-butler-output");
+    if (!out) return;
+    const prompts = res.table_prompts || [];
+    const items = prompts.map(p => `<div style="margin-top:2px; font-style:italic;">"${esc(p)}"</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ ${esc(res.format)}:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> @ ${esc(res.venue)}</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Anti-Small-Talk Prompts:<br>${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Host: ${esc(res.host)} · Split: ${esc(res.split)}</div>
+      </div>
+    `;
+  }, "Meaningful Conversation Salon Booked! 🕊️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

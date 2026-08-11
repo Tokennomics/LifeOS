@@ -3621,6 +3621,96 @@ def build_router(auth) -> APIRouter:
             "message": f"🏛️ Community DAO Treasury Synced for {city}! £12,450 available for real-world third-place improvements."
         }
 
+    @router.post("/ai/spontaneous-quests")
+    def spontaneous_instant_quest_radar_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        time_available = body.get("time_available", "Right Now (Next 15 Mins)").strip()
+        return {
+            "quests_generated": True,
+            "city": city,
+            "timeframe": time_available,
+            "anti_boredom_quests": [
+                {
+                    "title": "☕ Gesha Pour-Over Cupping & Sourdough Tasting",
+                    "eta": "10 mins away",
+                    "venue": "Artisan Roast Loft",
+                    "crew_size": 3,
+                    "host": "Lukas (Lead Barista)",
+                    "action": "JOIN_IMMEDIATELY"
+                },
+                {
+                    "title": "🎨 Sunset Charcoal Sketch & Acoustic Jam",
+                    "eta": "12 mins away",
+                    "venue": "Calton Hill Viewpoint",
+                    "crew_size": 4,
+                    "host": "Catriona (Artist)",
+                    "action": "JOIN_IMMEDIATELY"
+                },
+                {
+                    "title": "♟️ Outdoor Park Blitz Chess Challenge",
+                    "eta": "8 mins away",
+                    "venue": "Meadows Park Pavilion",
+                    "crew_size": 6,
+                    "host": "Niklas (Chess Master)",
+                    "action": "JOIN_IMMEDIATELY"
+                }
+            ],
+            "message": f"⚡ 3 High-Energy Spontaneous Quests Ready in {city}! Zero waiting, instant human connection."
+        }
+
+    @router.post("/ai/ikigai-compass")
+    def ikigai_deep_fulfillment_compass_endpoint(request: Request, body: dict):
+        interests = body.get("interests", ["Outdoor Sport", "Creative Making", "Community Mentorship"])
+        return {
+            "ikigai_aligned": True,
+            "fulfillment_score": 96,
+            "ikigai_pillars": {
+                "what_you_love": "Trail mountain running & analog film darkroom development",
+                "what_youre_good_at": "Organizing communal cooking feasts & strategy board games",
+                "what_the_world_needs": "Weekly coastal beach cleanup steward & youth chess mentoring",
+                "what_creates_deep_bonds": "Nordic sauna contrast therapy & vulnerability dinner salons"
+            },
+            "recommended_weekly_purpose_schedule": [
+                {"day": "Tuesday", "focus": "Creative Flow Mastery (Pottery Wheel / Darkroom)", "vibe": "Deep Focus"},
+                {"day": "Thursday", "focus": "Meaningful Vulnerability Dinner Salon (6 People)", "vibe": "Deep Heart Connection"},
+                {"day": "Saturday", "focus": "Wild Nature Ridge Trail & Cold Plunge", "vibe": "Physical Eudaimonia"},
+                {"day": "Sunday", "focus": "Community Herb Garden & Seed Sharing", "vibe": "Contribution & Impact"}
+            ],
+            "message": "🧘 Ikigai Fulfillment Blueprint Activated! Purpose-driven schedule built to eliminate passive screen time and maximize genuine joy."
+        }
+
+    @router.post("/ai/flow-mastery")
+    def flow_state_mastery_exchange_endpoint(request: Request, body: dict):
+        skill = body.get("skill", "Ceramics Wheel Throwing & Glaze Chemistry").strip()
+        return {
+            "flow_lab_scheduled": True,
+            "skill": skill,
+            "flow_partner": "Catriona (Studio Master)",
+            "venue": "Broughton Craft Workshop",
+            "duration": "2.5 Hours Deep Flow State",
+            "hands_on_creation": "Throwing 2 stoneware vessels from raw Scottish clay",
+            "screen_free_guarantee": "100% Screen-Free Physical Immersion",
+            "message": f"🌊 Flow Lab Scheduled for '{skill}'! 2.5 hours of uninterrupted creative mastery and tangible craftsmanship."
+        }
+
+    @router.post("/ai/meaningful-salons")
+    def meaningful_conversation_dinner_salon_endpoint(request: Request, body: dict):
+        theme = body.get("theme", "Courage, Transition & The Next Chapter").strip()
+        return {
+            "salon_confirmed": True,
+            "theme": theme,
+            "format": "6-Person Curated Long-Table Dinner Salon (Anti-Small-Talk)",
+            "venue": "Stockbridge Nomad Loft & Kitchen",
+            "table_prompts": [
+                "What is a deeply held belief you willingly changed your mind about recently?",
+                "What is an ambitious dream you rarely say out loud for fear of sounding foolish?",
+                "When in the last year did you feel most vibrantly alive and unhurried?"
+            ],
+            "host": "Ewan (Philosopher & Sourdough Baker)",
+            "split": "£18.00 (split organic ingredients & natural wine)",
+            "message": f"🕊️ Meaningful Conversation Dinner Salon '{theme}' Confirmed! 6 curious souls gathered for anti-small-talk connection."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
