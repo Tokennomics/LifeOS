@@ -32,11 +32,13 @@ APP_DIR = ROOT / "surfaces" / "app" / "www"
 #: Generous for a note or an ICS import, nowhere near enough to fill a disk with.
 MAX_BODY_BYTES = 1_000_000
 
-#: The map loads Leaflet from unpkg, so a CDN has to be nameable in script-src.
-LEAFLET_CDN = "https://unpkg.com"
-
 #: Sent on every response. Read the CSP with its limits in mind rather than as a claim that
 #: XSS is solved:
+#:
+#: `script-src` is `'self'` because Leaflet is vendored under `surfaces/app/www/vendor/`.
+#: While the map came from unpkg this had to name that CDN, which meant an injected script
+#: could be fetched from it too — and the CDN copy carried no Subresource Integrity hash, so
+#: whatever unpkg returned is what ran, in the origin holding the session token.
 #:
 #: `script-src` has to keep `'unsafe-inline'`, because the PWA carries ~950 inline styles and
 #: ~20 inline handlers. Removing them is a rewrite of a 4,300-line file that works, which is
@@ -57,8 +59,8 @@ LEAFLET_CDN = "https://unpkg.com"
 SECURITY_HEADERS = {
     "Content-Security-Policy": "; ".join([
         "default-src 'self'",
-        f"script-src 'self' 'unsafe-inline' {LEAFLET_CDN}",
-        f"style-src 'self' 'unsafe-inline' {LEAFLET_CDN}",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data: blob: https:",
         "font-src 'self' data:",
         "connect-src 'self'",

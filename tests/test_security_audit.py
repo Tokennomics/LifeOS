@@ -854,3 +854,102 @@ def test_a_malformed_backup_is_a_400_not_a_500(pair, body):
                        json=body).status_code in (200, 400)
     assert client.post("/v1/auth/login",
                        json={"handle": "ana", "password": PW}).status_code == 200
+
+
+# ---- the last third-party dependencies ----------------------------------------
+
+def test_the_pwa_loads_no_script_from_a_cdn():
+    """Leaflet came from unpkg with no Subresource Integrity hash, into the origin that
+    holds the session token in localStorage — so whatever unpkg returned is what ran, with
+    full access to every graph endpoint. It is vendored now, verified against the sha512
+    npm publishes for 1.9.4 before being committed."""
+    import re
+    www = pathlib.Path(__file__).resolve().parent.parent / "surfaces" / "app" / "www"
+    for path in list(www.glob("*.js")) + list(www.glob("*.html")):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        remote = re.findall(r'(?:src|href)\s*=\s*["\']?(https?://[^"\'\s>]+)', text)
+        assert remote == [], f"{path.name} loads {remote} from a third party"
+
+
+def test_the_vendored_leaflet_is_actually_there():
+    """A CSP of 'self' plus a missing file is a map that silently never loads."""
+    vendor = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "vendor")
+    js, css = vendor / "leaflet.js", vendor / "leaflet.css"
+    assert js.is_file() and css.is_file()
+    assert js.stat().st_size > 100_000, "that is not the real leaflet.js"
+    assert "leaflet" in css.read_text(encoding="utf-8", errors="ignore")[:400].lower()
+
+
+def test_the_csp_names_no_external_host(cfg):
+    csp = TestClient(create_app(cfg)).get("/health").headers["content-security-policy"]
+    directives = dict(part.strip().split(" ", 1)
+                      for part in csp.split(";") if " " in part.strip())
+    assert directives["script-src"] == "'self' 'unsafe-inline'"
+    assert "unpkg" not in csp and "cdn" not in csp
+
+
+def test_the_contact_card_reaches_no_third_party(cfg):
+    """`qr_url` embedded the vCard in an api.qrserver.com query string, so rendering your
+    own contact card handed your name and the viewer's IP to a stranger — for a card the
+    PWA never displays."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    card = client.get("/v1/people/qr",
+                      headers={"Authorization": f"Bearer {token}"})
+    assert card.status_code == 200
+    assert "qrserver" not in card.text and "http://" not in card.text
+    assert card.json()["vcard_data_uri"].startswith("data:text/vcard")
+
+
+@pytest.mark.parametrize("handle,leaked", [
+    ("ana\nTEL:+1999", "TEL:+1999"),
+    ("ana;X-EVIL:1", "X-EVIL"),
+])
+def test_a_crafted_handle_cannot_inject_vcard_properties(handle, leaked):
+    """Handles are unrestricted — `_norm_handle` lowercases and truncates, nothing more —
+    and a newline in one adds a property to the card the recipient saves to their phone."""
+    from gateway.modules_api import _vcard
+    card = _vcard(handle)
+    assert card.count("BEGIN:VCARD") == 1
+    property_lines = [line.split(":")[0] for line in card.split("\r\n") if ":" in line]
+    assert leaked.split(":")[0] not in property_lines
+
+
+def test_logging_a_focus_session_works(cfg):
+    """The ninth dead endpoint: `mindfulness.log_focus_session` had never existed. The
+    empty-body sweep only saw a 422 here and stopped; it took sending a *valid* body to
+    reach the 500 underneath."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    logged = client.post("/v1/routines/mindfulness/session", headers=headers,
+                         json={"duration_minutes": 30, "distraction_count": 2,
+                               "note": "deep work"})
+    assert logged.status_code == 200 and logged.json()["logged"] is True
+    assert logged.json()["sessions"] == 1 and logged.json()["total_minutes"] == 30
+
+    client.post("/v1/routines/mindfulness/session", headers=headers,
+                json={"duration_minutes": 60, "distraction_count": 1})
+    assert client.post("/v1/routines/mindfulness/session", headers=headers,
+                       json={"duration_minutes": 15, "distraction_count": 0}
+                       ).json()["total_minutes"] == 105
+
+
+@pytest.mark.parametrize("bad", [{"duration_minutes": 0, "distraction_count": 0},
+                                 {"duration_minutes": -5, "distraction_count": 0},
+                                 {"duration_minutes": 99999, "distraction_count": 0},
+                                 {"duration_minutes": 30, "distraction_count": -1}])
+def test_a_nonsense_focus_session_is_a_400(cfg, bad):
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    assert client.post("/v1/routines/mindfulness/session",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json=bad).status_code == 400

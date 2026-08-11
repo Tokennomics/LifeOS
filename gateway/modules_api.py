@@ -6,6 +6,7 @@ import os
 import json
 import secrets
 import urllib.request
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -722,6 +723,19 @@ def _serialize_event(session, event: dict) -> dict:
     return {"id": event["id"], "title": a.get("title", ""), "start": a.get("start", ""),
             "place": a.get("place", ""), "url": a.get("url", ""), "status": a.get("status", ""),
             "invited": len(a.get("invited", [])), "yes": yes_names, "no": len(a.get("no", []))}
+
+
+def _vcard(name: str) -> str:
+    """A vCard for one name, with the name escaped per RFC 6350 §3.4.
+
+    Handles are user-chosen and unrestricted. Interpolated raw, a handle containing a
+    newline injects arbitrary vCard properties — `\\nTEL:...` adds a phone number to the
+    card the recipient saves — and `;` or `,` split one field into several.
+    """
+    safe = (str(name or "").replace("\\", "\\\\").replace(";", "\\;")
+            .replace(",", "\\,").replace("\r", " ").replace("\n", "\\n"))
+    return ("BEGIN:VCARD\r\nVERSION:3.0\r\n"
+            f"FN:{safe}\r\nNOTE:LifeOS Verified Meeter\r\nEND:VCARD\r\n")
 
 
 def _csv_cell(value) -> str:
@@ -5424,12 +5438,16 @@ def build_router(auth) -> APIRouter:
         # `content` row, and the caller's display name is their handle.
         caller = getattr(request.state, "caller", None)
         name = (caller or {}).get("handle") or "LifeOS Member"
-        vcard = f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nNOTE:LifeOS Verified Meeter\nEND:VCARD"
-        # Escaped OUTSIDE the f-string: a backslash inside an f-string expression is a
-        # syntax error before Python 3.12, and CI pins 3.11 — this did not parse at all.
-        encoded = vcard.replace(" ", "%20").replace("\n", "%0A")
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={encoded}"
-        return {"name": name, "vcard": vcard, "qr_url": qr_url}
+        vcard = _vcard(name)
+        # `qr_url` used to point at api.qrserver.com with the vCard in the query string, so
+        # rendering your own contact card handed your name — and the viewer's IP — to a
+        # third party on every view, for a card the app never even displays. It also
+        # escaped only spaces and newlines, and handles are unrestricted (`_norm_handle`
+        # lowercases and truncates, nothing more), so a handle containing `&` or `#`
+        # rewrote that third-party request. The payload is self-contained now: no outbound
+        # call, nothing to escape wrong, and a client can render the QR locally.
+        return {"name": name, "vcard": vcard,
+                "vcard_data_uri": "data:text/vcard;charset=utf-8," + quote(vcard, safe="")}
 
     @router.get("/routines/heatmap")
     def get_habit_heatmap_endpoint(request: Request):

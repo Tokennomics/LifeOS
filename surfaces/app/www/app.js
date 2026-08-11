@@ -1848,12 +1848,16 @@ function peopleView() {
     </div>`;
   }
 
-  /* ---- Personal vCard QR Code Exchange ---- */
-  html += `<div class="card"><h2>Personal vCard QR Code Exchange</h2>
-    <p class="hint" style="margin-bottom:10px;">Show your QR code to people you meet to instantly share contact info & trust badge.</p>
-    <div style="text-align:center; padding:10px 0;">
-      <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=BEGIN:VCARD%0AVERSION:3.0%0AFN:LifeOS%20Member%0ANOTE:Verified%20Meeter%0AEND:VCARD" style="width:160px; height:160px; border-radius:12px; border:2px solid var(--spark); padding:6px; background:#fff;">
-    </div>
+  /* ---- Personal contact card ----
+     This was an <img> pointing at api.qrserver.com with a vCard in the query string. Two
+     things were wrong with it: every viewer's IP went to a third party each time the tab
+     rendered, and the card was the hardcoded string "LifeOS Member" — the same QR for
+     everybody, carrying nobody's details. It is built from your own account now, and the
+     file is produced locally. */
+  html += `<div class="card"><h2>Personal contact card</h2>
+    <p class="hint" style="margin-bottom:10px;">A vCard with your handle and trust badge — save it, or send it to someone you meet.</p>
+    <button class="primary" data-act="vcard-download">Get my contact card</button>
+    <div id="vcard-output" style="margin-top:10px;"></div>
   </div>`;
 
   return html;
@@ -5179,6 +5183,24 @@ function wire(root) {
     `;
   }, "Pre-Game Squad Matched! 🍻"));
 
+  on("[data-act=vcard-download]", () => act(async () => {
+    const res = await api("/v1/people/qr");
+    const out = $("#vcard-output");
+    if (!out) return;
+    // `vcard_data_uri` is built by the gateway from your own handle, escaped per RFC 6350.
+    // safeUrl() would reject it — it only passes http/https — and that is correct for
+    // response-supplied links; this one is a data: URI we generated, so it is set through
+    // the DOM rather than interpolated into markup.
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; margin-bottom:6px;">Contact card for <strong>${esc(res.name)}</strong></div>
+        <a class="btn" id="vcard-link" download="lifeos-contact.vcf">Save .vcf</a>
+      </div>
+    `;
+    const link = $("#vcard-link");
+    if (link) link.href = res.vcard_data_uri;
+  }, "Contact card ready"));
+
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
     const out = $("#developer-output");
@@ -5548,18 +5570,24 @@ $("#set-close").addEventListener("click", () => $("#settings").close());
 $("#set-export").addEventListener("click", () => window.open(apiBase() + "/v1/export", "_blank"));
 
 let leafletLoaded = false;
+// Served from our own origin, not unpkg. A CDN script loaded into this page runs with full
+// access to the session token in localStorage and to every graph endpoint, and unpkg was
+// loaded with no Subresource Integrity hash — so whatever it happened to return, we ran.
+// The files in vendor/ are Leaflet 1.9.4 extracted from the npm tarball, verified against
+// the sha512 that npm publishes for that release before being committed.
 async function loadLeaflet() {
   if (leafletLoaded || window.L) return;
   leafletLoaded = true;
   return new Promise((resolve) => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    link.href = "vendor/leaflet.css";
     document.head.appendChild(link);
 
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.src = "vendor/leaflet.js";
     script.onload = () => resolve();
+    script.onerror = () => resolve();     // the map degrades; the page must not hang
     document.head.appendChild(script);
   });
 }

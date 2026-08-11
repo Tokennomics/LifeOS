@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **976 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **987 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -420,7 +420,13 @@ it cannot name someone else's `owner_id`, invent a kind, or skip provenance.
 The pre-existing `tests/test_backup.py` passed throughout — it asserted that restoring an
 empty backup returns 200, which *is* the wipe. A test can encode the vulnerability.
 
-**Eight endpoints had never worked**, each calling a function its module does not define:
+**The sweep has two halves, and the second one matters.** Empty bodies reach only the
+endpoints that take none — everything with a pydantic model answers 422 and hides whatever
+is behind it. `deep_sweep.py` synthesises a valid body from each endpoint's OpenAPI schema
+and exercises the other 275. That second pass is what found `log_focus_session`, the ninth
+dead endpoint, sitting behind a 422 the first sweep read as healthy. Run both.
+
+**Nine endpoints had never worked**, each calling a function its module does not define:
 `export_graph_topology`, `get_mindfulness_summary`, `Graph.all_entities`, and
 `discover.create_event` (three call sites), plus `/v1/people/qr` looking up entity kind
 `identity`, which is not in `KINDS`. All 500'd or 400'd on every call, including the PWA's
@@ -472,11 +478,20 @@ does **not** stop an injected script running. What it does stop is what follows 
 `connect-src 'self'` means an injected script cannot post the localStorage session token
 anywhere, and `base-uri`/`object-src`/`frame-ancestors` close the rest.
 
-**Known gap, needs a machine that can reach the internet:** the map loads Leaflet from
-`unpkg.com` with no Subresource Integrity hash, into the origin that holds the session
-token. The fix is to vendor `leaflet.js`/`leaflet.css` into `surfaces/app/www/vendor/` and
-serve them locally — the sandbox proxy blocks unpkg, and writing an SRI hash from memory
-that turns out wrong silently kills the map, so it was left alone rather than guessed at.
+**Leaflet is vendored now** under `surfaces/app/www/vendor/`, so `script-src` is plain
+`'self'` and the PWA loads nothing from a third party at all. It came from unpkg with no
+Subresource Integrity hash, into the origin holding the session token — whatever unpkg
+returned is what ran. The sandbox proxy blocks unpkg and jsdelivr but *not* the npm
+registry, so the files were extracted from the 1.9.4 tarball and verified against the
+sha512 npm publishes for that release before being committed. A test now fails if any
+`src`/`href` in the PWA points at an external host again.
+
+The contact card went the same way: `/v1/people/qr` returned an `api.qrserver.com` URL with
+the vCard in the query string, and the PWA rendered a hardcoded one — so every view handed a
+third party the viewer's IP, for a card that said "LifeOS Member" and belonged to nobody. It
+is built from your own handle now, escaped per RFC 6350 (an unrestricted handle containing a
+newline could otherwise inject `TEL:` into the card someone saves), and delivered as a
+`data:` URI with no outbound call.
 
 ## Hosting — see `docs/HOSTING.md`
 
