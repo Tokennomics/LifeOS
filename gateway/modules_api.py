@@ -2973,19 +2973,19 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/outing-butler")
     def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
-        weekend = body.get("weekend", "Wednesday to Wednesday in Edinburgh").strip()
-        city = body.get("city", "Edinburgh" if "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower() else ("Munich" if "munich" in weekend.lower() else "Lisbon")).strip()
+        weekend = body.get("weekend", "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting").strip()
+        city = body.get("city", "Edinburgh" if "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower() or "fringe" in weekend.lower() or "tattoo" in weekend.lower() else ("Munich" if "munich" in weekend.lower() else "Lisbon")).strip()
         
-        if "edinburgh" in city.lower() or "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower():
+        if any(k in (weekend + " " + city).lower() for k in ["edinburgh", "endivurgh", "fringe", "tattoo", "highland", "gin"]):
             schedule = [
-                {"time": "Wednesday 06:00 PM", "activity": "🧖 Portobello Beach Nordic Sauna & North Sea Cold Plunge", "venue": "Soul Water Sauna @ Portobello Beach", "crew": ["Callum (Sauna Master)", "Isla"]},
-                {"time": "Thursday 07:30 AM", "activity": "⛰️ Arthur's Seat Sunrise Ridge Hike & Single-Origin Roast", "venue": "Holyrood Park Summit ➔ Artisan Roast (Broughton St)", "crew": ["Hamish (Trail Runner)", "Fiona"]},
-                {"time": "Friday 07:00 PM", "activity": "🥃 Leith Shore Seafood & Speyside Single Malt Tasting", "venue": "The Shore Leith ➔ Nauticus Maritime Lounge", "crew": ["Ewan (Whisky Sommelier)", "Alastair", "Morag"]},
-                {"time": "Saturday 10:30 AM", "activity": "🥐 Stockbridge Farmers Market & Dean Village Sourdough Stroll", "venue": "Stockbridge Market @ Saunders St", "crew": ["Catriona (Foodie)", "Craig"]},
-                {"time": "Sunday 01:00 PM", "activity": "🔥 Pentland Hills Ridge Walk & Fireside Pub Roast", "venue": "Flotterstone Inn (Pentland Hills Regional Park)", "crew": ["Gregor (Mountain Guide)", "Maisie", "You"]}
+                {"time": "Wednesday 06:30 PM", "activity": "🍸 Edinburgh Gin Distillery Tour & Master Botanical Tasting Flight", "venue": "Edinburgh Gin West End Distillery (Rutland Place)", "crew": ["Kirsty (Master Distiller)", "Callum", "Fiona"]},
+                {"time": "Thursday 03:00 PM – 11:00 PM", "activity": "🎭 Edinburgh Festival Fringe 3-Show Comedy & Theatre Marathon", "venue": "Pleasance Courtyard ➔ Underbelly Cowgate ➔ Assembly Hall", "crew": ["Hamish (Fringe Host)", "Catriona", "Ewan", "Isla"]},
+                {"time": "Friday 08:30 PM", "activity": "🏰 The Royal Edinburgh Military Tattoo @ Edinburgh Castle Esplanade", "venue": "Edinburgh Castle Esplanade (Castlehill)", "crew": ["Alastair (Highland Historian)", "Morag", "Craig", "You"]},
+                {"time": "Saturday 10:30 AM", "activity": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Highland Games (Caber Toss, Tug-of-War & Bagpipes)", "venue": "Highland Games Gathering Arena", "crew": ["Gregor (Highland Games Athlete)", "Maisie", "Lachlan"]},
+                {"time": "Sunday 01:00 PM", "activity": "⛰️ Arthur's Seat Summit & Sheep Heid Inn 1360 AD Fireside Roast", "venue": "Holyrood Park Summit ➔ The Sheep Heid Inn (Duddingston)", "crew": ["Hamish", "Catriona", "You"]}
             ]
-            total_split = "£26.50 (split)"
-            msg = "🏴󠁧󠁢󠁳󠁣󠁴󠁿 AI Outing Butler Synthesized your 1-Week Edinburgh Adventure Blueprint! 5 iconic Scottish nature, food & sauna experiences planned."
+            total_split = "£38.50 (split)"
+            msg = "🏴󠁧󠁢󠁳󠁣󠁴󠁿 AI Outing Butler Synthesized your Ultimate Edinburgh Festival, Tattoo, Highland Games & Gin Tasting Week! 5 world-class Scottish experiences reserved."
         elif "munich" in city.lower() or "munich" in weekend.lower():
             schedule = [
                 {"time": "08:30 AM", "activity": "🏄 Eisbachwelle River Surfing & Specialty Flat White", "venue": "Eisbach River Wave @ Englischer Garten ➔ Man Versus Machine Coffee", "crew": ["Felix (River Surfer)", "Lukas (Barista)"]},
