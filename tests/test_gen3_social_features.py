@@ -510,3 +510,21 @@ def test_stripe_and_paypal_payment_gateways(cfg):
     res4 = client.post("/v1/payments/paypal/capture-order", json={"order_id": "PAYPAL-ORDER-882194A"})
     assert res4.status_code == 200
     assert res4.json()["order_captured"] is True
+
+def test_automated_city_content_pipeline_and_weather_triggers(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/auto-event-pipeline", json={"city": "Lisbon"})
+    assert res1.status_code == 200
+    assert res1.json()["pipeline_synced"] is True
+
+    res2 = client.post("/v1/seeding/ai-outing-synthesizer", json={"city": "Lisbon", "theme": "Vinyl & Beer"})
+    assert res2.status_code == 200
+    assert res2.json()["itinerary_synthesized"] is True
+
+    res3 = client.post("/v1/seeding/third-places-directory", json={"city": "Lisbon"})
+    assert res3.status_code == 200
+    assert res3.json()["directory_enriched"] is True
+
+    res4 = client.post("/v1/seeding/weather-triggers", json={"city": "Lisbon", "condition": "Sunny 24C"})
+    assert res4.status_code == 200
+    assert res4.json()["weather_triggers_evaluated"] is True

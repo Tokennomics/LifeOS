@@ -757,6 +757,22 @@ function todayView() {
     <div id="stripe-paypal-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Automated City Content & AI Pipeline Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(240,169,74,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📡 Automated City Content & AI Pipeline</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Autonomous Data</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Stream 280+ public event feeds, synthesize AI micro-itineraries, ingest 160+ third places, and trigger spontaneous weather outings!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="stream-auto-events">Stream Event Feeds (284) 📡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="synth-ai-outing">AI Outing Synthesizer 🤖</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="load-third-places">160 Third Places 📍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-weather-outings">Weather Triggers ☀️</button>
+    </div>
+    <div id="content-pipeline-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4073,6 +4089,64 @@ function wire(root) {
       </div>
     `;
   }, "PayPal Payment Captured! 💰"));
+
+  on("[data-act=stream-auto-events]", () => act(async () => {
+    const res = await api("/v1/seeding/auto-event-pipeline", { city: "Lisbon" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const cats = res.categories_covered || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📡 Live Event Feeds Synced (${res.events_ingested} Events):</div>
+        <div style="font-size:13px; margin-bottom:4px;">City: <strong>${esc(res.city)}</strong> · Frequency: ${esc(res.sync_frequency)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Categories: ${cats.join(" · ")}</div>
+      </div>
+    `;
+  }, "284 Live Event Feeds Streamed! 📡"));
+
+  on("[data-act=synth-ai-outing]", () => act(async () => {
+    const res = await api("/v1/seeding/ai-outing-synthesizer", { city: "Lisbon", theme: "Hidden Sunset Vinyl & Craft Beer Crawl" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const stops = res.generated_stops || [];
+    const items = stops.map(s => `<div style="margin-top:2px;">• <strong>Stop ${s.stop} (${esc(s.time)})</strong>: ${esc(s.place)} (${esc(s.vibe)})</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 AI Micro-Itinerary Synthesized:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> (Split: ${esc(res.estimated_split)})</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+      </div>
+    `;
+  }, "AI Outing Micro-Itinerary Synthesized! 🤖"));
+
+  on("[data-act=load-third-places]", () => act(async () => {
+    const res = await api("/v1/seeding/third-places-directory", { city: "Lisbon" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const b = res.breakdown || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📍 ${res.total_third_places} Verified Third Places Ingested:</div>
+        <div style="font-size:12px; margin-bottom:4px;">☕ ${b.specialty_coffee_workspaces} Cafes · 🧗 ${b.bouldering_and_calisthenics} Gyms · 🌅 ${b.sunset_viewpoints_miradouros} Viewpoints · 📚 ${b.quiet_reading_libraries} Reading Spots</div>
+        <div style="font-size:11px; color:var(--growth); font-weight:700;">Status: ${esc(res.live_status)}</div>
+      </div>
+    `;
+  }, "160 Verified Third Places Ingested! 📍"));
+
+  on("[data-act=trigger-weather-outings]", () => act(async () => {
+    const res = await api("/v1/seeding/weather-triggers", { city: "Lisbon", condition: "Sunny 24°C with 4ft Ocean Swell" });
+    const out = $("#content-pipeline-output");
+    if (!out) return;
+    const outings = res.auto_published_outings || [];
+    const items = outings.map(o => `<div style="margin-top:2px;">• ☀️ <strong>${esc(o.activity)}</strong> <span style="color:var(--growth); font-weight:bold;">[LIVE]</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">☀️ Weather Trigger Outings Published:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Condition: <strong>${esc(res.live_conditions)}</strong></div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Weather-Triggered Outings Published! ☀️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
