@@ -996,6 +996,19 @@ function todayView() {
     <div id="nightlife-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Midnight Memory & Daily Reflection Synthesizer Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(16,185,129,0.2)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌙 Midnight Memory & Daily Reflection</h2>
+      <span class="badge good" style="font-weight:bold; background:linear-gradient(135deg,#6366f1,#10b981); color:#fff;">Time-Capsule AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Autonomous poetic daily retrospective, gratitude dividends, step vitality & permanent graph time-capsule archiving!</p>
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981); width:100%; font-size:14px; padding:10px;" data-act="synthesize-daily-journal">✨ Synthesize Today's Memory & Gratitude Log</button>
+    </div>
+    <div id="journal-synthesis-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -5163,6 +5176,30 @@ function wire(root) {
       </div>
     `;
   }, "Pre-Game Squad Matched! 🍻"));
+
+  on("[data-act=synthesize-daily-journal]", () => act(async () => {
+    const res = await api("/v1/journal/daily-reflection-synthesis", { city: "Munich", date: "Today" });
+    const out = $("#journal-synthesis-output");
+    if (!out) return;
+    const vm = res.daily_vitality_metrics || {};
+    const events = (res.events_experienced || []).map(e => `<li>${esc(e)}</li>`).join("");
+    const grats = (res.gratitude_dividends || []).map(g => `<li>${esc(g)}</li>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:14px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:15px; font-weight:700; color:#6366f1; margin-bottom:6px;">🌙 Daily Midnight Reflection (${esc(res.city)} · ${esc(res.date)}):</div>
+        <div style="font-style:italic; font-size:13px; color:var(--growth); line-height:1.4; margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.2); border-radius:8px;">"${esc(res.poetic_daily_retrospective)}"</div>
+        <div style="font-size:12px; font-weight:bold; color:var(--text); margin-bottom:2px;">📍 Moments Experienced:</div>
+        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:var(--muted);">${events}</ul>
+        <div style="font-size:12px; font-weight:bold; color:#10b981; margin-bottom:2px;">✨ Gratitude Dividends:</div>
+        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:#10b981;">${grats}</ul>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--spark); border-top:1px solid var(--line-soft); padding-top:6px; margin-top:6px;">
+          <span>🏃 Steps: <strong>${vm.steps_walked || 14280}</strong></span>
+          <span>👀 Presence: <strong>${esc(vm.presence_score)}</strong></span>
+          <span>🔒 Capsule: <strong>${esc(res.time_capsule_status)}</strong></span>
+        </div>
+      </div>
+    `;
+  }, "Midnight Memory Synthesized! 🌙"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

@@ -778,3 +778,13 @@ def test_nightlife_party_and_speakeasy_engine(cfg):
     res4 = client.post("/v1/nightlife/crew-pregame", json={"destination": "Blitz Club", "city": "Munich"})
     assert res4.status_code == 200
     assert res4.json()["pregame_squad_matched"] is True
+
+def test_daily_reflection_synthesis(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/journal/daily-reflection-synthesis", json={"city": "Munich", "date": "Today"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["synthesis_complete"] is True
+    assert len(data["gratitude_dividends"]) >= 3
+    assert data["time_capsule_status"] == "SEALED_IN_SUBSTRATE_GRAPH"
+    assert "presence_score" in data["daily_vitality_metrics"]
