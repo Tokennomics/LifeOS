@@ -2973,17 +2973,34 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/outing-butler")
     def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
-        weekend = body.get("weekend", "Saturday & Sunday").strip()
+        weekend = body.get("weekend", "Tomorrow All Day in Munich").strip()
+        city = body.get("city", "Munich" if "munich" in weekend.lower() else "Lisbon").strip()
+        
+        if "munich" in city.lower() or "munich" in weekend.lower():
+            schedule = [
+                {"time": "08:30 AM", "activity": "🏄 Eisbachwelle River Surfing & Specialty Flat White", "venue": "Eisbach River Wave @ Englischer Garten ➔ Man Versus Machine Coffee", "crew": ["Felix (River Surfer)", "Lukas (Barista)"]},
+                {"time": "01:00 PM", "activity": "🥨 Viktualienmarkt Farmers Market & Communal Feast", "venue": "Viktualienmarkt Organic Market Stalls", "crew": ["Hanna (Foodie)", "Maximilian (Chef)", "Elena"]},
+                {"time": "04:30 PM", "activity": "🚴 Isar River Gravel Ride & Flaucher Pebble Cold Plunge", "venue": "Isar River Trail @ Flaucher Strand", "crew": ["Sophie", "Markus (Cyclist)"]},
+                {"time": "07:30 PM", "activity": "🍺 Sunset Biergarten Long-Table Chess & Craft Brews", "venue": "Chinesischer Turm Biergarten (Englischer Garten)", "crew": ["Niklas (Chess Host)", "Leon", "Anna", "You"]}
+            ]
+            total_split = "€19.50 (split)"
+            msg = "🤖 AI Outing Butler Synthesized your Full Day in Munich! 4 seamless outdoor & cultural adventures planned."
+        else:
+            schedule = [
+                {"time": "08:00 AM", "activity": "Dawn Patrol Surf @ Carcavelos (4ft Swell)", "venue": "Carcavelos Beach", "crew": ["Marco", "Sofia"]},
+                {"time": "01:00 PM", "activity": "Specialty Brunch @ Fabrica Coffee Baixa", "venue": "Fabrica Baixa", "crew": ["Inês", "Alex"]},
+                {"time": "07:30 PM", "activity": "Sunset Acoustic Jam @ Miradouro Santa Catarina", "venue": "Miradouro Santa Catarina", "crew": ["Elena", "Lucas"]}
+            ]
+            total_split = "€24.00 (split)"
+            msg = "🤖 AI Outing Butler Generated your Perfect Blueprint! 3 seamless outings planned."
+
         return {
             "blueprint_generated": True,
+            "city": city,
             "weekend": weekend,
-            "curated_schedule": [
-                {"time": "08:00 AM", "activity": "Dawn Patrol Surf @ Carcavelos (4ft Swell)", "crew": ["Marco", "Sofia"]},
-                {"time": "01:00 PM", "activity": "Specialty Brunch @ Fabrica Coffee Baixa", "crew": ["Inês", "Alex"]},
-                {"time": "07:30 PM", "activity": "Sunset Acoustic Jam @ Miradouro Santa Catarina", "crew": ["Elena", "Lucas"]}
-            ],
-            "estimated_cost": "€24.00 (split)",
-            "message": f"🤖 AI Outing Butler Generated your Perfect Weekend Blueprint! 3 seamless outings planned."
+            "curated_schedule": schedule,
+            "estimated_cost": total_split,
+            "message": msg
         }
 
     @router.post("/payments/one-tap-settle")
