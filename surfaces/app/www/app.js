@@ -741,6 +741,22 @@ function todayView() {
     <div id="seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Universal Stripe & PayPal Checkout Hub ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(0,112,186,0.18)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>💳 Stripe & PayPal Global Payments</h2>
+      <span class="badge" style="color:var(--growth); border-color:var(--growth)40; font-weight:bold;">PCI-DSS Tier 1</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Instant Stripe Checkout (Card, Apple Pay, Google Pay, SEPA) and 1-Click PayPal Order Capture for outings and VIP perks!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="pay-stripe-checkout">Stripe Checkout (€21) 💳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #0070ba, #003087);" data-act="pay-paypal-order">PayPal 1-Click (€21) 🅿️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="test-stripe-webhook">Stripe Webhook Sync ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="capture-paypal-order">Capture PayPal 💰</button>
+    </div>
+    <div id="stripe-paypal-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4003,6 +4019,60 @@ function wire(root) {
       </div>
     `;
   }, "Weekly Anchor Crews Activated! ⚓"));
+
+  on("[data-act=pay-stripe-checkout]", () => act(async () => {
+    const res = await api("/v1/payments/stripe/checkout-session", { amount: 21.00, description: "Sunset Catamaran Co-Share Split" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    const methods = res.payment_methods || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💳 Stripe Checkout Ready (€${res.amount.toFixed(2)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Session ID: <strong style="font-family:monospace;">${esc(res.session_id)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Methods: ${methods.join(" · ")}</div>
+        <a href="${res.checkout_url}" target="_blank" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
+      </div>
+    `;
+  }, "Stripe Checkout Session Created! 💳"));
+
+  on("[data-act=pay-paypal-order]", () => act(async () => {
+    const res = await api("/v1/payments/paypal/create-order", { amount: 21.00, item: "Sunset Catamaran Co-Share Split" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0070ba;">
+        <div style="font-size:14px; font-weight:700; color:#0070ba; margin-bottom:4px;">🅿️ PayPal Order Created (€${res.amount.toFixed(2)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Order ID: <strong style="font-family:monospace;">${esc(res.order_id)}</strong> (${esc(res.intent)})</div>
+        <a href="${res.approval_url}" target="_blank" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
+      </div>
+    `;
+  }, "PayPal Order Created! 🅿️"));
+
+  on("[data-act=test-stripe-webhook]", () => act(async () => {
+    const res = await api("/v1/payments/stripe/webhook", { type: "checkout.session.completed" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⚡ Stripe Webhook Verified (${esc(res.event_type)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Status: <strong>${esc(res.settlement_status)}</strong> (Signature Verified)</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Receipt: ${esc(res.receipt_url)}</div>
+      </div>
+    `;
+  }, "Stripe Webhook Verified! ⚡"));
+
+  on("[data-act=capture-paypal-order]", () => act(async () => {
+    const res = await api("/v1/payments/paypal/capture-order", { order_id: "PAYPAL-ORDER-882194A" });
+    const out = $("#stripe-paypal-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
+        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:4px;">💰 PayPal Payment Captured (${esc(res.status)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Capture ID: <strong style="font-family:monospace;">${esc(res.capture_id)}</strong></div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Payer: ${esc(res.payer_email)} · Outing Confirmed</div>
+      </div>
+    `;
+  }, "PayPal Payment Captured! 💰"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

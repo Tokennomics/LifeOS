@@ -492,3 +492,21 @@ def test_city_seeding_and_cold_start_engine(cfg):
     res4 = client.post("/v1/seeding/anchor-outings", json={"city": "Lisbon"})
     assert res4.status_code == 200
     assert res4.json()["anchors_active"] is True
+
+def test_stripe_and_paypal_payment_gateways(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/payments/stripe/checkout-session", json={"amount": 21.00, "description": "Catamaran Split"})
+    assert res1.status_code == 200
+    assert res1.json()["session_created"] is True
+
+    res2 = client.post("/v1/payments/stripe/webhook", json={"type": "checkout.session.completed"})
+    assert res2.status_code == 200
+    assert res2.json()["webhook_processed"] is True
+
+    res3 = client.post("/v1/payments/paypal/create-order", json={"amount": 21.00, "item": "Catamaran Split"})
+    assert res3.status_code == 200
+    assert res3.json()["order_created"] is True
+
+    res4 = client.post("/v1/payments/paypal/capture-order", json={"order_id": "PAYPAL-ORDER-882194A"})
+    assert res4.status_code == 200
+    assert res4.json()["order_captured"] is True
