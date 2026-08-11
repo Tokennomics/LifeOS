@@ -915,6 +915,22 @@ function todayView() {
     <div id="ultimate-frontier-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Global Flourishing & Regenerative Earth Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌍 Global Flourishing & Regenerative Earth</h2>
+      <span class="badge good" style="font-weight:bold;">Planetary Impact</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Regenerative eco-quests, zero-waste food sharing pantries, mental health peer listeners, and intergenerational craft mentorship!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="view-eco-quests">Regenerative Eco-Quests 🌱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-zero-waste-pantry">Zero-Waste Food Pantry 🍲</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="connect-peer-listener">Compassion Listener 🧠</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="view-intergenerational-guild">Intergenerational Guild 🕊️</button>
+    </div>
+    <div id="global-flourishing-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4812,6 +4828,66 @@ function wire(root) {
       </div>
     `;
   }, "Living Memory Atlas Loaded! 🗺️"));
+
+  on("[data-act=view-eco-quests]", () => act(async () => {
+    const res = await api("/v1/impact/regenerative-earth", { city: "Edinburgh" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const imp = res.collective_city_impact || {};
+    const quests = res.spontaneous_eco_quests || [];
+    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.title)}</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(q.reward)}</span>) · <em>${esc(q.crew)}</em></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Regenerative Earth Impact (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px; color:var(--growth); font-weight:bold;">${imp.plastic_removed_kg} kg Plastic Removed · ${imp.trees_and_pollinators_planted} Native Trees Planted</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Regenerative Eco-Quests Synced! 🌱"));
+
+  on("[data-act=view-zero-waste-pantry]", () => act(async () => {
+    const res = await api("/v1/impact/zero-waste-pantry", { city: "Edinburgh" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const meals = res.available_rescued_delicacies || [];
+    const items = meals.map(m => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(m.item)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(m.donor)} · ${esc(m.availability)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍲 Zero-Waste Food Sharing (${res.meals_rescued_this_month} Meals Rescued This Month):</div>
+        <div style="font-size:12px;">${items}</div>
+      </div>
+    `;
+  }, "Zero-Waste Communal Pantry Synced! 🍲"));
+
+  on("[data-act=connect-peer-listener]", () => act(async () => {
+    const res = await api("/v1/impact/compassion-listener-network", { vibe: "Seeking a Gentle Ear" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const l = res.matched_peer_listener || {};
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🧠 Compassionate Peer Listener Matched:</div>
+        <div style="font-size:13px; margin-bottom:2px;">Listener: <strong>${esc(l.name)}</strong> (${esc(l.experience)})</div>
+        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Format: ${esc(l.format)} · Wait: ${esc(l.wait_time)}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(l.cost)}</div>
+      </div>
+    `;
+  }, "Compassionate Peer Listener Ready! 🧠"));
+
+  on("[data-act=view-intergenerational-guild]", () => act(async () => {
+    const res = await api("/v1/impact/intergenerational-guild", { city: "Edinburgh" });
+    const out = $("#global-flourishing-output");
+    if (!out) return;
+    const ex = res.active_exchanges || [];
+    const items = ex.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.elder)}</strong> ⇄ <strong>${esc(e.young_learner)}</strong><br><span style="font-size:11px; color:var(--growth);">${esc(e.exchange)}</span></div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Intergenerational Mentorship Guild (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-style:italic;">${esc(res.community_impact)}</div>
+      </div>
+    `;
+  }, "Intergenerational Mentorship Guild Synced! 🕊️"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

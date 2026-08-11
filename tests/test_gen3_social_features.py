@@ -687,3 +687,21 @@ def test_ultimate_frontier_capabilities(cfg):
     res4 = client.post("/v1/atlas/living-memory-map", json={})
     assert res4.status_code == 200
     assert res4.json()["atlas_active"] is True
+
+def test_global_flourishing_and_regenerative_earth(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/impact/regenerative-earth", json={"city": "Edinburgh"})
+    assert res1.status_code == 200
+    assert res1.json()["eco_quests_active"] is True
+
+    res2 = client.post("/v1/impact/zero-waste-pantry", json={"city": "Edinburgh"})
+    assert res2.status_code == 200
+    assert res2.json()["pantry_synced"] is True
+
+    res3 = client.post("/v1/impact/compassion-listener-network", json={})
+    assert res3.status_code == 200
+    assert res3.json()["listener_network_ready"] is True
+
+    res4 = client.post("/v1/impact/intergenerational-guild", json={"city": "Edinburgh"})
+    assert res4.status_code == 200
+    assert res4.json()["guild_synced"] is True

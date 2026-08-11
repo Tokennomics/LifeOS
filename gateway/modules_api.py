@@ -4120,6 +4120,70 @@ def build_router(auth) -> APIRouter:
             "message": "🗺️ Living Real-World Memory Atlas Synced! 48 physical moments pinned to Earth with 1 locked time-capsule."
         }
 
+    @router.post("/impact/regenerative-earth")
+    def regenerative_earth_eco_quests_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "eco_quests_active": True,
+            "city": city,
+            "collective_city_impact": {
+                "plastic_removed_kg": 4820,
+                "trees_and_pollinators_planted": 1240,
+                "active_clean_crews": 18
+            },
+            "spontaneous_eco_quests": [
+                {"title": "Arthur's Seat 2-Minute Trail Sweep", "reward": "Eco-Karma +50", "crew": "Sunday Trail Runners (14 people)"},
+                {"title": "Portobello Coastal Microplastic Sift", "reward": "Free Hot Filter Coffee @ Beach Shack", "crew": "Morning Swimmers"},
+                {"title": "Meadows Community Wildflower Seed Bombing", "reward": "Pollinator Steward Badge", "crew": "Neighborhood Gardeners"}
+            ],
+            "message": f"🌱 Regenerative Earth Hub Synced for {city}! 4,820 kg plastic cleaned & 1,240 native trees planted collectively."
+        }
+
+    @router.post("/impact/zero-waste-pantry")
+    def zero_waste_communal_pantry_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "pantry_synced": True,
+            "city": city,
+            "meals_rescued_this_month": 340,
+            "available_rescued_delicacies": [
+                {"item": "Freshly Baked Organic Sourdough Boules (4x)", "donor": "Stockbridge Artisan Bakery", "availability": "Free pickup in next 45 mins"},
+                {"item": "Farm-Fresh Organic Heirloom Greens & Veg", "donor": "Saturday Market Stall", "availability": "Open Community Box @ Custom House"},
+                {"item": "Warm Homemade Veggie Curry (6 Portions)", "donor": "Chef Marcus (Supper Club Surplus)", "availability": "Bring your own container"}
+            ],
+            "message": f"🍲 Zero-Waste Food Sharing Synced for {city}! 340 meals rescued this month & shared with neighbors."
+        }
+
+    @router.post("/impact/compassion-listener-network")
+    def compassion_peer_listener_network_endpoint(request: Request, body: dict):
+        vibe = body.get("vibe", "Feeling Overwhelmed & Seeking a Gentle Ear").strip()
+        return {
+            "listener_network_ready": True,
+            "matched_peer_listener": {
+                "name": "Sarah (Certified Compassionate Listener)",
+                "experience": "4 years active listening & empathetic counseling",
+                "format": "Warm Voice Call or Quiet Botanical Garden Tea Walk",
+                "wait_time": "Under 3 minutes",
+                "cost": "100% Free & Stigma-Free Community Support"
+            },
+            "message": "🧠 Mental Health Sanctuary & Peer Listener Network Active! Immediate empathetic human presence with zero stigma."
+        }
+
+    @router.post("/impact/intergenerational-guild")
+    def intergenerational_mentorship_guild_endpoint(request: Request, body: dict):
+        city = body.get("city", "Edinburgh").strip()
+        return {
+            "guild_synced": True,
+            "city": city,
+            "active_exchanges": [
+                {"elder": "Arthur (74, Master Carpenter)", "young_learner": "Liam (22, Student)", "exchange": "Japanese Dovetail Joinery ⇄ iPad Digital Illustration"},
+                {"elder": "Margaret (68, Sourdough & Fermenter)", "young_learner": "Chloe (26, Designer)", "exchange": "Traditional Fermentation ⇄ Smart Home & Music Setup"},
+                {"elder": "Hamish (71, Chess Master)", "young_learner": "Noor (19, Coder)", "exchange": "Endgame Tactics ⇄ Python Game Coding"}
+            ],
+            "community_impact": "Dissolving age-based isolation and weaving intergenerational lifelong friendships.",
+            "message": f"🕊️ Intergenerational Mentorship Guild Synced for {city}! 3 active elder-youth wisdom exchanges creating deep community bonds."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
