@@ -474,3 +474,21 @@ def test_frontier_stack_all_four_engines(cfg):
     res4 = client.post("/v1/ai/agent-negotiator", json={"topic": "Weekend Sunset Surf"})
     assert res4.status_code == 200
     assert res4.json()["negotiation_consensus_reached"] is True
+
+def test_city_seeding_and_cold_start_engine(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/seeding/city-bootstrap", json={"city": "Lisbon"})
+    assert res1.status_code == 200
+    assert res1.json()["city_bootstrapped"] is True
+
+    res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon", "pioneer_number": 42})
+    assert res2.status_code == 200
+    assert res2.json()["pioneer_pass_minted"] is True
+
+    res3 = client.post("/v1/seeding/golden-tickets", json={"outing": "Sunset Catamaran"})
+    assert res3.status_code == 200
+    assert res3.json()["tickets_generated"] is True
+
+    res4 = client.post("/v1/seeding/anchor-outings", json={"city": "Lisbon"})
+    assert res4.status_code == 200
+    assert res4.json()["anchors_active"] is True

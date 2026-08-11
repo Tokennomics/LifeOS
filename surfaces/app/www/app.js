@@ -725,6 +725,22 @@ function todayView() {
     <div id="frontier-stack-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- City Pioneer & Cold-Start Seeding Engine ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(16,185,129,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌱 City Pioneer & Cold-Start Viral Engine</h2>
+      <span class="badge good" style="font-weight:bold;">Day-0 Seeding</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Auto-bootstrap new cities, mint Founding Pioneer Ambassador passes, generate 3x viral golden tickets, and activate weekly anchor crews!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="seed-city-bootstrap">Bootstrap City (Lisbon) 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">Mint Pioneer Pass #042 👑</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3x Golden Tickets 🎟️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="activate-anchor-outings">Weekly Anchor Crews ⚓</button>
+    </div>
+    <div id="seeding-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3931,6 +3947,62 @@ function wire(root) {
       </div>
     `;
   }, "AI Multi-Agent Consensus Reached! 🤖"));
+
+  on("[data-act=seed-city-bootstrap]", () => act(async () => {
+    const res = await api("/v1/seeding/city-bootstrap", { city: "Lisbon" });
+    const out = $("#seeding-output");
+    if (!out) return;
+    const feeds = res.active_event_feeds || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🗺️ City Bootstrap Complete (${esc(res.city)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Seeded: <strong>${res.curated_third_places} Curated Third-Places</strong> (${esc(res.seed_density)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Feeds: ${feeds.join(", ")}</div>
+      </div>
+    `;
+  }, "City Bootstrapped with Zero Cold Start! 🗺️"));
+
+  on("[data-act=mint-pioneer-pass]", () => act(async () => {
+    const res = await api("/v1/seeding/pioneer-pass", { city: "Lisbon", pioneer_number: 42 });
+    const out = $("#seeding-output");
+    if (!out) return;
+    const perks = res.perks || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Pioneer Ambassador Pass Minted:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Title: <strong>${esc(res.badge_title)}</strong></div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Perks: ${perks.join(" · ")}</div>
+      </div>
+    `;
+  }, "City Pioneer Ambassador Pass Minted! 👑"));
+
+  on("[data-act=gen-golden-tickets]", () => act(async () => {
+    const res = await api("/v1/seeding/golden-tickets", { outing: "Sunset Catamaran Sailing (€30)" });
+    const out = $("#seeding-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ 3x Golden Crew Tickets Generated:</div>
+        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.outing)}</strong> (${esc(res.viral_multiplier)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Invite Link: ${esc(res.share_link)} (WhatsApp / iMessage)</div>
+      </div>
+    `;
+  }, "3x Golden Tickets Ready to Share! 🎟️"));
+
+  on("[data-act=activate-anchor-outings]", () => act(async () => {
+    const res = await api("/v1/seeding/anchor-outings", { city: "Lisbon" });
+    const out = $("#seeding-output");
+    if (!out) return;
+    const anchors = res.weekly_anchors || [];
+    const items = anchors.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.day)}</strong>: ${esc(a.title)} (${a.spots_reserved} spots)</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⚓ Weekly Anchor Crews Active (${esc(res.city)}):</div>
+        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
+        <div style="font-size:11px; color:var(--spark); font-weight:700;">Guarantee: ${esc(res.steward_guarantee)}</div>
+      </div>
+    `;
+  }, "Weekly Anchor Crews Activated! ⚓"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
