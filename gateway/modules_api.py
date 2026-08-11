@@ -3136,6 +3136,46 @@ def build_router(auth) -> APIRouter:
             "message": f"🛠️ Plugin Sandbox Tested & Published! '{plugin_id}' live in Store with 70% developer rev-share!"
         }
 
+    @router.post("/wellness/sauna-social")
+    def sauna_cold_plunge_social_endpoint(request: Request, body: dict):
+        venue = body.get("venue", "Alfama Nordic Sauna & Bathhouse").strip()
+        return {
+            "sauna_session_confirmed": True,
+            "venue": venue,
+            "session_time": "Today @ 6:00 PM (90 Mins)",
+            "temperature_profile": "90°C Finnish Dry Sauna + 4°C Ice Bath",
+            "participants_count": 8,
+            "breathwork_guide": "Guided Box Breathing by Elena S.",
+            "message": f"🧖 Nordic Sauna Social Confirmed! 8 members booked for contrast therapy at {venue} today @ 6 PM."
+        }
+
+    @router.post("/economy/plant-swap")
+    def neighborhood_plant_seed_swap_endpoint(request: Request, body: dict):
+        park = body.get("park", "Jardim da Estrela Community Greenhouse").strip()
+        return {
+            "plant_swap_joined": True,
+            "location": park,
+            "meeting_time": "Saturday @ 11:00 AM",
+            "items_to_trade": ["Variegated Monstera Cuttings", "Heirloom Tomato Seeds", "Terracotta Planters"],
+            "attendees_count": 14,
+            "cost": "€0.00 (Zero-Waste Barter)",
+            "message": f"🪴 Neighborhood Plant Swap Joined! 14 green thumbs meeting at {park} Saturday @ 11 AM (€0 barter)!"
+        }
+
+    @router.post("/dining/wine-tasting")
+    def rooftop_natural_wine_tasting_endpoint(request: Request, body: dict):
+        rooftop = body.get("rooftop", "Miradouro Rooftop Terrace").strip()
+        return {
+            "tasting_confirmed": True,
+            "rooftop": rooftop,
+            "session_time": "Tonight @ 8:00 PM",
+            "wine_selection": "4 Portuguese Pet-Nats & Orange Biodynamics",
+            "pairing": "Artisanal Sheep & Goat Cheeses with Sourdough",
+            "group_size": 8,
+            "split_cost": "€18.00 / person",
+            "message": f"🍷 Natural Wine Tasting Confirmed! 8 members tasting 4 orange pet-nats at {rooftop} tonight @ 8 PM (€18 split)."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()

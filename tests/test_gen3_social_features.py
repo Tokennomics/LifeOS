@@ -442,3 +442,17 @@ def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
     res3 = client.post("/v1/developers/plugin-sandbox", json={"plugin_id": "com.windydev.radar"})
     assert res3.status_code == 200
     assert res3.json()["sandbox_tested"] is True
+
+def test_sauna_plant_swap_and_wine_tasting(cfg):
+    client = TestClient(create_app(cfg))
+    res1 = client.post("/v1/wellness/sauna-social", json={"venue": "Alfama Nordic Sauna"})
+    assert res1.status_code == 200
+    assert res1.json()["sauna_session_confirmed"] is True
+
+    res2 = client.post("/v1/economy/plant-swap", json={"park": "Jardim da Estrela"})
+    assert res2.status_code == 200
+    assert res2.json()["plant_swap_joined"] is True
+
+    res3 = client.post("/v1/dining/wine-tasting", json={"rooftop": "Miradouro"})
+    assert res3.status_code == 200
+    assert res3.json()["tasting_confirmed"] is True

@@ -694,6 +694,21 @@ function todayView() {
     <div id="flow-culture-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Nordic Sauna, Plant Swap & Natural Wine ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.16), rgba(16,185,129,0.16)); border:1px solid rgba(240,169,74,0.35);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🧖 Sauna Social, Plant Swap & Wine Club</h2>
+      <span class="badge good" style="font-weight:bold;">Community & Vibe</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">90°C Finnish saunas & ice baths, community plant cutting swaps, and rooftop natural wine tastings!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f0a94a, #ef4444);" data-act="join-sauna-social">Nordic Sauna (6 PM) 🧖</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="join-plant-swap">Plant & Seed Swap 🪴</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="join-wine-tasting">Natural Wine Tasting 🍷</button>
+    </div>
+    <div id="sauna-plant-wine-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -3804,6 +3819,46 @@ function wire(root) {
       </div>
     `;
   }, "Art Gallery Crawl Confirmed! 🎨"));
+
+  on("[data-act=join-sauna-social]", () => act(async () => {
+    const res = await api("/v1/wellness/sauna-social", { venue: "Alfama Nordic Sauna & Bathhouse" });
+    const out = $("#sauna-plant-wine-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
+        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:4px;">🧖 Nordic Sauna Social Confirmed (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · ${esc(res.temperature_profile)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Guide: ${esc(res.breathwork_guide)} · ${res.participants_count} Members</div>
+      </div>
+    `;
+  }, "Nordic Sauna Social Confirmed! 🧖"));
+
+  on("[data-act=join-plant-swap]", () => act(async () => {
+    const res = await api("/v1/economy/plant-swap", { park: "Jardim da Estrela Community Greenhouse" });
+    const out = $("#sauna-plant-wine-output");
+    if (!out) return;
+    const items = res.items_to_trade || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
+        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🪴 Neighborhood Plant Swap Joined (${res.attendees_count} Gardeners):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · ${esc(res.meeting_time)}</div>
+        <div style="font-size:12px; color:var(--spark); font-weight:700;">Trading: ${items.join(", ")} (${esc(res.cost)})</div>
+      </div>
+    `;
+  }, "Plant & Seed Swap Joined! 🪴"));
+
+  on("[data-act=join-wine-tasting]", () => act(async () => {
+    const res = await api("/v1/dining/wine-tasting", { rooftop: "Miradouro Rooftop Terrace" });
+    const out = $("#sauna-plant-wine-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
+        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🍷 Natural Wine Tasting Confirmed (${esc(res.session_time)}):</div>
+        <div style="font-size:13px; margin-bottom:4px;">Rooftop: <strong>${esc(res.rooftop)}</strong> · Selection: ${esc(res.wine_selection)}</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:700;">Pairing: ${esc(res.pairing)} · ${esc(res.split_cost)}</div>
+      </div>
+    `;
+  }, "Natural Wine Tasting Confirmed! 🍷"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
