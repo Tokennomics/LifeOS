@@ -741,6 +741,22 @@ function todayView() {
     <div id="seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Universal ConnectOS Master Controller Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(99,102,241,0.22), rgba(16,185,129,0.22)); border:1.5px solid rgba(245,158,11,0.5); box-shadow: 0 8px 32px rgba(245,158,11,0.15);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="background: linear-gradient(135deg, #f59e0b, #ec4899, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">👑 Universal ConnectOS Master Controller</h2>
+      <span class="badge" style="background:#f59e0b; color:#000; font-weight:bold;">All 50+ Engines Unified</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Harmonize AI Butler, Stripe/PayPal, Hardware Whispers, Circadian Vitality, Offline Mesh & Planetary Impact with 1 tap!</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="set-mode-adventure">🚀 High Adventure Mode</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="set-mode-recovery">🧘 Restorative Recovery</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="set-mode-flow">🎨 Creative Flow Mastery</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="set-mode-impact">🌍 Planetary Impact Guild</button>
+    </div>
+    <div id="master-controller-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Universal Stripe & PayPal Checkout Hub ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(0,112,186,0.18)); border:1px solid rgba(99,102,241,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -4888,6 +4904,26 @@ function wire(root) {
       </div>
     `;
   }, "Intergenerational Mentorship Guild Synced! 🕊️"));
+
+  const handleMasterMode = (modeName) => act(async () => {
+    const res = await api("/v1/os/master-controller", { mode: modeName, city: "Edinburgh" });
+    const out = $("#master-controller-output");
+    if (!out) return;
+    const subs = res.orchestrated_subsystems || {};
+    const items = Object.entries(subs).map(([k, v]) => `<div style="margin-top:2px;">• <strong style="color:var(--spark);">${esc(k.replace(/_/g, " ").toUpperCase())}</strong>: ${esc(v)}</div>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
+        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Master Controller Mode Active: "${esc(res.active_mode)}" (${esc(res.city)})</div>
+        <div style="font-size:12px; color:var(--growth); font-weight:bold; margin-bottom:4px;">System Health: ${esc(res.system_health)}</div>
+        <div style="font-size:11px; background:rgba(0,0,0,0.25); padding:8px; border-radius:6px; margin-top:4px;">${items}</div>
+      </div>
+    `;
+  }, `ConnectOS Mode set to: ${modeName}! 👑`);
+
+  on("[data-act=set-mode-adventure]", () => handleMasterMode("High Growth & Adventure")());
+  on("[data-act=set-mode-recovery]", () => handleMasterMode("Restorative Deep Recovery")());
+  on("[data-act=set-mode-flow]", () => handleMasterMode("Creative Flow Mastery")());
+  on("[data-act=set-mode-impact]", () => handleMasterMode("Planetary Impact Guild")());
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });

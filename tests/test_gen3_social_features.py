@@ -705,3 +705,11 @@ def test_global_flourishing_and_regenerative_earth(cfg):
     res4 = client.post("/v1/impact/intergenerational-guild", json={"city": "Edinburgh"})
     assert res4.status_code == 200
     assert res4.json()["guild_synced"] is True
+
+def test_universal_master_controller(cfg):
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/os/master-controller", json={"mode": "High Growth & Adventure", "city": "Edinburgh"})
+    assert res.status_code == 200
+    assert res.json()["master_controller_online"] is True
+    assert "ai_butler_v4" in res.json()["orchestrated_subsystems"]
+    assert res.json()["active_mode"] == "High Growth & Adventure"
