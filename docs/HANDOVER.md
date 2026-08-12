@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **994 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1005 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,35 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## READ THIS FIRST: the app was dead in the browser for a week
+
+**`app.js` did not parse from 2026-08-05 to 2026-08-12.** A generated commit
+(`f6365b4`, "Integrate Developer Platform & Open API Keys management") added a card without
+closing the template literal above it; a second put backticks inside a template literal.
+Either is a `SyntaxError`, and a `SyntaxError` means the browser runs **none** of the file.
+The PWA served its shell and nothing else — no capture, no crews, no weekend, no sign-in.
+
+It survived seven days and roughly forty commits, every one of them with a green suite,
+because **nothing in this repo had ever run the front end.** A thousand passing Python tests
+said the product worked while the product did not start. `tests/test_pwa_syntax.py` now runs
+`node --check` over every script (CI already installs node for the golden test), and a
+browser walk with Playwright is the way to check the rest — `p.chromium.launch(
+executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome")`; do not run
+`playwright install`.
+
+**And there was no way to sign in.** The gateway has had register / login / email-code /
+OIDC for weeks; the PWA had a screen for none of it. The only route to a session was pasting
+a bearer token into the developer field in Settings. What looked like sign-in — "Continue
+with Google / Apple / Meta", Magic Link, Passkey — called `/v1/auth/social-sso`, which
+returns a made-up user id, no token and no session, and then toasted "Authenticated! Cloud
+Sync Active". `docs/HOSTING.md` meanwhile told friends to "tap Register". There is a real
+`#auth` dialog now: handle + password, email code when a mailer is configured, sign-out in
+Settings, and the OIDC providers listed only when the operator has configured them.
+
+The lesson worth keeping: **this repo's tests describe the API, not the product.** Anything
+that only breaks in a browser will not be caught by `pytest`, and two of the worst defects
+found so far — this and the CSV export button — were of exactly that shape.
 
 ## Audit round four — one critical, eight broken endpoints
 

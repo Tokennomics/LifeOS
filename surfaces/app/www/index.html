@@ -34,8 +34,53 @@
     <button data-tab="more" class="tab">More</button>
   </nav>
 
+  <!-- The way in. Until this existed the only route to a session was pasting a bearer
+       token into the developer field below, which is not something you can ask a friend
+       to do — and docs/HOSTING.md told them to "tap Register", a button that did not
+       exist. Shown automatically when there is no session; see openAuth() in app.js. -->
+  <dialog id="auth">
+    <h2 id="auth-title">Welcome to LifeOS</h2>
+    <p class="hint" id="auth-sub" style="margin-bottom:12px;">Create an account to keep your graph across devices.</p>
+
+    <div id="auth-password-block">
+      <label>Handle
+        <input id="auth-handle" placeholder="what your crew calls you" autocapitalize="off" autocomplete="username">
+      </label>
+      <label>Password
+        <input id="auth-pass" type="password" placeholder="at least 8 characters" autocomplete="current-password">
+      </label>
+      <div class="row" style="margin-top:10px;">
+        <button id="auth-submit" class="primary">Create account</button>
+        <button id="auth-toggle" class="ghost">I already have one</button>
+      </div>
+    </div>
+
+    <div id="auth-email-block" hidden style="margin-top:14px;">
+      <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
+      <h2 style="font-size:15px; margin-bottom:4px;">✉️ Or sign in with an email code</h2>
+      <p class="hint" style="margin-bottom:8px;">No password to forget — we email you a six-digit code.</p>
+      <div class="row2">
+        <input class="field" id="auth-email" placeholder="you@example.com" autocapitalize="off" autocomplete="email">
+        <button class="primary" id="auth-email-send" style="width:auto; padding:0 16px;">Send code</button>
+      </div>
+      <div class="row2" id="auth-code-row" hidden style="margin-top:8px;">
+        <input class="field" id="auth-code" inputmode="numeric" placeholder="6-digit code">
+        <button class="primary" id="auth-code-verify" style="width:auto; padding:0 16px;">Sign in</button>
+      </div>
+    </div>
+
+    <div id="auth-oidc-block" hidden style="margin-top:12px;"></div>
+
+    <p class="hint" id="auth-error" style="color:var(--warm); margin-top:10px;" hidden></p>
+    <p class="hint" style="margin-top:12px;">Your data lives on this gateway and export is always available — the graph is yours.</p>
+  </dialog>
+
   <dialog id="settings">
     <h2>Settings</h2>
+    <div id="set-account" class="hint" style="margin-bottom:10px;"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="set-signout" class="ghost">Sign out</button>
+    </div>
     <label>Gateway URL <small>(empty = this server)</small>
       <input id="set-base" placeholder="http://nucbox:8787" autocapitalize="off">
     </label>
@@ -47,25 +92,13 @@
       <button id="set-export">Export my graph</button>
       <button id="set-close">Close</button>
     </div>
-    <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
-    <h2 style="font-size:16px; margin-bottom:4px;">🌐 1-Tap Social SSO & Cloud Sync</h2>
-    <p class="hint" style="margin-bottom:10px;">Sign in with your preferred account to sync your LifeOS graph seamlessly across all your phones, tablets & laptops.</p>
-    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;">
-      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="google">🌐 Continue with Google</button>
-      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="apple">🍎 Continue with Apple</button>
-      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="meta">♾️ Continue with Meta</button>
-      <div class="row2">
-        <input class="field" id="sso-email" placeholder="Email / Phone #">
-        <button class="primary" id="sso-magic" style="width:auto; padding:0 16px;">Magic Link ✉️</button>
-      </div>
-    </div>
-
-    <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
-    <h2 style="font-size:16px; margin-bottom:4px;">🔑 Passkey & Device Login</h2>
-    <p class="hint" style="margin-bottom:10px;">Local-First Zero-Login by default. Pair additional devices using Biometric Passkey (Fingerprint / FaceID) or 1-Tap Bearer Token.</p>
-    <div class="row">
-      <button id="set-passkey" class="ghost" style="width:100%;">Sign in with Passkey (FaceID / Fingerprint) 🔑</button>
-    </div>
+    <!-- A "1-Tap Social SSO" section used to sit here with Google / Apple / Meta buttons,
+         a Magic Link field and a Passkey button. None of them signed anyone in: they
+         called /v1/auth/social-sso, which returns a made-up user id and no session, and
+         then toasted "Authenticated!". Telling somebody they are signed in when no session
+         exists is worse than offering nothing, so they are gone. Real sign-in — password,
+         email code, and Google/Apple when the operator configures them — is the #auth
+         dialog above. -->
     <p class="hint" style="margin-top:8px;">Your data lives on your own gateway. Export is always available — the graph is yours.</p>
   </dialog>
 

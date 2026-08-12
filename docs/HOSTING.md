@@ -39,7 +39,14 @@ the gateway itself and talks to its own origin, so there is no API URL to config
 build step, and no app store. On a phone: open it, then "Add to Home Screen" — it behaves
 like an installed app from then on.
 
-They tap **Register**, pick a handle and a password, and they are in.
+The app opens on a sign-in screen: they pick a handle and a password and they are in. If
+you have set up email (below), they can use a six-digit code instead and never have a
+password to forget.
+
+*This was not true until 2026-08-12.* The PWA had no sign-in screen at all — the only way to
+a session was pasting a bearer token into a developer field, and the buttons that looked
+like sign-in called an endpoint that returned a fabricated user id and no session, then said
+"Authenticated!". Anyone you sent the link to before that date could not have got in.
 
 **Before you send the link, know this:**
 
@@ -89,7 +96,7 @@ a lost disk.
 ## Checking everything works
 
 ```sh
-python -m pytest              # 994, and CI runs the same on 3.11 and 3.13
+python -m pytest              # 1005, and CI runs the same on 3.11 and 3.13
 ```
 
 For a live instance, the honest check is to walk it: register two accounts on two phones,

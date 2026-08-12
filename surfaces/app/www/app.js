@@ -27,7 +27,12 @@ async function api(path, body) {
   const resp = await fetch(apiBase() + path, opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || "gateway error " + resp.status);
+    const problem = new Error(err.detail || "gateway error " + resp.status);
+    // Callers need to tell "your session is gone" from "the wifi dropped". Without the
+    // status they look identical, and treating the second as the first signs people out
+    // of a working session.
+    problem.status = resp.status;
+    throw problem;
   }
   return resp.json();
 }
@@ -113,7 +118,23 @@ async function refresh() {
   $("#mode-badge").className = "badge" + (state.health.claude ? " ai" : "");
   try {
     if (!state.me && localStorage.getItem("lifeos.token")) {
-      state.me = await api("/v1/auth/me").catch(() => null);
+      // Only a 401 means the session is actually gone. Clearing the token on *any*
+      // failure — which the first version of this did — signs you out of a perfectly
+      // good session the moment a request times out on a train.
+      state.me = await api("/v1/auth/me").catch((e) => {
+        if (e && e.status === 401) localStorage.removeItem("lifeos.token");
+        return null;
+      });
+    }
+    // Every /v1 route needs a session once any account exists, so with no token the whole
+    // screen is a wall of 401s. Ask for the sign-in first instead.
+    if (!state.me && !localStorage.getItem("lifeos.token")) {
+      $("#view").innerHTML =
+        `<div class="card"><h2>Welcome to LifeOS</h2>
+         <p class="hint">Sign in to start capturing, planning and finding your people.</p>
+         <button class="primary" data-act="open-auth" style="margin-top:10px;">Get started</button></div>`;
+      await openAuth();
+      return;
     }
     if (state.tab === "today") {
       [state.today, state.visions, state.admin, state.journal, state.parked, state.rings, state.weekend, state.habitChain, state.energyBalance] = await Promise.all([
@@ -2432,6 +2453,8 @@ function moreView() {
         </div></div>
       `).join("")}
     ` : ""}
+  </div>`;
+
   /* ---- Developer Platform & Open API Keys ---- */
   const devKeys = [
     { id: "key_live_9921", name: "Zapier Automation Key", created_at: "2026-08-05T19:30:00Z", status: "active" },
@@ -2456,7 +2479,7 @@ function moreView() {
     <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
       <a href="/docs" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📚 Interactive OpenAPI Docs (/docs)</a>
       <a href="/redoc" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📘 ReDoc API Spec (/redoc)</a>
-      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (`sdk/lifeos.py`)</span>
+      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (sdk/lifeos.py)</span>
     </div>
   </div>`;
 
@@ -5742,6 +5765,14 @@ document.querySelectorAll("nav .tab").forEach((b) => b.addEventListener("click",
 $("#settings-btn").addEventListener("click", () => {
   $("#set-base").value = localStorage.getItem("lifeos.base") || "";
   $("#set-token").value = localStorage.getItem("lifeos.token") || "";
+  const who = $("#set-account");
+  if (who) {
+    who.textContent = state.me
+      ? `Signed in as ${state.me.handle}`
+      : "Not signed in.";
+  }
+  const out = $("#set-signout");
+  if (out) out.hidden = !state.me;
   $("#settings").showModal();
 });
 $("#set-save").addEventListener("click", () => {
@@ -5863,35 +5894,125 @@ window.addEventListener("keydown", (evt) => {
   }
 });
 
-/* ---- Passkey & WebAuthn SSO Listener ---- */
-const passkeyBtn = $("#set-passkey");
-if (passkeyBtn) {
-  passkeyBtn.addEventListener("click", async () => {
-    if (window.PublicKeyCredential) {
-      toast("Authenticating with WebAuthn Passkey (Fingerprint / FaceID)... 🔑");
-      setTimeout(() => toast("Passkey Authenticated! Device paired to gateway. ✓"), 1200);
-    } else {
-      toast("WebAuthn Passkey fallback: Using Gateway Bearer Token");
-    }
-  });
+/* ---- Signing in ------------------------------------------------------------
+   The gateway has had register / login / email-code / OIDC since the accounts work
+   landed, and the PWA had no screen for any of it: the only route to a session was
+   pasting a bearer token into the developer field in Settings. What stood here instead
+   was a "1-Tap Social SSO" block whose buttons called /v1/auth/social-sso — an endpoint
+   that returns a made-up user id, no token, no session — and then toasted
+   "Authenticated! Cloud Sync Active". Telling someone they are signed in when nothing
+   happened is worse than offering nothing at all, so that is gone and this is real. */
+
+let authMode = "register";
+
+function authError(message) {
+  const el = $("#auth-error");
+  if (!el) return;
+  el.textContent = message || "";
+  el.hidden = !message;
 }
 
-/* ---- 1-Tap Social SSO & Magic Link Listener ---- */
-document.querySelectorAll("[data-sso]").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const provider = btn.dataset.sso;
-    const res = await api("/v1/auth/social-sso", { provider }).catch(() => null);
-    toast(res ? res.message : `Signed in via ${provider.toUpperCase()}! Cloud Sync Active ✓`);
-  });
+function setSession(result) {
+  if (!result || !result.token) throw new Error("the gateway did not return a session");
+  localStorage.setItem("lifeos.token", result.token);
+  state.me = null;
+  $("#auth").close();
+  authError("");
+  toast(`Signed in as ${result.handle || "you"}`);
+  refresh();
+}
+
+async function openAuth() {
+  if ($("#auth").open) return;
+  authError("");
+  // Only offer what this deployment can actually deliver. An email box that mints a code
+  // nobody can receive, or a Google button with no client id, is the same lie in a
+  // different shape.
+  const providers = await api("/v1/auth/providers").catch(() => null);
+  const emailBlock = $("#auth-email-block");
+  if (emailBlock) emailBlock.hidden = !(providers && providers.email && providers.email.available);
+
+  const oidc = $("#auth-oidc-block");
+  if (oidc) {
+    const usable = ((providers && providers.providers) || []).filter((p) => p.configured);
+    oidc.hidden = usable.length === 0;
+    oidc.innerHTML = usable.length
+      ? `<p class="hint">${usable.map((p) => esc(p.provider)).join(" and ")} sign-in is configured on this server — use the button your device offers.</p>`
+      : "";
+  }
+  $("#auth").showModal();
+}
+
+function applyAuthMode() {
+  const registering = authMode === "register";
+  $("#auth-title").textContent = registering ? "Welcome to LifeOS" : "Welcome back";
+  $("#auth-sub").textContent = registering
+    ? "Create an account to keep your graph across devices."
+    : "Sign in to pick up where you left off.";
+  $("#auth-submit").textContent = registering ? "Create account" : "Sign in";
+  $("#auth-toggle").textContent = registering ? "I already have one" : "I need an account";
+  $("#auth-pass").setAttribute("autocomplete", registering ? "new-password" : "current-password");
+  authError("");
+}
+
+$("#auth-toggle").addEventListener("click", () => {
+  authMode = authMode === "register" ? "login" : "register";
+  applyAuthMode();
 });
 
-const magicBtn = $("#sso-magic");
-if (magicBtn) {
-  magicBtn.addEventListener("click", async () => {
-    const identifier = $("#sso-email").value.trim() || "user@example.com";
-    const res = await api("/v1/auth/social-sso", { provider: "email", identifier }).catch(() => null);
-    toast(`Magic Link sent to ${identifier}! ✉️ Check your inbox to complete sign-in.`);
-  });
-}
+$("#auth-submit").addEventListener("click", async () => {
+  const handle = $("#auth-handle").value.trim();
+  const password = $("#auth-pass").value;
+  if (!handle || !password) return authError("A handle and a password, please.");
+  try {
+    if (authMode === "register") {
+      await api("/v1/auth/register", { handle, password });
+    }
+    setSession(await api("/v1/auth/login", { handle, password }));
+  } catch (e) {
+    authError(e.message || "That did not work.");
+  }
+});
+
+$("#auth-email-send").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim();
+  if (!email) return authError("Which address should the code go to?");
+  try {
+    const res = await api("/v1/auth/email/code", { email });
+    $("#auth-code-row").hidden = false;
+    authError("");
+    toast(res.delivered ? `Code sent to ${email}` : "Email is not configured on this server");
+  } catch (e) {
+    authError(e.message || "Could not send a code.");
+  }
+});
+
+$("#auth-code-verify").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim();
+  const code = $("#auth-code").value.trim();
+  if (!code) return authError("Enter the code from your email.");
+  try {
+    setSession(await api("/v1/auth/email/verify", { email, code }));
+  } catch (e) {
+    authError(e.message || "That code is not valid.");
+  }
+});
+
+$("#set-signout").addEventListener("click", async () => {
+  await api("/v1/auth/logout", {}).catch(() => null);
+  localStorage.removeItem("lifeos.token");
+  state.me = null;
+  $("#settings").close();
+  toast("Signed out");
+  refresh();
+});
+
+applyAuthMode();
+
+document.addEventListener("click", (evt) => {
+  // The welcome card is written straight into #view and so never goes through wire(),
+  // which is where every other data-act is bound.
+  if (evt.target.closest("[data-act=open-auth]")) openAuth();
+});
 
 refresh();
