@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **874 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **994 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,119 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## Audit round four — one critical, eight broken endpoints
+
+Found by **sweeping all 425 endpoints as a signed-in user**, which nothing in the suite had
+ever done. That sweep is `POST`/`GET` with an empty body against every path in the OpenAPI
+schema, counting 5xx. It is worth re-running after every merge from `main`.
+
+**CRITICAL — any signed-in user could destroy the whole instance.** `POST /v1/graph/restore`
+is an ordinary authenticated endpoint with no operator gate, and `substrate/backup.py` ran
+`DELETE FROM edges; DELETE FROM observations; DELETE FROM entities` with **no owner
+predicate**, then inserted `backup_data`, which for a `{}` body is nothing. Demonstrated
+before fixing: a second account posted an empty body, the first account's graph went to zero,
+and she could no longer log in — accounts are entities too. `export_backup` was the same hole
+pointed the other way, dumping every user's graph to anyone with a login. Both are
+owner-scoped now, and restore goes **through `substrate/graph.py`** instead of around it, so
+it cannot name someone else's `owner_id`, invent a kind, or skip provenance.
+
+The pre-existing `tests/test_backup.py` passed throughout — it asserted that restoring an
+empty backup returns 200, which *is* the wipe. A test can encode the vulnerability.
+
+**The sweep has two halves, and the second one matters.** Empty bodies reach only the
+endpoints that take none — everything with a pydantic model answers 422 and hides whatever
+is behind it. `deep_sweep.py` synthesises a valid body from each endpoint's OpenAPI schema
+and exercises the other 275. That second pass is what found `log_focus_session`, the ninth
+dead endpoint, sitting behind a 422 the first sweep read as healthy. Run both.
+
+**Nine endpoints had never worked**, each calling a function its module does not define:
+`export_graph_topology`, `get_mindfulness_summary`, `Graph.all_entities`, and
+`discover.create_event` (three call sites), plus `/v1/people/qr` looking up entity kind
+`identity`, which is not in `KINDS`. All 500'd or 400'd on every call, including the PWA's
+live "Export CSV" button.
+
+**`find_topology_hubs` is the one to read before touching.** It counted `SELECT src, dst FROM
+edges` with no join and resolved every node's name — every user's people and goals. It was
+unreachable behind the wrong function name, so the *obvious* fix (correct the name) is what
+would have shipped the leak. Scoping was the fix; the rename was incidental.
+
+Two smaller ones: the CSV export now defuses spreadsheet formula injection (a person named
+`=HYPERLINK(...)` executes on open in Excel), and two handlers raised bare `ValueError` for a
+missing field, which reached the client as a 500 rather than a 400.
+
+## Email verification, and the secret-scanning alert
+
+**A GitHub secret-scanning alert fired on `gateway/modules_api.py` for a Stripe webhook
+signing secret.** Nothing real leaked — this repo has never integrated Stripe, and the value
+was invented by a generated commit on `main`. But it was spelled in Stripe's reserved
+namespaces, which is what a scanner reads as a live key. The alert also undersold the actual
+defect: all three `/v1/developers/*` endpoints returned the *same* constant to every caller,
+and a shared signing secret authenticates nothing. Credentials are minted per call now
+(`_issued_credential`), and `tests/test_security_audit.py` scans every tracked file for
+eleven vendor credential prefixes so the next one fails in CI instead of in an email.
+
+**Email verification exists** (`modules/auth/otp.py` + `modules/auth/mailer.py`), which
+finally unlocks the `verified=True` seam `identities.link()` has been refusing since it was
+written. Three flows: sign in with a code, link an address to an account you already have,
+and reset a forgotten password. The security is not the six-digit code — a million values is
+nothing — it is the attempt cap, the ten-minute expiry, single use, and a per-address
+issuance cap so nobody can use us to mail-bomb a stranger.
+
+**The one switch to never turn on in production is `LIFEOS_OTP_ECHO`.** `request_code`
+returns the plaintext code when no mail provider is configured, so a laptop stays usable;
+`_redact_code` strips it from HTTP responses unless that variable is explicitly set. Without
+the strip, `/v1/auth/email/code` — which is unauthenticated by necessity — would let anyone
+request a code for any address and read it straight back.
+
+A password reset **revokes every open session** on the account. That is the point rather
+than housekeeping: resets follow suspected compromise, and leaving the old sessions alive
+means the reset changes nothing for whoever is already inside.
+
+## Browser-side hardening
+
+The gateway sent **no security headers at all**. It now sends a CSP, `nosniff`, `DENY`,
+`no-referrer` and COOP on every response. Read the CSP honestly: `script-src` has to keep
+`'unsafe-inline'` while the PWA carries ~950 inline styles and ~20 inline handlers, so it
+does **not** stop an injected script running. What it does stop is what follows —
+`connect-src 'self'` means an injected script cannot post the localStorage session token
+anywhere, and `base-uri`/`object-src`/`frame-ancestors` close the rest.
+
+**Leaflet is vendored now** under `surfaces/app/www/vendor/`, so `script-src` is plain
+`'self'` and the PWA loads nothing from a third party at all. It came from unpkg with no
+Subresource Integrity hash, into the origin holding the session token — whatever unpkg
+returned is what ran. The sandbox proxy blocks unpkg and jsdelivr but *not* the npm
+registry, so the files were extracted from the 1.9.4 tarball and verified against the
+sha512 npm publishes for that release before being committed. A test now fails if any
+`src`/`href` in the PWA points at an external host again.
+
+The contact card went the same way: `/v1/people/qr` returned an `api.qrserver.com` URL with
+the vCard in the query string, and the PWA rendered a hardcoded one — so every view handed a
+third party the viewer's IP, for a card that said "LifeOS Member" and belonged to nobody. It
+is built from your own handle now, escaped per RFC 6350 (an unrestricted handle containing a
+newline could otherwise inject `TEL:` into the card someone saves), and delivered as a
+`data:` URI with no outbound call.
+
+## Hosting — see `docs/HOSTING.md`
+
+**Render if you are on a phone** (a browser, `render.yaml`, ~$7/mo + disk), **Hetzner if you
+have a terminal** (~€4/mo, `deploy/vps/`). Friends get one URL — `/app/` — and nothing to
+configure: the PWA is served by the gateway and talks to its own origin.
+
+Three things found while writing this, all of which would have bitten on first deploy:
+
+- **`scripts/launch.py` bound `127.0.0.1` unconditionally** — which is the Dockerfile's
+  `CMD`. In a container the process starts, the logs look healthy, and nothing outside can
+  reach it. It now honours `PORT` and flips to `0.0.0.0` when `PORT` is set (how every PaaS
+  says "you are in a container"); an explicit `LIFEOS_HOST` still wins.
+- **CI pinned Python 3.11 while the Dockerfile shipped 3.13** — CI was not testing what
+  deploys. Now a matrix over both.
+- **The disk is not optional on Render.** One SQLite file; no disk means every deploy resets
+  to empty, and the free tier has no disks *and* sleeps, which also breaks ACME renewal.
+
+`LIFEOS_SEED_CITY=lisbon` loads a committed pack on boot — subscribe only, never fetch (a
+boot that waits on twenty venue servers fails its health check), and a bad pack is swallowed
+rather than blocking startup.
 
 ## Gotchas — read these before touching anything
 

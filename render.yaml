@@ -1,0 +1,69 @@
+# Life OS on Render — the path for an owner with a phone and no terminal.
+#
+# Render is chosen over a VPS for one reason: everything here happens in a browser. No SSH,
+# no compose, no firewall rules. It costs a few dollars more than Hetzner and that is the
+# right trade when the alternative is not being able to deploy at all.
+#
+# To use: Render dashboard -> New -> Blueprint -> point at this repo. Then set the two
+# secrets marked sync:false below, in the dashboard, and deploy.
+#
+# THE DISK IS NOT OPTIONAL. Everything lives in one SQLite file. Without a persistent disk
+# every deploy and every restart resets the database to empty — and Render's free tier has
+# no disks and sleeps after inactivity, which also breaks certificate renewal. A paid
+# instance with a disk attached is the minimum that works.
+
+services:
+  - type: web
+    name: lifeos
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # free has no disk and sleeps; this is the floor that works
+    region: frankfurt      # EU: dating intent is GDPR Art. 9 data and the owner is EU-based
+    healthCheckPath: /health
+    autoDeploy: false      # a push should not redeploy the thing your friends are using
+
+    disk:
+      name: lifeos-data
+      mountPath: /app/data # the SQLite file and its WAL; see substrate/migrate.py
+      sizeGB: 1            # SQLite plus backups; resize later, it cannot shrink
+
+    envVars:
+      # Render assigns the port and routes to it. scripts/launch.py reads PORT and binds
+      # 0.0.0.0 when it is set — a container that binds loopback is unreachable.
+      - key: PORT
+        value: 10000
+
+      # Required. Signs payloads AND blinds dating matching. No default, on purpose.
+      # Generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      - key: LIFEOS_SIGNING_KEY
+        sync: false
+
+      # The owner's own key — also the moderator credential for the abuse queue.
+      # Generate the same way, as a DIFFERENT value.
+      - key: LIFEOS_GATEWAY_TOKEN
+        sync: false
+
+      # --- optional; every feature works without these ---------------------
+      # Sign in with Google / Apple. Client ids, not secrets — but still config.
+      - key: LIFEOS_GOOGLE_CLIENT_ID
+        sync: false
+      - key: LIFEOS_APPLE_CLIENT_ID
+        sync: false
+
+      # Load a committed city pack on first boot so the app is not empty on arrival.
+      # Needs a real pack in seeds/ first — see seeds/README.md.
+      - key: LIFEOS_SEED_CITY
+        value: ""
+
+      # Accounts that may read and resolve abuse reports, comma-separated.
+      - key: LIFEOS_MODERATOR_ACCOUNTS
+        value: ""
+
+      # Dating stays OFF until you mean it (ROADMAP Phase 3b, gates G0 and G4).
+      - key: LIFEOS_DATING_ENABLED
+        value: ""
+
+      - key: LIFEOS_TICKETMASTER_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false

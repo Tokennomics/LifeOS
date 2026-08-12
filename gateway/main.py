@@ -7,6 +7,7 @@ The PWA lives at /app/ (surfaces/app/www). All endpoints work without any API ke
 
 import datetime
 import json
+import os
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,6 +31,51 @@ APP_DIR = ROOT / "surfaces" / "app" / "www"
 
 #: Generous for a note or an ICS import, nowhere near enough to fill a disk with.
 MAX_BODY_BYTES = 1_000_000
+
+#: Sent on every response. Read the CSP with its limits in mind rather than as a claim that
+#: XSS is solved:
+#:
+#: `script-src` is `'self'` because Leaflet is vendored under `surfaces/app/www/vendor/`.
+#: While the map came from unpkg this had to name that CDN, which meant an injected script
+#: could be fetched from it too — and the CDN copy carried no Subresource Integrity hash, so
+#: whatever unpkg returned is what ran, in the origin holding the session token.
+#:
+#: `script-src` has to keep `'unsafe-inline'`, because the PWA carries ~950 inline styles and
+#: ~20 inline handlers. Removing them is a rewrite of a 4,300-line file that works, which is
+#: exactly the refactor this project has said no to. So this CSP does NOT stop an injected
+#: script from running.
+#:
+#: It does stop the things that follow injection, and those are worth having on their own:
+#: `connect-src 'self'` means an injected script cannot POST the session token — which lives
+#: in localStorage — to an attacker's server; `base-uri 'self'` blocks a injected <base> tag
+#: from re-pointing every relative URL on the page; `object-src 'none'` kills plugin embeds;
+#: `frame-ancestors 'none'` is clickjacking, which matters once real people are clicking
+#: "leave crew" and "erase my account".
+#:
+#: `img-src` deliberately allows any https host: photo URLs are user-supplied and pointing at
+#: an arbitrary image host is the feature. That leaves an image beacon as a way to learn a
+#: viewer's IP, which is a real if minor privacy leak, and the honest trade for not breaking
+#: every photo in the gallery.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": "; ".join([
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob: https:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]),
+    # The gateway serves user-uploaded-ish text and an export endpoint; a browser that
+    # sniffs a .csv into HTML would run it same-origin.
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",           # for anything predating frame-ancestors
+    "Referrer-Policy": "no-referrer",    # invite links carry tokens in the query string
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
 
 
 class TextIn(BaseModel):
@@ -66,6 +112,65 @@ class LinkIdentityIn(BaseModel):
     subject: str = ""
     id_token: str = ""
     nonce: str = ""
+
+
+class EmailCodeIn(BaseModel):
+    email: str
+    purpose: str = "sign_in"
+
+
+class EmailVerifyIn(BaseModel):
+    email: str
+    code: str
+    purpose: str = "sign_in"
+
+
+class PasswordResetIn(BaseModel):
+    email: str
+    code: str
+    password: str
+
+
+#: Opt-in, default off, and it must stay that way. See `_redact_code`.
+OTP_ECHO_VAR = "LIFEOS_OTP_ECHO"
+
+
+def _redact_code(result: dict) -> dict:
+    """Strip the plaintext one-time code out of a response unless the operator asked for it.
+
+    `otp.request_code` hands the code back when no mail provider is configured, so that a
+    laptop install is completable without signing up to anything. Passing that through to an
+    HTTP client is a total authentication bypass: `/v1/auth/email/code` is unauthenticated,
+    so anyone could request a code for any address, read it out of the response, and sign in
+    as them. The dangerous configuration is not the unusual one either — it is a public box
+    whose owner has not set up email yet.
+
+    So the echo is off unless `LIFEOS_OTP_ECHO` is explicitly set. With no provider and no
+    echo, email sign-in simply does not complete, and the response says why. That is the
+    correct failure: a feature that is unavailable, rather than one that is open.
+    """
+    if str(os.environ.get(OTP_ECHO_VAR, "")).strip().lower() in ("1", "true", "yes"):
+        return result
+    return {key: value for key, value in result.items() if key != "code"}
+
+
+def _caller_if_signed_in(request: Request) -> dict | None:
+    """Who is calling, on a route that does not *require* a session.
+
+    `/v1/auth/email/*` has to stay unauthenticated — signing in is what it is for — so the
+    auth dependency never runs and `request.state.caller` is never populated. Linking an
+    address to an existing account nevertheless needs to know which account that is. So the
+    bearer is resolved here directly, and an absent or invalid one is `None` rather than a
+    401: the sign-in path must keep working for someone who has no session yet, which is
+    everybody who needs it.
+    """
+    caller = getattr(request.state, "caller", None)
+    if caller:
+        return caller
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return None
+    return accounts.resolve(request.app.state.graph, header[7:].strip())
 
 
 def _g(request: Request) -> Graph:
@@ -116,6 +221,35 @@ def _label(kind: str, attrs: dict) -> str:
     return attrs.get("title") or attrs.get("name") or attrs.get("type") or ""
 
 
+SEED_CITY_VAR = "LIFEOS_SEED_CITY"
+
+
+def _seed_on_boot(graph: Graph) -> dict:
+    """Load a committed city pack the first time this instance starts.
+
+    An empty app is the thing that loses a new user in the first ten seconds, and asking
+    someone to paste twenty venue websites before they can see a weekend is not an onboarding
+    flow. `LIFEOS_SEED_CITY=lisbon` loads `seeds/lisbon.json` once.
+
+    Deliberately quiet and deliberately non-fatal: it subscribes to feeds and does NOT fetch
+    them (a boot that waits on twenty venue servers is a boot that fails a health check), and
+    any error is swallowed — a bad pack must never stop the gateway from starting. Re-running
+    is a no-op because `add_feed` is idempotent on the URL.
+    """
+    city = str(os.environ.get(SEED_CITY_VAR, "")).strip()
+    if not city:
+        return {"seeded": False}
+    try:
+        from modules.feeds import seeds
+        result = seeds.apply(graph, city, sync=False, resolve=False)
+        print(f"[seed] {city}: {len(result['added'])} feeds added, "
+              f"{len(result['already_had'])} already there, {len(result['failed'])} failed")
+        return {"seeded": True, **result}
+    except Exception as exc:                    # never block a boot on seed data
+        print(f"[seed] {city}: skipped ({type(exc).__name__}: {exc})")
+        return {"seeded": False, "error": str(exc)}
+
+
 def create_app(cfg: dict | None = None) -> FastAPI:
     cfg = cfg or load_config()
     conn = migrate(cfg)  # idempotent — ensures schema exists
@@ -148,6 +282,13 @@ def create_app(cfg: dict | None = None) -> FastAPI:
                                 content={"detail": f"body larger than {max_body} bytes"})
         return await call_next(request)
 
+    @app.middleware("http")
+    async def _security_headers(request: Request, call_next):
+        response = await call_next(request)
+        for header, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
+        return response
+
     app.state.cfg = cfg
     app.state.rate_limiter = rate_limiter.RateLimiter()
     app.state.graph = graph
@@ -163,6 +304,8 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         no 500s, and no way to probe for other people's entities."""
         missing = "not found" in str(exc)
         return JSONResponse(status_code=404 if missing else 400, content={"detail": str(exc)})
+
+    _seed_on_boot(graph)
 
     auth = make_auth_dependency(cfg.get("gateway", {}).get("auth_token", ""))
     app.include_router(build_router(auth))  # reconnect/convoy/memento/steward/vitals/ledger/calibre/hearth
@@ -236,8 +379,12 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         in — the sign-in screen could not render. Found by walking the product as a new
         user, not by a test. Configuration only: never a client id.
         """
-        from modules.auth import oidc
-        return {"providers": oidc.status(), "password": True}
+        from modules.auth import mailer, oidc
+        # `email` is offered only when a code can actually be delivered. Advertising it
+        # against an unconfigured mailer gives the sign-in screen a button that mints a code
+        # nobody can ever receive.
+        return {"providers": oidc.status(), "password": True,
+                "email": {"available": mailer.configured(), "provider": "resend"}}
 
     @app.post("/v1/auth/oidc")
     def auth_oidc(request: Request, body: OidcSignInIn):
@@ -256,6 +403,90 @@ def create_app(cfg: dict | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail=str(exc))
         return identities.sign_in(graph, proof["provider"], proof["subject"],
                                   handle_hint=proof["email"].split("@")[0] if proof["email"] else "")
+
+    @app.post("/v1/auth/email/code")
+    def auth_email_code(request: Request, body: EmailCodeIn):
+        """Send a one-time code to an email address.
+
+        Unauthenticated, because signing in is the main thing it is for — which makes it the
+        most exposed endpoint in the app, and it is written to give away nothing:
+
+        - The response is identical whether or not that address has an account. Anything else
+          turns this into a "does this person use LifeOS" oracle, which for an app with a
+          dating surface is precisely the question people trust us not to answer.
+        - Rate limited twice: here by IP, and inside `otp` by address. The first stops one
+          host enumerating many addresses, the second stops many hosts mail-bombing one
+          person. Neither substitutes for the other.
+        """
+        from modules.auth import otp
+        rate_limiter.enforce(request, "auth:email-code", max_requests=10, window_seconds=300)
+        if body.purpose == "link" and not _caller_if_signed_in(request):
+            raise HTTPException(status_code=401, detail="sign in before linking an address")
+        try:
+            result = otp.request_code(graph, body.email, body.purpose)
+        except otp.OtpError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return _redact_code(result)
+
+    @app.post("/v1/auth/email/verify")
+    def auth_email_verify(request: Request, body: EmailVerifyIn):
+        """Spend a code: sign in with it, or link the address to the account you are in.
+
+        This is the only thing in the codebase allowed to pass `verified=True` for an email,
+        and it earns it — the code was generated here and delivered to that address.
+        """
+        from modules.auth import otp
+        from gateway import identities
+        rate_limiter.enforce(request, "auth:email-verify", max_requests=20, window_seconds=300)
+        try:
+            proof = otp.verify_code(graph, body.email, body.code, body.purpose)
+        except otp.OtpError as exc:
+            raise HTTPException(status_code=401, detail=str(exc))
+
+        if body.purpose == "link":
+            caller = _caller_if_signed_in(request)
+            if not caller:
+                raise HTTPException(status_code=401, detail="sign in before linking an address")
+            try:
+                return identities.link(graph, caller["account_id"], "email",
+                                       proof["address"], verified=True)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        return identities.sign_in(graph, "email", proof["address"])
+
+    @app.post("/v1/auth/password/reset")
+    def auth_password_reset(request: Request, body: PasswordResetIn):
+        """Set a new password using a code sent to a linked address.
+
+        This is what closes the hole `docs/HOSTING.md` has been warning about: until now a
+        forgotten password meant an account nobody could ever get back into.
+
+        Two things it deliberately does *not* do. It does not say whether the address belongs
+        to an account — an unlinked address and a wrong code fail identically, or this
+        becomes the enumeration oracle that `/email/code` was carefully written not to be.
+        And it does not keep the old sessions alive: see `accounts.set_password`.
+        """
+        from modules.auth import otp
+        from gateway import identities
+        rate_limiter.enforce(request, "auth:reset", max_requests=10, window_seconds=300)
+        rejected = HTTPException(status_code=401,
+                                 detail="that code is not valid — ask for a new one")
+        try:
+            proof = otp.verify_code(graph, body.email, body.code, "reset")
+        except otp.OtpError:
+            raise rejected
+
+        identity = identities.find(graph, "email", proof["address"])
+        if not identity:
+            # The code was real, but the address is linked to nothing. Same answer as a bad
+            # code: the caller learns only that they cannot reset, not why.
+            raise rejected
+        try:
+            result = accounts.set_password(graph, identity["account_id"], body.password)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        session = accounts.mint_session(graph, identity["account_id"])
+        return {**result, **session}
 
     @app.get("/v1/auth/identities", dependencies=[Depends(auth)])
     def auth_identities(request: Request):

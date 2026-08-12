@@ -4,13 +4,16 @@ app.state. Every endpoint works with zero API keys (offline fallbacks in the mod
 
 import os
 import json
+import secrets
 import urllib.request
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from gateway import rate_limiter
 from gateway.auth import caller_graph
+from substrate.graph import KINDS, SCOPE_DOMAIN
 
 from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
@@ -722,6 +725,52 @@ def _serialize_event(session, event: dict) -> dict:
             "invited": len(a.get("invited", [])), "yes": yes_names, "no": len(a.get("no", []))}
 
 
+def _vcard(name: str) -> str:
+    """A vCard for one name, with the name escaped per RFC 6350 §3.4.
+
+    Handles are user-chosen and unrestricted. Interpolated raw, a handle containing a
+    newline injects arbitrary vCard properties — `\\nTEL:...` adds a phone number to the
+    card the recipient saves — and `;` or `,` split one field into several.
+    """
+    safe = (str(name or "").replace("\\", "\\\\").replace(";", "\\;")
+            .replace(",", "\\,").replace("\r", " ").replace("\n", "\\n"))
+    return ("BEGIN:VCARD\r\nVERSION:3.0\r\n"
+            f"FN:{safe}\r\nNOTE:LifeOS Verified Meeter\r\nEND:VCARD\r\n")
+
+
+def _csv_cell(value) -> str:
+    """One CSV field: quoted, and defused against spreadsheet formula injection.
+
+    Entity names are user-typed and this endpoint returns a file people open in Excel or
+    Sheets. A name beginning `=`, `+`, `-` or `@` is treated as a *formula* there, and
+    `=HYPERLINK(...)` or a `cmd|` DDE payload runs on open. The cell is still the user's
+    text — it is prefixed with a single quote, which spreadsheets read as "this is
+    literal" — so nothing is lost but the execution.
+    """
+    text = str(value if value is not None else "")
+    text = text.replace("\r", " ").replace("\n", " ")
+    if text[:1] in ("=", "+", "-", "@", "\t"):
+        text = "'" + text
+    return '"' + text.replace('"', '""') + '"'
+
+
+def _issued_credential(prefix: str) -> str:
+    """Mint a fresh credential-shaped string for a demo endpoint that hands one out.
+
+    Two reasons this is not a constant. The obvious one: a constant checked into a public
+    repo is a published credential, and GitHub's scanner said so — the previous values were
+    spelled in Stripe's reserved key namespaces, so they read as a live API key and a live
+    webhook signing secret. Borrowing another vendor's prefix for fake data is how you get a
+    "possible valid secret" alert on a repo that has never integrated that vendor.
+
+    The less obvious one, and the actual bug: every caller got the *same* string. A shared
+    "signing secret" verifies nothing — anyone who has ever hit the endpoint can forge every
+    other tenant's webhook. Minting per call is the only version of this that is not
+    actively misleading, whatever the endpoint grows into later.
+    """
+    return f"{prefix}_{secrets.token_hex(16)}"
+
+
 def build_router(auth) -> APIRouter:
     router = APIRouter(prefix="/v1", dependencies=[Depends(auth)])
 
@@ -1119,8 +1168,15 @@ def build_router(auth) -> APIRouter:
     def auto_ingest_city_events_endpoint(request: Request, body: dict):
         city = body.get("city", "Lisbon").strip()
         from modules.discover import discover
-        e1 = discover.create_event(_graph(request), title=f"{city} Sunset Bouldering & Craft Beer", topic="climbing", place=f"{city} Outdoor Crag", where="Miradouro", going_count=18)
-        e2 = discover.create_event(_graph(request), title=f"{city} Specialty Coffee & Founder Morning", topic="coffee", place=f"{city} Roastery", where="Downtown", going_count=12)
+        # `discover.create_event` has never existed — this 500'd on every call. The real
+        # entry point is `publish_event`, which has no `where`/`going_count`; place carries
+        # the location and interest is counted by /feed/interest.
+        e1 = guard(lambda: discover.publish_event(
+            _graph(request), title=f"{city} Sunset Bouldering & Craft Beer",
+            topic="climbing", city=city, place=f"{city} Outdoor Crag", visibility="public"))
+        e2 = guard(lambda: discover.publish_event(
+            _graph(request), title=f"{city} Specialty Coffee & Founder Morning",
+            topic="coffee", city=city, place=f"{city} Roastery", visibility="public"))
         return {"ingested_count": 2, "city": city, "events": [e1, e2], "message": f"Successfully ingested latest trending events for {city}! 🎟️"}
 
     @router.post("/auth/social-sso")
@@ -1167,7 +1223,9 @@ def build_router(auth) -> APIRouter:
     def add_travel_activities_to_calendar_endpoint(request: Request, body: dict):
         city = body.get("city", "Lisbon")
         from modules.discover import discover
-        event = discover.create_event(_graph(request), title=f"Trip Activity: {city} Crag & Coffee", topic="climbing", place=f"{city} Center", where="Local Venue", going_count=8)
+        event = guard(lambda: discover.publish_event(
+            _graph(request), title=f"Trip Activity: {city} Crag & Coffee",
+            topic="climbing", city=city, place=f"{city} Center"))
         return {"added": True, "event": event}
 
     # ---- ICS Calendar Export ---------------------------------------------
@@ -1497,10 +1555,14 @@ def build_router(auth) -> APIRouter:
     def import_event_url_endpoint(request: Request, body: dict):
         url = body.get("url", "").strip()
         if not url:
-            raise ValueError("url required")
+            # A bare `raise ValueError` here reached the client as a 500. A missing field is
+            # the caller's mistake, not the server's failure.
+            raise HTTPException(status_code=400, detail="url required")
         raw_slug = url.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title() or "External Public Meet"
         from modules.discover import discover
-        event = discover.create_event(_graph(request), title=f"Imported: {raw_slug}", topic="community", place="Local Venue", where=url, going_count=5)
+        event = guard(lambda: discover.publish_event(
+            _graph(request), title=f"Imported: {raw_slug}", topic="community",
+            place="Local Venue"))
         return {"imported": True, "event": event}
 
     # ---- Growth & Crew Activation ----------------------------------------
@@ -1814,7 +1876,7 @@ def build_router(auth) -> APIRouter:
         from modules.voiceos import capture
         text = body.get("text", "")
         if not text.strip():
-            raise ValueError("text is required")
+            raise HTTPException(status_code=400, detail="text is required")
         return guard(lambda: capture.capture(text, _graph(request), claude=_claude(request)))
 
     # ---- Security Hardening & Threat Defense -----------------------------
@@ -1840,7 +1902,10 @@ def build_router(auth) -> APIRouter:
     @router.get("/graph/topology")
     def get_graph_topology_endpoint(request: Request):
         from substrate import topology
-        return topology.export_graph_topology(_graph(request))
+        # Was `export_graph_topology`, which has never existed — this endpoint returned a
+        # 500 on every call. See the docstring in `substrate/topology.py` for why simply
+        # correcting the name would have been the wrong fix.
+        return {"hubs": topology.find_topology_hubs(_graph(request))}
 
     @router.post("/goals/nudges/scan")
     def scan_milestone_nudges_endpoint(request: Request):
@@ -1906,7 +1971,8 @@ def build_router(auth) -> APIRouter:
     @router.get("/routines/mindfulness/summary")
     def get_mindfulness_summary_endpoint(request: Request):
         from modules.routines import mindfulness
-        return mindfulness.get_mindfulness_summary(_graph(request))
+        # `get_mindfulness_summary` never existed; the module's function is this one.
+        return mindfulness.generate_mindfulness_target(_graph(request))
 
     @router.get("/graph/export/graphml")
     def export_graphml_endpoint(request: Request):
@@ -1915,11 +1981,22 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/graph/export/csv")
     def export_csv_endpoint(request: Request):
-        g = _graph(request)
-        entities = g.all_entities()
-        lines = ["id,domain,type,created_at"]
-        for e in entities:
-            lines.append(f"{e.get('id','')},{e.get('domain','')},{e.get('attrs',{}).get('type','')},{e.get('created_at','')}")
+        # `Graph.all_entities()` does not exist, so this 500'd every time — and the PWA has
+        # a live "Export CSV" button wired to it. Rebuilt on `find_entities`, which is
+        # owner-scoped, so the export contains the caller's own rows and nobody else's.
+        session = _graph(request).session(
+            "export", {f"{SCOPE_DOMAIN[kind]}:read" for kind in KINDS})
+        rows = []
+        for kind in sorted(KINDS):
+            rows.extend((kind, row) for row in session.find_entities(kind, limit=1000))
+
+        lines = ["id,kind,type,name,created_at"]
+        for kind, entity in rows:
+            attrs = entity.get("attrs") or {}
+            lines.append(",".join(_csv_cell(value) for value in (
+                entity.get("id", ""), kind, attrs.get("type", ""),
+                attrs.get("name") or attrs.get("title") or "",
+                entity.get("created_at", ""))))
         csv_data = "\n".join(lines)
         return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lifeos_graph.csv"})
 
@@ -3131,8 +3208,8 @@ def build_router(auth) -> APIRouter:
             "key_generated": True,
             "app_name": app_name,
             "environment": environment,
-            "api_key": "sk_live_connectos_8921f0a94a63ce8b7fa8",
-            "key_prefix": "sk_live_conn...",
+            "api_key": _issued_credential("lifeos_dk"),
+            "key_prefix": "lifeos_dk_...",
             "scopes": scopes,
             "rate_limit": "10,000 req / minute",
             "docs_url": "https://connectos.app/docs/sdk/v2.4",
@@ -3147,7 +3224,7 @@ def build_router(auth) -> APIRouter:
             "webhook_registered": True,
             "target_url": target_url,
             "subscribed_events": events,
-            "signing_secret": "whsec_7c63sN9lOA2opLSTz8flKJHC6aetVy2PUq2k",
+            "signing_secret": _issued_credential("lifeos_whsec"),
             "signature_header": "X-ConnectOS-Signature (HMAC-SHA256)",
             "message": f"⚡ Webhook Active! Subscribed to {len(events)} events with HMAC-SHA256 signature verification."
         }
@@ -5350,7 +5427,9 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
     @router.post("/graph/restore")
     def import_restore_endpoint(request: Request, body: dict):
         from substrate import backup
-        return backup.import_restore(_graph(request), body)
+        # Owner-scoped, and a bad body is a 400 rather than a 500. This endpoint used to
+        # wipe every account on the box for any caller who posted `{}`.
+        return guard(lambda: backup.import_restore(_graph(request), body))
 
     @router.post("/comms/bulletin")
     def publish_bulletin_endpoint(request: Request, body: BulletinPublishIn):
@@ -5554,14 +5633,20 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.get("/people/qr")
     def get_vcard_qr_endpoint(request: Request):
-        me = _graph(request).session("me", {"identity:read"}).find_entities("identity", {"type": "account"}, limit=1)
-        name = me[0]["attrs"].get("name", "LifeOS Member") if me else "LifeOS Member"
-        vcard = f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nNOTE:LifeOS Verified Meeter\nEND:VCARD"
-        # Escaped OUTSIDE the f-string: a backslash inside an f-string expression is a
-        # syntax error before Python 3.12, and CI pins 3.11 — this did not parse at all.
-        encoded = vcard.replace(" ", "%20").replace("\n", "%0A")
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={encoded}"
-        return {"name": name, "vcard": vcard, "qr_url": qr_url}
+        # Was kind "identity", which is not in `KINDS` — every call 400'd. An account is a
+        # `content` row, and the caller's display name is their handle.
+        caller = getattr(request.state, "caller", None)
+        name = (caller or {}).get("handle") or "LifeOS Member"
+        vcard = _vcard(name)
+        # `qr_url` used to point at api.qrserver.com with the vCard in the query string, so
+        # rendering your own contact card handed your name — and the viewer's IP — to a
+        # third party on every view, for a card the app never even displays. It also
+        # escaped only spaces and newlines, and handles are unrestricted (`_norm_handle`
+        # lowercases and truncates, nothing more), so a handle containing `&` or `#`
+        # rewrote that third-party request. The payload is self-contained now: no outbound
+        # call, nothing to escape wrong, and a client can render the QR locally.
+        return {"name": name, "vcard": vcard,
+                "vcard_data_uri": "data:text/vcard;charset=utf-8," + quote(vcard, safe="")}
 
     @router.get("/routines/heatmap")
     def get_habit_heatmap_endpoint(request: Request):

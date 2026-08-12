@@ -46,6 +46,21 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// A URL that is safe to put in an href. esc() is NOT enough here: it stops the attribute
+// breaking out, but `javascript:alert(1)` survives escaping completely intact and runs on
+// click. Only http/https get through; anything else — javascript:, data:, vbscript:, or a
+// value we cannot parse — becomes "#". Use this for every href, src or action built from a
+// response, and esc() for everything else.
+function safeUrl(u) {
+  const raw = String(u ?? "").trim();
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") ? esc(parsed.href) : "#";
+  } catch (e) {
+    return "#";
+  }
+}
+
 async function act(fn, okMsg) {
   if (state.busy) return;
   state.busy = true;
@@ -1901,12 +1916,16 @@ function peopleView() {
     </div>`;
   }
 
-  /* ---- Personal vCard QR Code Exchange ---- */
-  html += `<div class="card"><h2>Personal vCard QR Code Exchange</h2>
-    <p class="hint" style="margin-bottom:10px;">Show your QR code to people you meet to instantly share contact info & trust badge.</p>
-    <div style="text-align:center; padding:10px 0;">
-      <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=BEGIN:VCARD%0AVERSION:3.0%0AFN:LifeOS%20Member%0ANOTE:Verified%20Meeter%0AEND:VCARD" style="width:160px; height:160px; border-radius:12px; border:2px solid var(--spark); padding:6px; background:#fff;">
-    </div>
+  /* ---- Personal contact card ----
+     This was an <img> pointing at api.qrserver.com with a vCard in the query string. Two
+     things were wrong with it: every viewer's IP went to a third party each time the tab
+     rendered, and the card was the hardcoded string "LifeOS Member" — the same QR for
+     everybody, carrying nobody's details. It is built from your own account now, and the
+     file is produced locally. */
+  html += `<div class="card"><h2>Personal contact card</h2>
+    <p class="hint" style="margin-bottom:10px;">A vCard with your handle and trust badge — save it, or send it to someone you meet.</p>
+    <button class="primary" data-act="vcard-download">Get my contact card</button>
+    <div id="vcard-output" style="margin-top:10px;"></div>
   </div>`;
 
   return html;
@@ -3611,7 +3630,7 @@ function wire(root) {
     out.innerHTML = `
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
         <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">💸 Crew Outing Tab Settled:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${c.name} (€${c.amount.toFixed(2)})`).join(", ")}</div>
+        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${esc(c.name)} (€${Number(c.amount).toFixed(2)})`).join(", ")}</div>
         <div style="font-size:12px; color:var(--spark); font-weight:700;">Revolut Link: ${esc(res.settlement_link)}</div>
       </div>
     `;
@@ -3681,7 +3700,7 @@ function wire(root) {
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
         <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎙️ AI Voice Outing Brief Created:</div>
         <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">"${esc(res.transcript)}"</div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${s.time} @ ${s.place} (${s.activity})`).join(" ➔ ")}</div>
+        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})`).join(" ➔ ")}</div>
       </div>
     `;
   }, "AI Voice Brief Converted to Outing Card! 🎙️"));
@@ -4337,7 +4356,7 @@ function wire(root) {
         <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💳 Stripe Checkout Ready (€${res.amount.toFixed(2)}):</div>
         <div style="font-size:13px; margin-bottom:4px;">Session ID: <strong style="font-family:monospace;">${esc(res.session_id)}</strong></div>
         <div style="font-size:12px; color:var(--growth); font-weight:700;">Methods: ${methods.join(" · ")}</div>
-        <a href="${res.checkout_url}" target="_blank" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
+        <a href="${safeUrl(res.checkout_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
       </div>
     `;
   }, "Stripe Checkout Session Created! 💳"));
@@ -4350,7 +4369,7 @@ function wire(root) {
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0070ba;">
         <div style="font-size:14px; font-weight:700; color:#0070ba; margin-bottom:4px;">🅿️ PayPal Order Created (€${res.amount.toFixed(2)}):</div>
         <div style="font-size:13px; margin-bottom:4px;">Order ID: <strong style="font-family:monospace;">${esc(res.order_id)}</strong> (${esc(res.intent)})</div>
-        <a href="${res.approval_url}" target="_blank" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
+        <a href="${safeUrl(res.approval_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
       </div>
     `;
   }, "PayPal Order Created! 🅿️"));
@@ -5232,6 +5251,23 @@ function wire(root) {
     `;
   }, "Pre-Game Squad Matched! 🍻"));
 
+  on("[data-act=vcard-download]", () => act(async () => {
+    const res = await api("/v1/people/qr");
+    const out = $("#vcard-output");
+    if (!out) return;
+    // `vcard_data_uri` is built by the gateway from your own handle, escaped per RFC 6350.
+    // safeUrl() would reject it — it only passes http/https — and that is correct for
+    // response-supplied links; this one is a data: URI we generated, so it is set through
+    // the DOM rather than interpolated into markup.
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; margin-bottom:6px;">Contact card for <strong>${esc(res.name)}</strong></div>
+        <a class="btn" id="vcard-link" download="lifeos-contact.vcf">Save .vcf</a>
+      </div>
+    `;
+    const link = $("#vcard-link");
+    if (link) link.href = res.vcard_data_uri;
+  }, "Contact card ready"));
   on("[data-act=synthesize-daily-journal]", () => act(async () => {
     const res = await api("/v1/journal/daily-reflection-synthesis", { city: "Munich", date: "Today" });
     const out = $("#journal-synthesis-output");
@@ -5343,7 +5379,7 @@ function wire(root) {
         <div style="font-size:11px; color:var(--text);">• 02_People_Graph: ${esc(res.vault_structure["02_People_Graph"])}</div>
         <div style="font-size:11px; color:var(--text);">• 03_Culture_Radar: ${esc(res.vault_structure["03_Culture_Radar"])}</div>
         <div style="margin-top:8px;">
-          <a href="${esc(res.download_url)}" download="lifeos-vault-obsidian.zip" class="primary" style="display:inline-block; background:linear-gradient(135deg, #8b5cf6, #3b82f6); padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px; color:#fff; font-weight:bold;">⬇️ Download Obsidian Vault .zip</a>
+          <a href="${safeUrl(res.download_url)}" download="lifeos-vault-obsidian.zip" class="primary" style="display:inline-block; background:linear-gradient(135deg, #8b5cf6, #3b82f6); padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px; color:#fff; font-weight:bold;">⬇️ Download Obsidian Vault .zip</a>
         </div>
       </div>
     `;
@@ -5718,18 +5754,24 @@ $("#set-close").addEventListener("click", () => $("#settings").close());
 $("#set-export").addEventListener("click", () => window.open(apiBase() + "/v1/export", "_blank"));
 
 let leafletLoaded = false;
+// Served from our own origin, not unpkg. A CDN script loaded into this page runs with full
+// access to the session token in localStorage and to every graph endpoint, and unpkg was
+// loaded with no Subresource Integrity hash — so whatever it happened to return, we ran.
+// The files in vendor/ are Leaflet 1.9.4 extracted from the npm tarball, verified against
+// the sha512 that npm publishes for that release before being committed.
 async function loadLeaflet() {
   if (leafletLoaded || window.L) return;
   leafletLoaded = true;
   return new Promise((resolve) => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    link.href = "vendor/leaflet.css";
     document.head.appendChild(link);
 
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.src = "vendor/leaflet.js";
     script.onload = () => resolve();
+    script.onerror = () => resolve();     // the map degrades; the page must not hang
     document.head.appendChild(script);
   });
 }
