@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1005 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1032 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,33 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## City chat — the first public room
+
+`modules/city/chat.py` + a City tab. One room per city, for the traveller who lands somewhere
+knowing nobody. Every other social feature starts from a connection you already have; this is
+the one that starts from none.
+
+**It is the first genuinely public space in the app, and the design is shaped around that**
+rather than around the happy path. Messages are system-owned (owner-scoped rows would mean
+everybody talking to themselves — the bug that made every dating match `is_mutual: False`).
+They expire after `RETENTION_DAYS`, because a room that remembers forever is a record of
+where somebody was on a given night. Muting is personal, one-sided and silent — the muted
+person is never told, since being told is what turns "I would rather not" into a
+confrontation. Reports go to the operator queue and never to the room.
+
+Deliberately absent: no DMs to strangers (a stranger's inbox is a harassment surface), no
+editing (an edited message above a reply rewrites someone else's context), and no presence
+list, which is a map of who is in a city tonight.
+
+Two bugs found while walking it in a browser, both worth knowing:
+- `DELETE /v1/city/chat/mute` was matched by `DELETE /v1/city/chat/{message_id}` with
+  `message_id="mute"`, so unmuting silently failed. Route order would have fixed it and
+  stayed one reorder from breaking again; the path is `/city/chat/message/{id}` now.
+- **The mobile dock called `render()` and never `refresh()`.** The dock covers the top nav on
+  a phone, so it is the only navigation there — and every tab reached through it painted from
+  stale state without ever fetching. That is pre-existing and affected every tab, not just
+  this one.
 
 ## READ THIS FIRST: the app was dead in the browser for a week
 

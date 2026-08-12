@@ -447,6 +447,26 @@ class TokenVerifyIn(BaseModel):
     signature: str
 
 
+class CityPostIn(BaseModel):
+    city: str
+    text: str
+
+
+class CityMuteIn(BaseModel):
+    target_id: str
+
+
+class CityReportIn(BaseModel):
+    message_id: str
+    reason: str
+
+
+class CityResolveIn(BaseModel):
+    report_id: str
+    action: str = "actioned"
+    remove_message: bool = False
+
+
 class FocusSessionIn(BaseModel):
     duration_minutes: int
     distraction_count: int
@@ -1163,6 +1183,85 @@ def build_router(auth) -> APIRouter:
     def feed_interested(request: Request, body: InterestIn):
         return guard(lambda: discover.mark_interest(
             _graph(request), body.event_id, body.person_id, body.going))
+
+    # ---- City chat: the room you can walk into knowing nobody ---------------
+
+    @router.get("/city/rooms")
+    def city_rooms(request: Request):
+        """Where the conversations are. Counts only — never who is in them."""
+        from modules.city import chat
+        return {"rooms": chat.active_cities(_graph(request))}
+
+    @router.get("/city/chat")
+    def city_chat_read(request: Request, city: str, limit: int = 100):
+        from modules.city import chat
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: chat.messages(
+            _graph(request), city, viewer_id=caller.get("account_id", ""), limit=limit))
+
+    @router.post("/city/chat")
+    def city_chat_post(request: Request, body: CityPostIn):
+        """Say something in a city's room.
+
+        The author is the session, never the body — this is the most obvious place in the
+        app to try posting as somebody else. Rate limited here by IP and again inside the
+        module by account, because those stop different things: one script versus one person
+        with a phone and a grudge.
+        """
+        from modules.city import chat
+        rate_limiter.enforce(request, "city:post", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        author = _actor(request, None)
+        return guard(lambda: chat.post(_graph(request), body.city, body.text,
+                                       author_id=author,
+                                       author_handle=caller.get("handle", "")))
+
+    # `/city/chat/message/{id}` rather than `/city/chat/{id}`: with the bare form, a
+    # DELETE to /city/chat/mute matched this route with message_id="mute" and unmuting
+    # silently failed with "unknown message". Route order would have fixed it and would
+    # have stayed one careless reorder away from breaking again.
+    @router.delete("/city/chat/message/{message_id}")
+    def city_chat_remove(request: Request, message_id: str):
+        from modules.city import chat
+        return guard(lambda: chat.remove_own(_graph(request), message_id,
+                                             author_id=_actor(request, None)))
+
+    @router.post("/city/chat/mute")
+    def city_chat_mute(request: Request, body: CityMuteIn):
+        """One-sided and silent. The muted person is never told, and never should be."""
+        from modules.city import chat
+        return guard(lambda: chat.mute(_graph(request), _actor(request, None),
+                                       body.target_id))
+
+    @router.delete("/city/chat/mute")
+    def city_chat_unmute(request: Request, body: CityMuteIn):
+        from modules.city import chat
+        return guard(lambda: chat.unmute(_graph(request), _actor(request, None),
+                                         body.target_id))
+
+    @router.post("/city/chat/report")
+    def city_chat_report(request: Request, body: CityReportIn):
+        from modules.city import chat
+        rate_limiter.enforce(request, "city:report", max_requests=20, window_seconds=300)
+        return guard(lambda: chat.report(_graph(request), body.message_id,
+                                         reporter_id=_actor(request, None),
+                                         reason=body.reason))
+
+    @router.get("/city/chat/reports")
+    def city_chat_reports(request: Request):
+        """Operator-only, for the reason spelled out on `_operator`: the person reported
+        must never be able to read the report about themselves."""
+        from modules.city import chat
+        _operator(request)
+        return {"reports": chat.open_reports(_graph(request))}
+
+    @router.post("/city/chat/reports/resolve")
+    def city_chat_resolve(request: Request, body: CityResolveIn):
+        from modules.city import chat
+        _operator(request)
+        return guard(lambda: chat.resolve_report(_graph(request), body.report_id,
+                                                 body.action,
+                                                 remove_message=body.remove_message))
 
     @router.post("/feed/auto-ingest")
     def auto_ingest_city_events_endpoint(request: Request, body: dict):

@@ -37,6 +37,25 @@ async function api(path, body) {
   return resp.json();
 }
 
+async function apiDelete(path, body) {
+  const headers = {};
+  const token = localStorage.getItem("lifeos.token");
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const opts = { method: "DELETE", headers };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(apiBase() + path, opts);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const problem = new Error(err.detail || "gateway error " + resp.status);
+    problem.status = resp.status;
+    throw problem;
+  }
+  return resp.json();
+}
+
 /* ---------- helpers ---------- */
 
 function toast(msg) {
@@ -173,6 +192,15 @@ async function refresh() {
       if (state.activeChat) {
         await refreshChatMessages();
       }
+    } else if (state.tab === "city") {
+      const city = state.cityRoom || "";
+      const [rooms, room] = await Promise.all([
+        api("/v1/city/rooms").catch(() => ({ rooms: [] })),
+        city ? api(`/v1/city/chat?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+      ]);
+      state.cityRooms = rooms.rooms || [];
+      state.cityChat = room;
     } else if (state.tab === "map") {
       const c = coords();
       let eventId = "outing_active";
@@ -223,7 +251,7 @@ async function refresh() {
 
 function render() {
   const view = $("#view");
-  const views = { today: todayView, capture: captureView, people: peopleView, map: mapView, graph: graphView, more: moreView };
+  const views = { today: todayView, capture: captureView, people: peopleView, city: cityView, map: mapView, graph: graphView, more: moreView };
   view.innerHTML = views[state.tab]();
   // Entrance animation only on tab change — never on in-tab updates (no flashing).
   view.classList.toggle("enter", state.enter);
@@ -255,6 +283,7 @@ function render() {
   dock.innerHTML = `
     <button class="dock-btn ${state.tab === "today" ? "active" : ""}" data-dock="today">☀️ Today</button>
     <button class="dock-btn ${state.tab === "people" ? "active" : ""}" data-dock="people">💬 Crews</button>
+    <button class="dock-btn ${state.tab === "city" ? "active" : ""}" data-dock="city">🏙️ City</button>
     <button class="dock-btn ${state.tab === "map" ? "active" : ""}" data-dock="map">🗺️ Radar</button>
     <button class="dock-btn ${state.tab === "graph" ? "active" : ""}" data-dock="graph">💎 Graph</button>
     <button class="dock-btn ${state.tab === "more" ? "active" : ""}" data-dock="more">⚙️ More</button>
@@ -265,7 +294,12 @@ function render() {
       if (state.tab !== target) {
         state.tab = target;
         state.enter = true;
-        render();
+        // `refresh()`, not `render()`. Each tab loads its own data in refresh(); rendering
+        // alone paints the new tab from whatever state was left over, so on a phone — where
+        // this dock covers the nav bar and is the only navigation — every tab showed stale
+        // or empty content until something else happened to trigger a fetch. The top nav
+        // has always called refresh(); the dock never did.
+        refresh();
       }
     });
   });
@@ -2052,6 +2086,55 @@ function crewsView() {
     <select class="field" multiple id="sp-members">${peopleOpts}</select>
     <button class="primary" data-act="split-expense">Split Expense Equally</button>
   </div>`;
+
+  return html;
+}
+
+function cityView() {
+  const rooms = state.cityRooms || [];
+  const room = state.cityChat;
+  const current = state.cityRoom || "";
+
+  let html = `<div class="card"><h2>City chat</h2>
+    <p class="hint" style="margin-bottom:10px;">One room per city, for people who have just landed. Messages disappear after a week.</p>
+    <div class="row2">
+      <input class="field" id="city-name" placeholder="Which city are you in?" value="${esc(current)}" autocapitalize="words">
+      <button class="primary" style="width:auto; padding:0 16px;" data-act="city-open">Open</button>
+    </div>
+  </div>`;
+
+  if (rooms.length) {
+    html += `<div class="card"><div class="subhead">Rooms with people in them</div>
+      <div class="pills" style="margin-top:8px; flex-wrap:wrap;">
+        ${rooms.map(r => `<button class="pill" data-act="city-open" data-city="${esc(r.label || r.city)}">${esc(r.label || r.city)} · ${r.voices} ${r.voices === 1 ? "voice" : "voices"}</button>`).join("")}
+      </div></div>`;
+  }
+
+  if (room) {
+    const lines = (room.messages || []).map(m => `
+      <div class="feed-item" style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
+        <div>
+          <div class="label">${esc(m.author_handle)}${m.mine ? " (you)" : ""}</div>
+          <div>${esc(m.text)}</div>
+        </div>
+        <div class="pills" style="flex-shrink:0;">
+          ${m.mine
+            ? `<button class="pill bad" data-act="city-remove" data-id="${esc(m.message_id)}">Delete</button>`
+            : `<button class="pill" data-act="city-mute" data-id="${esc(m.author_id)}">Mute</button>
+               <button class="pill warm" data-act="city-report" data-id="${esc(m.message_id)}">Report</button>`}
+        </div>
+      </div>`).join("");
+
+    html += `<div class="card"><h2>${esc(current || room.city)}</h2>
+      ${lines || `<p class="hint">Nobody has said anything yet. Be the first — say where you are and what you are up for.</p>`}
+      ${room.muted ? `<p class="hint" style="margin-top:8px;">${room.muted} message${room.muted === 1 ? "" : "s"} hidden from people you muted.</p>` : ""}
+      <div class="row2" style="margin-top:10px;">
+        <input class="field" id="city-say" placeholder="Say something to the room">
+        <button class="primary" style="width:auto; padding:0 16px;" data-act="city-say">Send</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">Anyone signed in can read this, and posting says you are in ${esc(current || room.city)}. Your handle is shown — never your email.</p>
+    </div>`;
+  }
 
   return html;
 }
@@ -5274,6 +5357,40 @@ function wire(root) {
     `;
   }, "Pre-Game Squad Matched! 🍻"));
 
+  /* ---- City chat ---- */
+  on("[data-act=city-open]", (el) => act(async () => {
+    const city = (el.dataset.city || ($("#city-name") || {}).value || "").trim();
+    if (!city) throw new Error("Which city?");
+    state.cityRoom = city;
+    localStorage.setItem("lifeos.city", city);
+    await refresh();
+  }));
+
+  on("[data-act=city-say]", () => act(async () => {
+    const box = $("#city-say");
+    const text = (box.value || "").trim();
+    if (!text) throw new Error("Say something first");
+    await api("/v1/city/chat", { city: state.cityRoom, text });
+    box.value = "";
+    await refresh();
+  }, "Sent"));
+
+  on("[data-act=city-remove]", (el) => act(async () => {
+    await apiDelete(`/v1/city/chat/message/${encodeURIComponent(el.dataset.id)}`);
+    await refresh();
+  }, "Message removed"));
+
+  on("[data-act=city-mute]", (el) => act(async () => {
+    await api("/v1/city/chat/mute", { target_id: el.dataset.id });
+    await refresh();
+  }, "Muted — they are not told"));
+
+  on("[data-act=city-report]", (el) => act(async () => {
+    const reason = prompt("What is wrong with this message? Only the operator sees this.");
+    if (!reason) return;
+    await api("/v1/city/chat/report", { message_id: el.dataset.id, reason });
+  }, "Reported to the operator"));
+
   on("[data-act=vcard-download]", () => act(async () => {
     const res = await api("/v1/people/qr");
     const out = $("#vcard-output");
@@ -5904,6 +6021,7 @@ window.addEventListener("keydown", (evt) => {
    happened is worse than offering nothing at all, so that is gone and this is real. */
 
 let authMode = "register";
+state.cityRoom = localStorage.getItem("lifeos.city") || "";
 
 function authError(message) {
   const el = $("#auth-error");
