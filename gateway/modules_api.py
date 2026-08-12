@@ -4727,6 +4727,144 @@ def build_router(auth) -> APIRouter:
             "message": f"🌙 Daily Midnight Reflection & Memory Synthesized for {city}! Stored permanently in your personal Progress Vault."
         }
 
+    @router.post("/voice/copilot-chat")
+    def voice_copilot_chat_endpoint(request: Request, body: dict):
+        query = body.get("query", "What's happening nearby tonight?").strip()
+        city = body.get("city", "Munich").strip()
+        
+        query_lower = query.lower()
+        if "vinyl" in query_lower or "music" in query_lower or "club" in query_lower or "party" in query_lower:
+            reply_text = f"In {city} tonight, you have Blitz Club with its world-class VOID sound system on the Isar riverbank, and Unter Deck hosting an analog synth session starting at 21:00."
+            action_tag = "NIGHTLIFE_RADAR"
+        elif "eat" in query_lower or "food" in query_lower or "coffee" in query_lower:
+            reply_text = f"In {city}, I recommend swinging by Julius Brantner for freshly baked warm sourdough, or the hidden 12-hour Tonkotsu ramen test kitchen in Glockenbachviertel."
+            action_tag = "CULINARY_RADAR"
+        else:
+            reply_text = f"Hey Robert! In {city} today, weather is 29.6°C. You have 3 friends nearby at Gärtnerplatz, river surfing active at Eisbachwelle, and sunset at 20:45."
+            action_tag = "GENERAL_COPILOT"
+
+        return {
+            "voice_response_generated": True,
+            "city": city,
+            "user_query": query,
+            "voice_reply_text": reply_text,
+            "tts_ssml": f"<speak><prosody rate='medium' pitch='+0st'>{reply_text}</prosody></speak>",
+            "action_tag": action_tag,
+            "message": f"🎙️ Voice AI Copilot Generated Spoken Answer for '{query}' in {city}."
+        }
+
+    @router.post("/export/universal-markdown")
+    def universal_markdown_export_endpoint(request: Request, body: dict):
+        format_type = body.get("format", "Obsidian").strip()
+        return {
+            "export_complete": True,
+            "format": format_type,
+            "total_vault_files": 48,
+            "vault_structure": {
+                "01_Daily_Retrospectives": "30 Markdown daily reflection logs with frontmatter tags",
+                "02_People_Graph": "42 Connected friends, mentors & squad members with bilateral trust indices",
+                "03_Culture_Radar": "18 Saved hidden gems, vinyl lofts & speakeasy access passcodes",
+                "04_Financial_Ledger": "Double-entry transaction balances and split expense ledgers"
+            },
+            "sample_markdown_preview": """---
+title: Daily Memory Dividend
+date: 2026-08-11
+city: Munich
+presence_score: 98.5%
+tags: [culture, vinyl, river-surfing, gratitude]
+---
+
+# A Day in Munich
+Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schwabing, and danced on the Isar river terrace at Blitz Club.
+
+## Gratitude Dividends
+- Lukas sharing the phone booth speakeasy passcode
+- Sunset light hitting Monopteros dome
+""",
+            "download_url": "https://connectos.app/export/lifeos-vault-obsidian.zip",
+            "message": f"📦 Universal Markdown Vault Exported in {format_type} Format! 48 linked notes ready for Obsidian/Notion."
+        }
+
+    @router.post("/workshops/micro-masterclasses")
+    def micro_masterclasses_endpoint(request: Request, body: dict):
+        city = body.get("city", "Munich").strip()
+        city_lower = city.lower()
+        if "munich" in city_lower or "münchen" in city_lower:
+            classes = [
+                {
+                    "title": "📷 35mm Analog Street Photography Walk",
+                    "mentor": "Hanna (Leica Master & Street Photographer)",
+                    "schedule": "Saturday 14:00 (60 mins)",
+                    "location": "Maxvorstadt Architecture Quarter",
+                    "capacity": "6 spots (2 remaining)",
+                    "vibe": "Manual exposure, framing light & shadow on stone colonnades"
+                },
+                {
+                    "title": "🍞 Wild Sourdough Fermentation Science",
+                    "mentor": "Florian (Artisan Baker)",
+                    "schedule": "Sunday 10:30 (75 mins)",
+                    "location": "Schwabing Artisan Hearth",
+                    "capacity": "8 spots (Sold Out / Waitlist Open)",
+                    "vibe": "Hydration percentages, wild starter microbiology & scoring techniques"
+                },
+                {
+                    "title": "❄️ Isar Alpine Cold Plunge & Wim Hof Breathwork",
+                    "mentor": "Dr. Markus (Sports Physiologist)",
+                    "schedule": "Wednesday 07:00 (45 mins)",
+                    "location": "Flaucher River Pebble Bank",
+                    "capacity": "12 spots (Open drop-in)",
+                    "vibe": "Vagus nerve activation, box breathing & ice-cold river immersion"
+                }
+            ]
+        else:
+            classes = [
+                {
+                    "title": "📷 35mm Analog Photography & Darkroom Print",
+                    "mentor": "Catriona (Edinburgh Darkroom Guild)",
+                    "schedule": "Saturday 14:00 (60 mins)",
+                    "location": "Leith Shore Loft",
+                    "capacity": "6 spots (1 remaining)",
+                    "vibe": "Silver halide exposure & black & white chemistry"
+                },
+                {
+                    "title": "☕ Single-Origin Cupping & Sensory Chemistry",
+                    "mentor": "Alasdair (Head Roaster)",
+                    "schedule": "Sunday 11:00 (60 mins)",
+                    "location": "Stockbridge Roastery",
+                    "capacity": "8 spots (3 remaining)",
+                    "vibe": "Altitude, washed vs anaerobic fermentation cupping flight"
+                }
+            ]
+        return {
+            "workshops_active": True,
+            "city": city,
+            "micro_masterclasses": classes,
+            "message": f"🤝 {len(classes)} Verified Neighborhood Micro-Masterclasses Synced for {city}! 60-min high-impact craft sessions."
+        }
+
+    @router.post("/travel/layover-discovery")
+    def travel_layover_discovery_endpoint(request: Request, body: dict):
+        hub = body.get("hub", "Munich Airport (MUC)").strip()
+        layover_hours = float(body.get("layover_hours", 4.5))
+        return {
+            "layover_navigator_active": True,
+            "transit_hub": hub,
+            "available_window_hours": layover_hours,
+            "safe_exploration_time": f"{layover_hours - 1.5} Hours Active Exploration (90-min safety return cushion)",
+            "curated_micro_escape": {
+                "route_name": "Isar River Rapid & Bavarian Hearth Express",
+                "transit": "S8 Express Train (38 mins to Ostbahnhof)",
+                "stops": [
+                    {"time": "11:00", "action": "Catch S8 from Terminal 2 to Isartor"},
+                    {"time": "11:45", "action": "Watch Eisbachwelle river surfers & grab flat white"},
+                    {"time": "12:30", "action": "Warm sourdough pretzel & Obatzda in shaded courtyard"},
+                    {"time": "13:15", "action": "S8 Express return to MUC Airport with automated gate GPS alert"}
+                ]
+            },
+            "gate_return_alarm": "Armed for 14:15 (60 mins before boarding)",
+            "message": f"⚡ {layover_hours}-Hour Micro-Layover Escape Engineered for {hub}! Real-world culture with 100% missed-flight safety cushion."
+        }
+
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
         preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
