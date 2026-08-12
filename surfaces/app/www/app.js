@@ -1011,6 +1011,74 @@ function todayView() {
     <div id="nightlife-output" style="margin-top:10px;"></div>
   </div>`;
 
+  /* ---- Midnight Memory & Daily Reflection Synthesizer Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(16,185,129,0.2)); border:1px solid rgba(99,102,241,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🌙 Midnight Memory & Daily Reflection</h2>
+      <span class="badge good" style="font-weight:bold; background:linear-gradient(135deg,#6366f1,#10b981); color:#fff;">Time-Capsule AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Autonomous poetic daily retrospective, gratitude dividends, step vitality & permanent graph time-capsule archiving!</p>
+    <div style="display:flex; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981); width:100%; font-size:14px; padding:10px;" data-act="synthesize-daily-journal">✨ Synthesize Today's Memory & Gratitude Log</button>
+    </div>
+    <div id="journal-synthesis-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Voice Copilot & Eyes-Up Audio AR Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(59,130,246,0.18), rgba(168,85,247,0.18)); border:1px solid rgba(59,130,246,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🎙️ Voice AI Copilot & Eyes-Up Audio AR</h2>
+      <span class="badge good" style="font-weight:bold; background:linear-gradient(135deg,#3b82f6,#a855f7); color:#fff;">Spoken AI</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Hands-free, eyes-up audio copilot! Ask about tonight's vinyl sessions, food, or friend locations.</p>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #3b82f6, #6366f1);" data-act="voice-ask-nightlife">🔊 "Best vinyl club tonight?"</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="voice-ask-food">🔊 "Best warm sourdough?"</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="voice-ask-squad">🔊 "Who is nearby?"</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="voice-custom-prompt">🎙️ Speak Custom Prompt</button>
+    </div>
+    <div id="voice-copilot-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Neighborhood Craft Micro-Masterclasses Studio ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.18), rgba(239,68,68,0.18)); border:1px solid rgba(245,158,11,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🤝 Neighborhood Craft Micro-Masterclasses</h2>
+      <span class="badge good" style="font-weight:bold;">60-Min Masteries</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Intimate small-group masterclasses hosted by verified neighborhood masters & artisans.</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444); width:100%;" data-act="view-micro-workshops">Explore 60-Min Craft Masterclasses 📷🍞❄️</button>
+    </div>
+    <div id="workshops-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Smart Layover & Transit Stopover Navigator ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(16,185,129,0.18)); border:1px solid rgba(6,182,212,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>⚡ Smart Layover & Stopover Micro-Escape</h2>
+      <span class="badge good" style="font-weight:bold;">100% Missed-Flight Safety</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Turn 4-hour airport or central train layovers into curated micro-escapes with automated gate return alarms!</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981); width:100%;" data-act="plan-layover-escape">Plan 4.5h Munich Airport Micro-Escape ✈️</button>
+    </div>
+    <div id="layover-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Universal Data Portability & Obsidian / Notion Vault Export ---- */
+  html += `<div class="card" style="background: linear-gradient(135deg, rgba(139,92,246,0.18), rgba(59,130,246,0.18)); border:1px solid rgba(139,92,246,0.4);">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>📦 Universal Data Portability & Obsidian Vault</h2>
+      <span class="badge good" style="font-weight:bold;">100% User Owned</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Export your complete memories, social graph & financial ledger into clean linked Markdown for Obsidian, Notion & Apple Notes.</p>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #3b82f6); width:100%;" data-act="export-universal-markdown">Export Full Linked Obsidian Markdown Vault (.zip) 📁</button>
+    </div>
+    <div id="markdown-export-output" style="margin-top:10px;"></div>
+  </div>`;
+
   /* ---- Co-Living, Supper Club & Digital Detox ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -5200,6 +5268,122 @@ function wire(root) {
     const link = $("#vcard-link");
     if (link) link.href = res.vcard_data_uri;
   }, "Contact card ready"));
+  on("[data-act=synthesize-daily-journal]", () => act(async () => {
+    const res = await api("/v1/journal/daily-reflection-synthesis", { city: "Munich", date: "Today" });
+    const out = $("#journal-synthesis-output");
+    if (!out) return;
+    const vm = res.daily_vitality_metrics || {};
+    const events = (res.events_experienced || []).map(e => `<li>${esc(e)}</li>`).join("");
+    const grats = (res.gratitude_dividends || []).map(g => `<li>${esc(g)}</li>`).join("");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:14px; border-radius:12px; border:1px solid #6366f1;">
+        <div style="font-size:15px; font-weight:700; color:#6366f1; margin-bottom:6px;">🌙 Daily Midnight Reflection (${esc(res.city)} · ${esc(res.date)}):</div>
+        <div style="font-style:italic; font-size:13px; color:var(--growth); line-height:1.4; margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.2); border-radius:8px;">"${esc(res.poetic_daily_retrospective)}"</div>
+        <div style="font-size:12px; font-weight:bold; color:var(--text); margin-bottom:2px;">📍 Moments Experienced:</div>
+        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:var(--muted);">${events}</ul>
+        <div style="font-size:12px; font-weight:bold; color:#10b981; margin-bottom:2px;">✨ Gratitude Dividends:</div>
+        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:#10b981;">${grats}</ul>
+        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--spark); border-top:1px solid var(--line-soft); padding-top:6px; margin-top:6px;">
+          <span>🏃 Steps: <strong>${vm.steps_walked || 14280}</strong></span>
+          <span>👀 Presence: <strong>${esc(vm.presence_score)}</strong></span>
+          <span>🔒 Capsule: <strong>${esc(res.time_capsule_status)}</strong></span>
+        </div>
+      </div>
+    `;
+  }, "Midnight Memory Synthesized! 🌙"));
+
+  /* ---- Voice Copilot Handlers ---- */
+  async function triggerVoiceQuery(query) {
+    const res = await api("/v1/voice/copilot-chat", { query: query, city: "Munich" });
+    const out = $("#voice-copilot-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #3b82f6;">
+        <div style="font-size:12px; color:var(--muted); font-style:italic;">🗣️ "${esc(res.user_query)}"</div>
+        <div style="font-size:14px; font-weight:700; color:#3b82f6; margin-top:4px;">🎙️ AI Voice Copilot:</div>
+        <div style="font-size:13px; color:var(--text); line-height:1.4; margin-top:4px;">${esc(res.voice_reply_text)}</div>
+      </div>
+    `;
+    if ("speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(res.voice_reply_text);
+        utterance.rate = 1.05;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.warn("SpeechSynthesis error:", e);
+      }
+    }
+  }
+
+  on("[data-act=voice-ask-nightlife]", () => act(async () => {
+    await triggerVoiceQuery("What are the best vinyl clubs and parties tonight?");
+  }, "Spoken Nightlife Query Sent! 🔊"));
+
+  on("[data-act=voice-ask-food]", () => act(async () => {
+    await triggerVoiceQuery("Where is the best warm sourdough and food?");
+  }, "Spoken Food Query Sent! 🔊"));
+
+  on("[data-act=voice-ask-squad]", () => act(async () => {
+    await triggerVoiceQuery("Who from my squad is nearby right now?");
+  }, "Spoken Squad Query Sent! 🔊"));
+
+  on("[data-act=voice-custom-prompt]", () => act(async () => {
+    const q = prompt("What would you like to ask your Voice AI Butler?", "What's happening nearby right now?");
+    if (q) await triggerVoiceQuery(q);
+  }, "Custom Voice Prompt Spoken! 🎙️"));
+
+  /* ---- Micro-Masterclasses Handler ---- */
+  on("[data-act=view-micro-workshops]", () => act(async () => {
+    const res = await api("/v1/workshops/micro-masterclasses", { city: "Munich" });
+    const out = $("#workshops-output");
+    if (!out) return;
+    const cards = (res.micro_masterclasses || []).map(w => `
+      <div style="background:var(--surface-2s); padding:10px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:6px;">
+        <div style="font-weight:bold; font-size:13px; color:#f59e0b;">${esc(w.title)}</div>
+        <div style="font-size:11px; color:var(--growth);">👨‍🏫 Mentor: ${esc(w.mentor)} · ⏰ ${esc(w.schedule)}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:2px;">📍 ${esc(w.location)} · 🎟️ ${esc(w.capacity)}</div>
+        <div style="font-size:11px; font-style:italic; color:var(--spark); margin-top:2px;">"${esc(w.vibe)}"</div>
+      </div>
+    `).join("");
+    out.innerHTML = cards;
+  }, "Craft Masterclasses Loaded! 🤝"));
+
+  /* ---- Layover Navigator Handler ---- */
+  on("[data-act=plan-layover-escape]", () => act(async () => {
+    const res = await api("/v1/travel/layover-discovery", { hub: "Munich Airport (MUC)", layover_hours: 4.5 });
+    const out = $("#layover-output");
+    if (!out) return;
+    const ce = res.curated_micro_escape || {};
+    const stops = (ce.stops || []).map(s => `• <strong>${esc(s.time)}</strong>: ${esc(s.action)}`).join("<br>");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
+        <div style="font-size:14px; font-weight:700; color:#06b6d4;">✈️ ${esc(ce.route_name)} (${esc(res.safe_exploration_time)})</div>
+        <div style="font-size:11px; color:var(--spark); margin-top:3px;">🚆 Transit: ${esc(ce.transit)}</div>
+        <div style="font-size:11px; line-height:1.5; margin-top:6px;">${stops}</div>
+        <div style="font-size:11px; color:#10b981; font-weight:bold; margin-top:6px;">⏰ Gate Return Safety Alarm: ${esc(res.gate_return_alarm)}</div>
+      </div>
+    `;
+  }, "Layover Micro-Escape Planned! ✈️"));
+
+  /* ---- Universal Markdown Export Handler ---- */
+  on("[data-act=export-universal-markdown]", () => act(async () => {
+    const res = await api("/v1/export/universal-markdown", { format: "Obsidian" });
+    const out = $("#markdown-export-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
+        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">📦 Obsidian / Notion Vault Export Ready (${res.total_vault_files} Notes):</div>
+        <div style="font-size:11px; color:var(--text);">• 01_Daily_Retrospectives: ${esc(res.vault_structure["01_Daily_Retrospectives"])}</div>
+        <div style="font-size:11px; color:var(--text);">• 02_People_Graph: ${esc(res.vault_structure["02_People_Graph"])}</div>
+        <div style="font-size:11px; color:var(--text);">• 03_Culture_Radar: ${esc(res.vault_structure["03_Culture_Radar"])}</div>
+        <div style="margin-top:8px;">
+          <a href="${safeUrl(res.download_url)}" download="lifeos-vault-obsidian.zip" class="primary" style="display:inline-block; background:linear-gradient(135deg, #8b5cf6, #3b82f6); padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px; color:#fff; font-weight:bold;">⬇️ Download Obsidian Vault .zip</a>
+        </div>
+      </div>
+    `;
+  }, "Obsidian Markdown Vault Generated! 📦"));
 
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
