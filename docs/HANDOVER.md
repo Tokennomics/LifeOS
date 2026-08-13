@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1053 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1080 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,36 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## Meetups — the object that turns talk into meeting
+
+`modules/city/meetups.py`, in the City tab above the chat. Researched against Hostelworld,
+who call these Linkups and have had them for years: their city rooms sit next to browsable,
+traveller-made plans with an attendee list. We had the room and not the plans, so the most
+useful sentence anybody types — "sunset at the viewpoint around seven, anyone?" — scrolled
+away, could only be answered with "me too", and told you nothing about who else was coming.
+
+A meetup is deliberately small: a thing, a place, a time, and who is going. Not an event with
+tickets, not a crew with a membership lifecycle — both of those already exist here and
+neither fits a stranger proposing a walk.
+
+- **The organiser is counted as going.** An attendee list starting at zero reads as an idea
+  nobody backs.
+- **The organiser leaving cancels it.** A plan whose author is not coming is not a plan, and
+  letting the others discover that at the viewpoint is worse.
+- **`SAFETY_NOTE` travels with every meetup** — created, listed and joined — rather than
+  living in a settings page. "Meet somewhere public the first time" is the first line of
+  every solo-travel safety guide, and the moment it is useful is the moment somebody is
+  deciding to go.
+- **Place is free text, never coordinates.** City granularity is the promise the whole city
+  surface makes, and this is exactly where it would be tempting to break it.
+- A naive timestamp is read as UTC rather than refused — rejecting a missing suffix means
+  rejecting half the world's date pickers.
+
+**The next thing to build is not another feature.** The research note
+(`Cheap to Run, Hard to Fill`) concluded that cold start is the thing most likely to kill
+this: location-based products die by spreading thin everywhere and reaching critical mass
+nowhere. LifeOS lets anyone open a room in any city on earth. **Pick one city and seed it.**
 
 ## Arrival — the app's first thirty seconds
 

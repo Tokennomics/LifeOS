@@ -447,6 +447,18 @@ class TokenVerifyIn(BaseModel):
     signature: str
 
 
+class MeetupIn(BaseModel):
+    city: str
+    title: str
+    starts_at: str
+    place: str = ""
+    note: str = ""
+
+
+class MeetupRefIn(BaseModel):
+    meetup_id: str
+
+
 class CityAnnounceIn(BaseModel):
     city: str
     note: str = ""
@@ -1195,6 +1207,47 @@ def build_router(auth) -> APIRouter:
             _graph(request), body.event_id, body.person_id, body.going))
 
     # ---- City chat: the room you can walk into knowing nobody ---------------
+
+    @router.get("/city/meetups")
+    def city_meetups(request: Request, city: str):
+        """Tonight's options in this city, soonest first, with who is coming."""
+        from modules.city import meetups
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: meetups.listing(_graph(request), city,
+                                             viewer_id=caller.get("account_id", "")))
+
+    @router.post("/city/meetups")
+    def city_meetup_create(request: Request, body: MeetupIn):
+        """Propose something. The organiser is the session — "Ana is organising this" is a
+        claim with real-world consequences, so it is never taken from the body."""
+        from modules.city import meetups
+        rate_limiter.enforce(request, "city:meetup", max_requests=15, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: meetups.create(
+            _graph(request), body.city, title=body.title, starts_at=body.starts_at,
+            place=body.place, note=body.note, organiser_id=_actor(request, None),
+            organiser_handle=caller.get("handle", "")))
+
+    @router.post("/city/meetups/join")
+    def city_meetup_join(request: Request, body: MeetupRefIn):
+        from modules.city import meetups
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: meetups.join(_graph(request), body.meetup_id,
+                                          account_id=_actor(request, None),
+                                          handle=caller.get("handle", "")))
+
+    @router.post("/city/meetups/leave")
+    def city_meetup_leave(request: Request, body: MeetupRefIn):
+        from modules.city import meetups
+        return guard(lambda: meetups.leave(_graph(request), body.meetup_id,
+                                           account_id=_actor(request, None)))
+
+    @router.get("/city/meetups/mine")
+    def city_meetups_mine(request: Request):
+        """Plans you are on, wherever they are — a meetup joined in one city's room should
+        not disappear the moment you look at another room."""
+        from modules.city import meetups
+        return {"meetups": meetups.upcoming_for(_graph(request), _actor(request, None))}
 
     @router.get("/city/arrival")
     def city_arrival(request: Request, city: str):

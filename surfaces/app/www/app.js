@@ -56,6 +56,14 @@ async function apiDelete(path, body) {
   return resp.json();
 }
 
+function whenLabel(iso) {
+  // A meetup is almost always today or tomorrow, and "Fri 19:00" is what somebody deciding
+  // whether to go actually needs — not a full timestamp.
+  const d = new Date(iso);
+  if (isNaN(d)) return iso || "";
+  return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
+
 /* ---------- helpers ---------- */
 
 function toast(msg) {
@@ -194,16 +202,19 @@ async function refresh() {
       }
     } else if (state.tab === "city") {
       const city = state.cityRoom || "";
-      const [rooms, room, here] = await Promise.all([
+      const [rooms, room, here, plans] = await Promise.all([
         api("/v1/city/rooms").catch(() => ({ rooms: [] })),
         city ? api(`/v1/city/chat?city=${encodeURIComponent(city)}`).catch(() => null)
              : Promise.resolve(null),
         city ? api(`/v1/city/arrival?city=${encodeURIComponent(city)}`).catch(() => null)
              : Promise.resolve(null),
+        city ? api(`/v1/city/meetups?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
       ]);
       state.cityRooms = rooms.rooms || [];
       state.cityChat = room;
       state.cityArrival = here;
+      state.cityMeetups = plans;
     } else if (state.tab === "map") {
       const c = coords();
       let eventId = "outing_active";
@@ -2141,6 +2152,35 @@ function cityView() {
       <div class="pills" style="margin-top:8px; flex-wrap:wrap;">
         ${rooms.map(r => `<button class="pill" data-act="city-open" data-city="${esc(r.label || r.city)}">${esc(r.label || r.city)} · ${r.voices} ${r.voices === 1 ? "voice" : "voices"}</button>`).join("")}
       </div></div>`;
+  }
+
+  const plans = state.cityMeetups;
+  if (plans && current) {
+    const list = plans.meetups || [];
+    html += `<div class="card"><h2>What's on</h2>
+      ${list.length ? list.map(m => `
+        <div class="feed-item">
+          <div class="label">${esc(m.title)}</div>
+          <div style="font-size:13px;">${esc(whenLabel(m.starts_at))}${m.place ? ` · ${esc(m.place)}` : ""}</div>
+          ${m.note ? `<div class="hint">${esc(m.note)}</div>` : ""}
+          <div class="hint" style="margin-top:4px;">${esc(m.organiser_handle)} organising · ${m.going_count} going${m.going.length ? `: ${m.going.map(p => esc(p.handle)).join(", ")}` : ""}</div>
+          <div class="pills" style="margin-top:6px;">
+            ${m.you_are_going
+              ? `<button class="pill" data-act="meetup-leave" data-id="${esc(m.meetup_id)}">${m.yours ? "Call it off" : "Can't make it"}</button>`
+              : `<button class="pill good" data-act="meetup-join" data-id="${esc(m.meetup_id)}">I'm in</button>`}
+          </div>
+        </div>`).join("")
+        : `<p class="hint">Nothing planned here yet. Propose something — a walk, a coffee, a swim.</p>`}
+
+      <div class="subhead" style="margin-top:12px;">Propose something</div>
+      <input class="field" id="mu-title" placeholder="What is it? (e.g. Sunset at the viewpoint)">
+      <div class="row2" style="margin-top:6px;">
+        <input class="field" id="mu-place" placeholder="Where (a public place)">
+        <input class="field" id="mu-when" type="datetime-local">
+      </div>
+      <button class="primary" style="margin-top:6px;" data-act="meetup-create">Put it up</button>
+      <p class="hint" style="margin-top:8px;">${esc(plans.safety_note || "")}</p>
+    </div>`;
   }
 
   if (room) {
@@ -5396,6 +5436,26 @@ function wire(root) {
     if (!city) throw new Error("Which city?");
     state.cityRoom = city;
     localStorage.setItem("lifeos.city", city);
+    await refresh();
+  }));
+
+  on("[data-act=meetup-create]", () => act(async () => {
+    const title = ($("#mu-title").value || "").trim();
+    const place = ($("#mu-place").value || "").trim();
+    const when = ($("#mu-when").value || "").trim();
+    if (!title) throw new Error("What is the plan?");
+    if (!when) throw new Error("When?");
+    await api("/v1/city/meetups", { city: state.cityRoom, title, place, starts_at: when });
+    await refresh();
+  }, "It's up — people can join now"));
+
+  on("[data-act=meetup-join]", (el) => act(async () => {
+    await api("/v1/city/meetups/join", { meetup_id: el.dataset.id });
+    await refresh();
+  }, "You're in. Meet somewhere public the first time."));
+
+  on("[data-act=meetup-leave]", (el) => act(async () => {
+    await api("/v1/city/meetups/leave", { meetup_id: el.dataset.id });
     await refresh();
   }));
 
