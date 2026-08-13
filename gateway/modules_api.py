@@ -447,6 +447,16 @@ class TokenVerifyIn(BaseModel):
     signature: str
 
 
+class CityAnnounceIn(BaseModel):
+    city: str
+    note: str = ""
+    days: int = 3
+
+
+class CityWithdrawIn(BaseModel):
+    city: str
+
+
 class CityPostIn(BaseModel):
     city: str
     text: str
@@ -1185,6 +1195,37 @@ def build_router(auth) -> APIRouter:
             _graph(request), body.event_id, body.person_id, body.going))
 
     # ---- City chat: the room you can walk into knowing nobody ---------------
+
+    @router.get("/city/arrival")
+    def city_arrival(request: Request, city: str):
+        """I just landed in X — what is here? One request on purpose: this is the screen
+        somebody sees ten seconds after signing in, and six round trips on hotel wifi is the
+        difference between a product and a spinner."""
+        from modules.city import arrival
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: arrival.arrival(_graph(request), city,
+                                             viewer_id=caller.get("account_id", "")))
+
+    @router.post("/city/around")
+    def city_announce(request: Request, body: CityAnnounceIn):
+        """Say you are in a city and open to meeting people, until a date.
+
+        Announcing is always an explicit act — reading the room does not do it and posting
+        does not do it. "Is this person in this city right now" is a different question from
+        "did this person say something", and it is the one a stalker asks.
+        """
+        from modules.city import arrival
+        rate_limiter.enforce(request, "city:around", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: arrival.announce(
+            _graph(request), body.city, account_id=_actor(request, None),
+            handle=caller.get("handle", ""), note=body.note, days=body.days))
+
+    @router.delete("/city/around")
+    def city_withdraw(request: Request, body: CityWithdrawIn):
+        from modules.city import arrival
+        return guard(lambda: arrival.withdraw(_graph(request), body.city,
+                                              account_id=_actor(request, None)))
 
     @router.get("/city/rooms")
     def city_rooms(request: Request):

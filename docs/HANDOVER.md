@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1032 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1053 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,33 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## Arrival — the app's first thirty seconds
+
+`modules/city/arrival.py`, `GET /v1/city/arrival?city=X`. A new instance shows a signed-in
+user an empty week, an empty feed and an empty directory — the honest state of the data, and
+the moment most people close the app for good. Arrival answers "I just landed in X, what is
+here?" in **one request** (six round trips on hotel wifi is the difference between a product
+and a spinner), composing the city room, the crew directory, published events and venue
+feeds. Every part degrades on its own: an empty city is the normal case, not an error, and
+one raising module must not blank the screen. When there is genuinely nothing, it says what
+to do rather than showing a void.
+
+It adds one new primitive: **an explicit, expiring "I'm around" marker.** `discover.set_intent`
+already existed but is owner-scoped and therefore private — a standing wish nobody can see
+connects nobody. So announcing is deliberately public, and therefore deliberately narrow:
+
+- **Opt-in per city and never implied.** Reading the room does not announce you; posting does
+  not announce you. "Is this person in this city right now" is a different question from "did
+  this person say something", and it is the one a stalker asks.
+- **It expires** (`DEFAULT_DAYS`, capped at `MAX_DAYS`) and withdraws instantly.
+- **City granularity only** — no coordinates, no venue, no "online now". That is what makes
+  it safe, and a finer one is not a request to accept casually.
+- **The chat mute list applies.** Muting means "not in my experience", not "not their chat".
+
+One bug worth remembering: `days or DEFAULT_DAYS` silently turned an explicit `0` into 3 —
+publishing a presence the caller had asked not to create. A *missing* value takes the
+default; a value that is present and wrong is refused.
 
 ## City chat — the first public room
 

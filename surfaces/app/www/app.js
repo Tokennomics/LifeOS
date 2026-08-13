@@ -194,13 +194,16 @@ async function refresh() {
       }
     } else if (state.tab === "city") {
       const city = state.cityRoom || "";
-      const [rooms, room] = await Promise.all([
+      const [rooms, room, here] = await Promise.all([
         api("/v1/city/rooms").catch(() => ({ rooms: [] })),
         city ? api(`/v1/city/chat?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+        city ? api(`/v1/city/arrival?city=${encodeURIComponent(city)}`).catch(() => null)
              : Promise.resolve(null),
       ]);
       state.cityRooms = rooms.rooms || [];
       state.cityChat = room;
+      state.cityArrival = here;
     } else if (state.tab === "map") {
       const c = coords();
       let eventId = "outing_active";
@@ -2102,6 +2105,36 @@ function cityView() {
       <button class="primary" style="width:auto; padding:0 16px;" data-act="city-open">Open</button>
     </div>
   </div>`;
+
+  const here = state.cityArrival;
+  if (here) {
+    const people = here.around || [];
+    const others = people.filter(p => !p.mine);
+    html += `<div class="card"><h2>${esc(here.label)}</h2>
+      ${here.suggestion ? `<p class="hint">${esc(here.suggestion)}</p>` : ""}
+      <div class="pills" style="margin:8px 0; flex-wrap:wrap;">
+        <span class="badge">${others.length} around</span>
+        <span class="badge">${(here.crews || []).length} crew${(here.crews || []).length === 1 ? "" : "s"}</span>
+        <span class="badge">${(here.events || []).length} event${(here.events || []).length === 1 ? "" : "s"}</span>
+      </div>
+      ${others.length ? others.map(p => `
+        <div class="feed-item">
+          <div class="label">${esc(p.handle)}</div>
+          ${p.note ? `<div>${esc(p.note)}</div>` : ""}
+        </div>`).join("") : ""}
+      ${(here.crews || []).length ? `<div class="subhead" style="margin-top:10px;">Crews here</div>
+        ${(here.crews || []).map(c => `<div class="feed-item"><div class="label">${esc(c.name || "")}</div></div>`).join("")}` : ""}
+      <div style="margin-top:10px;">
+        ${here.you_are_here
+          ? `<button class="ghost" data-act="city-hide">You are listed as here — take it down</button>`
+          : `<div class="row2">
+               <input class="field" id="city-note" placeholder="Optional: what you are up for">
+               <button class="primary" style="width:auto; padding:0 16px;" data-act="city-here">I'm here</button>
+             </div>
+             <p class="hint" style="margin-top:6px;">Tells other travellers you are in ${esc(here.label)} for the next few days. Nobody sees anything finer than the city, and you can take it down at any moment.</p>`}
+      </div>
+    </div>`;
+  }
 
   if (rooms.length) {
     html += `<div class="card"><div class="subhead">Rooms with people in them</div>
@@ -5365,6 +5398,17 @@ function wire(root) {
     localStorage.setItem("lifeos.city", city);
     await refresh();
   }));
+
+  on("[data-act=city-here]", () => act(async () => {
+    const note = (($("#city-note") || {}).value || "").trim();
+    await api("/v1/city/around", { city: state.cityRoom, note, days: 3 });
+    await refresh();
+  }, "You are listed as here"));
+
+  on("[data-act=city-hide]", () => act(async () => {
+    await apiDelete("/v1/city/around", { city: state.cityRoom });
+    await refresh();
+  }, "Taken down"));
 
   on("[data-act=city-say]", () => act(async () => {
     const box = $("#city-say");
