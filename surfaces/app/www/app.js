@@ -2172,6 +2172,14 @@ function cityView() {
         </div>`).join("") : ""}
       ${(here.crews || []).length ? `<div class="subhead" style="margin-top:10px;">Crews here</div>
         ${(here.crews || []).map(c => `<div class="feed-item"><div class="label">${esc(c.name || "")}</div></div>`).join("")}` : ""}
+      ${(here.places || []).length ? `<div class="subhead" style="margin-top:10px;">Places on the map</div>
+        <p class="hint" style="margin-bottom:6px;">${here.place_count} in ${esc(here.label)}, from OpenStreetMap. The one thing a city has before anybody arrives.</p>
+        ${(here.places || []).slice(0, 8).map(pl => `
+          <div class="feed-item">
+            <div class="label">${esc(pl.name)}</div>
+            <div class="hint">${esc(pl.category)}${pl.street ? ` · ${esc(pl.street)}` : ""}${pl.opening_hours ? ` · ${esc(pl.opening_hours)}` : ""}</div>
+          </div>`).join("")}
+        <p class="hint" style="margin-top:6px;">© OpenStreetMap contributors</p>` : ""}
       <div style="margin-top:10px;">
         ${here.you_are_here
           ? `<button class="ghost" data-act="city-hide">You are listed as here — take it down</button>`

@@ -183,6 +183,12 @@ def arrival(graph: Graph, city: str, *, viewer_id: str = "") -> dict:
     room_state = safely(lambda: chat.messages(graph, label, viewer_id=viewer_id, limit=5),
                         {"messages": []})
     people = safely(lambda: around(graph, label, viewer_id=viewer_id), [])
+    # Third places are the one thing a city can have with nobody in it yet: they come from
+    # OpenStreetMap, so a seeded city is never a blank screen even on day zero. They do not
+    # count towards `empty`, which is about whether anyone is *here*.
+    from modules.city import places as city_places
+    place_state = safely(lambda: city_places.listing(graph, label, limit=12),
+                         {"places": [], "total": 0, "breakdown": {}})
 
     empty = not (crew_list or events or feeds or room_state.get("messages") or people)
     return {
@@ -194,11 +200,16 @@ def arrival(graph: Graph, city: str, *, viewer_id: str = "") -> dict:
         "events": events,
         "venue_feeds": len(feeds),
         "recent_chat": room_state.get("messages", []),
+        "places": place_state.get("places", []),
+        "place_count": place_state.get("total", 0),
+        "place_breakdown": place_state.get("breakdown", {}),
         "empty": empty,
         # What to *do* when there is nothing yet. An empty screen with no next step is how a
         # young instance loses the person who could have started its first crew.
         "suggestion": (
-            f"Nothing in {label} yet — you are the first. Say hello in the room, or start a "
-            f"crew and it will show up here for whoever lands next."
+            (f"Nobody is in {label} yet — you are the first. Say hello in the room, or "
+             f"start a crew and it will show up here for whoever lands next."
+             + (f" There are {place_state.get('total', 0)} places on the map to start from."
+                if place_state.get("total") else ""))
             if empty else ""),
     }

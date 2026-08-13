@@ -444,8 +444,12 @@ def test_every_activity_endpoint_answers_honestly_when_empty(city):
 
 
 def test_ski_and_surf_no_longer_assert_weather_nobody_measured(city):
-    """`snow_depth_cm: 45` fired in July, in Lisbon, for everybody. No provider is wired
-    up, so the honest answer is that conditions are unavailable."""
+    """`snow_depth_cm: 45` and a 2.2 m swell fired in July, in Lisbon, for everybody.
+
+    Surf conditions are measured now (Open-Meteo marine, no key needed) but this test runs
+    with no network, so what it pins is the other half: nothing is asserted when nothing was
+    fetched, and snow depth stays absent because no piste provider exists at all.
+    """
     client, people = city
     ski = client.post("/v1/synergy/ski-match", json={"city": "Lisbon"},
                       headers=people["ana"]["h"]).json()
@@ -453,17 +457,19 @@ def test_ski_and_surf_no_longer_assert_weather_nobody_measured(city):
                        headers=people["ana"]["h"]).json()
     assert ski["conditions"]["available"] is False
     assert surf["conditions"]["available"] is False
-    assert "snow_depth_cm" not in ski
+    assert ski["snow_depth_cm"] is None
     assert "telemetry" not in surf
 
 
-def test_caller_reported_conditions_are_marked_as_theirs(city):
-    """Echoing what the caller sent is fine; asserting it as a measurement is not."""
+def test_a_caller_cannot_inject_conditions(city):
+    """The old handler echoed `swell_m` straight back inside its telemetry block, so the
+    caller's own number came back looking like a reading. Conditions come from the provider
+    or they are unavailable."""
     client, people = city
     surf = client.post("/v1/synergy/surf-match",
-                       json={"city": "Lisbon", "swell_m": 2.2},
+                       json={"city": "Lisbon", "swell_m": 99.9},
                        headers=people["ana"]["h"]).json()
-    assert surf["conditions"]["reported_by_caller"] == {"swell_m": 2.2}
+    assert "99.9" not in str(surf["conditions"])
 
 
 def test_every_match_carries_the_safety_note(city):

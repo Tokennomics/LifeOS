@@ -96,13 +96,39 @@ a lost disk.
 ## Checking everything works
 
 ```sh
-python -m pytest              # 1098, and CI runs the same on 3.11 and 3.13
+python -m pytest              # 1270, and CI runs the same on 3.11 and 3.13
 ```
 
 For a live instance, the honest check is to walk it: register two accounts on two phones,
 have one create a public crew, have the other find it in the directory and join, publish an
 event, and read `/v1/weekend`. That path is what the end-to-end journey script exercises, and
 it is where the last two bugs were found — both at seams no unit test covered.
+
+## Seeding a city
+
+A city has something in it before anybody arrives, because third places come from
+OpenStreetMap and the weather comes from Open-Meteo. **Neither needs a key** — they are the
+first external sources in this repo that need no configuration at all.
+
+Seeding writes public rows, so it is operator-only. With your gateway token:
+
+```sh
+curl -X POST https://<your-app>.onrender.com/v1/seeding/city-bootstrap \
+  -H "Authorization: Bearer $LIFEOS_GATEWAY_TOKEN" \
+  -H "Content-Type: application/json" -d '{"city": "Lisbon"}'
+```
+
+That pulls cafés, climbing walls, viewpoints, parks, libraries, galleries, markets, trails,
+swim spots and saunas into the graph, and syncs any venue feeds you have subscribed. Running
+it again **updates rather than doubles** — it is deduped by OSM id, because an operator
+running it twice is the expected case.
+
+Anyone can then read `GET /v1/city/places?city=Lisbon`, and the City tab shows them on the
+arrival screen. Opening hours appear only where OSM has them; nothing is independently
+verified and the response says so.
+
+Be a good citizen of Overpass: it is volunteer-run and free. One city at a time, not a loop
+over every city you can think of.
 
 ## Turning things on later
 
@@ -111,6 +137,7 @@ it is where the last two bugs were found — both at seams no unit test covered.
 | `LIFEOS_GOOGLE_CLIENT_ID` / `LIFEOS_APPLE_CLIENT_ID` | sign-in offers password only |
 | `LIFEOS_RESEND_KEY` / `LIFEOS_MAIL_FROM` | no email sign-in, no password reset |
 | `LIFEOS_TICKETMASTER_KEY` | Tier 2 listings contribute nothing; venue feeds still work |
+| *(no variable)* | OpenStreetMap places and Open-Meteo weather need no key and are always on |
 | `LIFEOS_SEED_CITY` | the app starts empty |
 | `LIFEOS_DATING_ENABLED` | `/v1/dating/*` returns 503 — leave it empty until you mean it |
 | `ANTHROPIC_API_KEY` | everything works; nothing gets smarter |

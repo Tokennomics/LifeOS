@@ -83,9 +83,12 @@ def test_ski_rave_surf_match(cfg):
 
 def test_weather_radar_and_developer_plugins(cfg):
     client = TestClient(create_app(cfg))
+    # A 2.2 m swell, 45 cm of fresh snowfall and a clear 24 C sky — constants, in July, in
+    # Lisbon, for everyone. It takes a city now, because weather is a fact about a place.
     res1 = client.get("/v1/weather/radar")
     assert res1.status_code == 200
-    assert len(res1.json()["active_alerts"]) >= 3
+    assert res1.json()["needs_city"] is True
+    assert "active_alerts" not in res1.json()
 
     res2 = client.get("/v1/developer/plugins")
     assert res2.status_code == 200
@@ -301,10 +304,13 @@ def test_viral_growth_and_traction(cfg):
 
 def test_automated_data_ingestion(cfg):
     client = TestClient(create_app(cfg))
+    # Listed items ingested from the Google Places API, Eventbrite and Luma, none of which
+    # this app integrates. Operator-only now, because it writes public rows and calls out to
+    # a volunteer-run service.
     res1 = client.post("/v1/city/sync-live-events", json={"city": "Lisbon"})
     assert res1.status_code == 200
-    assert res1.json()["synced"] is True
-    assert res1.json()["total_ingested"] >= 70
+    assert "total_ingested" not in res1.json()
+    assert set(res1.json()) >= {"places", "feeds", "conditions"}
 
 def test_zero_friction_convenience_features(cfg):
     client = TestClient(create_app(cfg))
@@ -527,9 +533,13 @@ def test_frontier_stack_all_four_engines(cfg):
 
 def test_city_seeding_and_cold_start_engine(cfg):
     client = TestClient(create_app(cfg))
+    # "48 curated third-places & 4 calendar feeds auto-seeded", for any city. It seeds from
+    # OpenStreetMap now; with no network in tests, nothing is added and it says so rather
+    # than reporting a number.
     res1 = client.post("/v1/seeding/city-bootstrap", json={"city": "Lisbon"})
     assert res1.status_code == 200
-    assert res1.json()["city_bootstrapped"] is True
+    assert res1.json()["empty"] is True
+    assert "curated_third_places" not in res1.json()
 
     res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon", "pioneer_number": 42})
     assert res2.status_code == 200
@@ -563,21 +573,29 @@ def test_stripe_and_paypal_payment_gateways(cfg):
 
 def test_automated_city_content_pipeline_and_weather_triggers(cfg):
     client = TestClient(create_app(cfg))
+    # "284 events ingested" from Luma, Resident Advisor, Eventbrite and Dice.fm. What this
+    # app actually has is ICS venue feeds and Ticketmaster, and it reports what each returned.
     res1 = client.post("/v1/seeding/auto-event-pipeline", json={"city": "Lisbon"})
     assert res1.status_code == 200
-    assert res1.json()["pipeline_synced"] is True
+    assert "events_ingested" not in res1.json()
+    assert res1.json()["provider"]["status"] == "not_configured"
 
     res2 = client.post("/v1/seeding/ai-outing-synthesizer", json={"city": "Lisbon", "theme": "Vinyl & Beer"})
     assert res2.status_code == 200
     assert res2.json()["itinerary_synthesized"] is True
 
+    # "160 Verified Third Places", with a live_status claiming opening hours and wi-fi
+    # speeds were verified, for every city. Nothing was stored and nothing was verified.
     res3 = client.post("/v1/seeding/third-places-directory", json={"city": "Lisbon"})
     assert res3.status_code == 200
-    assert res3.json()["directory_enriched"] is True
+    assert res3.json()["verified"] is False
+    assert "total_third_places" not in res3.json()
 
-    res4 = client.post("/v1/seeding/weather-triggers", json={"city": "Lisbon", "condition": "Sunny 24C"})
+    # It published a dawn-patrol surf squad at Carcavelos in a 4 ft swell, as a literal.
+    # With no weather source reachable in tests, nothing is claimed.
+    res4 = client.post("/v1/seeding/weather-triggers", json={"city": "Lisbon"})
     assert res4.status_code == 200
-    assert res4.json()["weather_triggers_evaluated"] is True
+    assert res4.json()["available"] is False and res4.json()["triggers"] == []
 
 def test_multi_hobby_passion_content_hubs(cfg):
     client = TestClient(create_app(cfg))
@@ -712,10 +730,11 @@ def test_butler_of_true_life_value(cfg):
 
 def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
     client = TestClient(create_app(cfg))
+    # 220 "verified events" aggregated from Resident Advisor, Luma, Dice.fm and "Local
+    # Culture Substacks". The real crawler here is feed discovery, and it needs a URL.
     res1 = client.post("/v1/seeding/zero-user-event-crawler", json={"city": "Edinburgh"})
-    assert res1.status_code == 200
-    assert res1.json()["crawler_active"] is True
-    assert res1.json()["total_verified_events"] >= 200
+    assert res1.status_code == 400
+    assert "220" not in res1.text
 
     res2 = client.post("/v1/seeding/tastemaker-curation", json={"city": "Edinburgh"})
     assert res2.status_code == 200
@@ -821,17 +840,22 @@ def test_hyper_autonomous_discovery_signals(cfg):
     assert res3.status_code == 200
     assert res3.json()["editorial_scraper_active"] is True
 
+    # It branched on the word "munich" in the request and returned hand-written Isar
+    # river-surf telemetry; everything else got Edinburgh's.
     res4 = client.post("/v1/seeding/weather-tide-triggers", json={"city": "Edinburgh"})
     assert res4.status_code == 200
-    assert res4.json()["weather_engine_active"] is True
+    assert res4.json()["available"] is False
+    assert "Isar" not in res4.text
 
 def test_live_external_api_ingestion(cfg):
     client = TestClient(create_app(cfg))
+    # This one did make a real Open-Meteo call — and then fell back to a hardcoded 22.4 C on
+    # any failure, from a lat/lon table with exactly two cities in it. A failed fetch is a
+    # status now, not a plausible temperature.
     res = client.post("/v1/seeding/live-external-api-ingest", json={"city": "Edinburgh"})
     assert res.status_code == 200
-    assert res.json()["live_ingestion_complete"] is True
-    assert "temp_c" in res.json()["live_weather"]
-    assert len(res.json()["live_cultural_events"]) >= 1
+    assert res.json()["available"] is False
+    assert "22.4" not in res.text
 
 def test_nightlife_party_and_speakeasy_engine(cfg):
     client = TestClient(create_app(cfg))

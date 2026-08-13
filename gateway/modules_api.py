@@ -2430,6 +2430,21 @@ def build_router(auth) -> APIRouter:
         from modules.city import synergy
         return {"signals": synergy.mine(_graph(request), account_id=_actor(request, None))}
 
+    def _conditions_for(request: Request, city: str) -> dict:
+        """Live conditions for a match, or an honest reason there are none.
+
+        Deliberately never raises: a weather service being unreachable must not stop the
+        matcher answering the question it was actually asked, which is who else is up for
+        this.
+        """
+        if not city:
+            return {"available": False, "reason": "no city to look up"}
+        from modules.city import conditions
+        try:
+            return conditions.read(_graph(request), city)
+        except Exception as exc:
+            return {"available": False, "reason": f"conditions unavailable: {type(exc).__name__}"}
+
     @router.post("/synergy/instant-match")
     def instant_synergy_match_endpoint(request: Request, body: dict):
         interest = str(body.get("interest", "") or "").strip()
@@ -2517,15 +2532,18 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/synergy/ski-match")
     def ski_snowboard_match_endpoint(request: Request, body: dict):
-        """Skiing. The snow report is gone with the invented partner: `snow_depth_cm: 45` and
-        `fresh_powder_alert: True` were literals that fired in July, in Lisbon, for everyone.
-        There is no snow provider wired up, so the honest answer is that conditions are not
-        measured — not a number that happens to be plausible in February."""
+        """Skiing. `snow_depth_cm: 45` and `fresh_powder_alert: True` were literals that
+        fired in July, in Lisbon, for everyone.
+
+        There is still no snow-depth source — Open-Meteo gives temperature and
+        precipitation, not piste conditions — so what comes back is the weather that was
+        actually measured, and snow depth stays absent rather than plausible."""
         resort = str(body.get("resort", "") or "").strip()
-        return {**_synergy_match(request, body, resort or "skiing",
-                                 "Skiing & Snowboarding"),
-                "resort": resort, "conditions": {"available": False,
-                                                 "reason": "no snow report configured"}}
+        matched = _synergy_match(request, body, resort or "skiing", "Skiing & Snowboarding")
+        return {**matched, "resort": resort,
+                "conditions": _conditions_for(request, matched.get("city_label", "")),
+                "snow_depth_cm": None,
+                "snow_note": "No piste or snow-depth provider is configured."}
 
     @router.post("/synergy/rave-match")
     def rave_nightlife_match_endpoint(request: Request, body: dict):
@@ -2536,39 +2554,34 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/synergy/surf-match")
     def surf_swell_match_endpoint(request: Request, body: dict):
-        """Surfing. Same as skiing: the swell telemetry — 2.2 m at 14 s, 17.5 °C water — was
-        four constants, not a buoy. Anything the caller passes is echoed back as theirs;
-        nothing is asserted by the server."""
+        """Surfing. The swell telemetry — 2.2 m at 14 s, 17.5 °C water — was four constants,
+        not a buoy.
+
+        Open-Meteo's marine API is a real buoy-grade forecast and needs no key, so the wave
+        height is measured now. An inland city returns `no_data`, which is how "there is no
+        surf in Munich" gets said truthfully rather than by a hardcoded city list."""
         spot = str(body.get("spot", "") or "").strip()
-        reported = {k: body[k] for k in ("swell_m", "period_s", "wind") if k in body}
-        return {**_synergy_match(request, body, spot or "surfing",
-                                 "Surfing & Ocean Sports"),
-                "spot": spot,
-                "conditions": {"available": False,
-                               "reason": "no marine forecast configured",
-                               "reported_by_caller": reported}}
+        matched = _synergy_match(request, body, spot or "surfing", "Surfing & Ocean Sports")
+        return {**matched, "spot": spot,
+                "conditions": _conditions_for(request, matched.get("city_label", ""))}
 
     @router.get("/weather/radar")
-    def weather_radar_telemetry_endpoint(request: Request):
-        return {
-            "active_alerts": [
-                {"activity": "Surfing 🏄", "trigger": "2.2m Swell, 14s Period (Offshore Wind)", "status": "PRIME CONDITIONS"},
-                {"activity": "Alpine Skiing ⛷️", "trigger": "45cm Fresh Snowfall", "status": "POWDER ALERT"},
-                {"activity": "Golden Hour Sunset 🌅", "trigger": "Clear Sky, 24°C, 15% Clouds", "status": "IDEAL SUNSET"}
-            ],
-            "marine": {
-                "swell_m": 2.2,
-                "period_s": 14,
-                "wind_direction": "Offshore NNE",
-                "wind_speed_knots": 11
-            },
-            "atmosphere": {
-                "temp_c": 24,
-                "humidity_pct": 48,
-                "cloud_cover_pct": 15,
-                "uv_index": 6
-            }
-        }
+    def weather_radar_telemetry_endpoint(request: Request, city: str = ""):
+        """Conditions worth acting on.
+
+        Returned a 2.2 m swell at 14 s, 45 cm of fresh snowfall and a clear 24 °C sky -- as
+        constants, in July, in Lisbon, for everyone. It takes a city now because weather is
+        a fact about a place, and it reports what was measured.
+        """
+        from modules.city import conditions
+        caller = getattr(request.state, "caller", None) or {}
+        if not city and caller.get("account_id"):
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), caller["account_id"])
+        if not city:
+            return {"available": False, "needs_city": True, "triggers": [],
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.get("/developer/plugins")
     def list_developer_plugins_endpoint(request: Request):
@@ -3130,18 +3143,24 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/city/sync-live-events")
     def trigger_city_automated_data_ingestion_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
+        """Refresh everything external for one city.
+
+        Listed items ingested from the Google Places API, Eventbrite, Luma and Overpass.
+        Only the last of those is real here, and it is real now: places from OSM, listings
+        from subscribed feeds, conditions from Open-Meteo.
+        """
+        from modules.city import conditions, places
+        from modules.feeds import ingest
+        _operator(request)
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
         return {
-            "synced": True,
             "city": city,
-            "sources_crawled": [
-                {"source": "Google Places API", "items_ingested": 42, "type": "Venues & Roasteries"},
-                {"source": "Eventbrite & Luma Public API", "items_ingested": 18, "type": "Public Tech & Nomad Meets"},
-                {"source": "OpenStreetMap Overpass API", "items_ingested": 12, "type": "Crags & Surf Spots"},
-                {"source": "Open-Meteo Weather Radar API", "items_ingested": 1, "type": "Real-time Weather & Surf Conditions"}
-            ],
-            "total_ingested": 73,
-            "message": f"🌐 Automated Data Ingestion Complete for {city}: 73 live venues, events & surf spots auto-populated!"
+            "places": guard(lambda: places.seed(graph, city)),
+            "feeds": guard(lambda: ingest.sync_all(graph)),
+            "conditions": guard(lambda: conditions.read(graph, city, refresh=True)),
         }
 
     @router.post("/events/qr-checkin")
@@ -3541,15 +3560,25 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/city-bootstrap")
     def city_bootstrap_autoseeder_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        return {
-            "city_bootstrapped": True,
-            "city": city,
-            "curated_third_places": 48,
-            "active_event_feeds": ["Local Venue Calendars", "Running Club ICS", "Bouldering Meetups", "Specialty Coffee Roasters"],
-            "seed_density": "HIGH_DENSITY (Day-0 Ready)",
-            "message": f"🗺️ City '{city}' Bootstrapped! 48 curated third-places & 4 calendar feeds auto-seeded with zero cold start!"
-        }
+        """Everything a city can have on day zero, in one call.
+
+        Reported 48 curated third-places and four named calendar feeds for any city. This
+        does the two things that genuinely need no user: seed the places from OSM, and sync
+        whatever venue feeds have been subscribed. Each half reports separately, because a
+        city with places and no feeds is a real and useful state.
+        """
+        from modules.city import places
+        from modules.feeds import ingest
+        _operator(request)
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
+        seeded = guard(lambda: places.seed(graph, city))
+        feeds = guard(lambda: ingest.sync_all(graph))
+        return {"city": seeded.get("city", ""), "places": seeded, "feeds": feeds,
+                "empty": not seeded.get("added") and not seeded.get("updated"),
+                "attribution": "© OpenStreetMap contributors"}
 
     @router.post("/seeding/pioneer-pass")
     def pioneer_pass_ambassador_endpoint(request: Request, body: dict):
@@ -3648,17 +3677,20 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/auto-event-pipeline")
     def automated_event_pipeline_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        sources = body.get("sources", ["Luma Open Calendar", "Resident Advisor", "Eventbrite API", "Municipal Culture Feed", "Dice.fm"])
-        return {
-            "pipeline_synced": True,
-            "city": city,
-            "events_ingested": 284,
-            "connected_sources": sources,
-            "sync_frequency": "Every 60 Minutes (Autonomous)",
-            "categories_covered": ["Electronic Music", "Run Clubs", "Tech Meetups", "Art Exhibitions", "Wellness & Yoga"],
-            "message": f"📡 Automated Event Pipeline Synced! 284 live events ingested for {city} from {len(sources)} public APIs."
-        }
+        """Sync every subscribed listing source.
+
+        Said "284 events ingested" from Luma, Resident Advisor, Eventbrite and Dice.fm, none
+        of which this app integrates. What it does have is ICS venue feeds and Ticketmaster;
+        this runs both and reports what each actually returned.
+        """
+        from modules.feeds import ingest
+        _operator(request)
+        graph = _graph(request)
+        feeds = guard(lambda: ingest.sync_all(graph))
+        city = _seed_city(body)
+        tier2 = guard(lambda: ingest.sync_provider(graph, "ticketmaster", city=city)) \
+            if city else {"status": "no_city", "added": 0}
+        return {"city": city, "feeds": feeds, "provider": tier2}
 
     @router.post("/seeding/ai-outing-synthesizer")
     def ai_outing_synthesizer_endpoint(request: Request, body: dict):
@@ -3677,41 +3709,61 @@ def build_router(auth) -> APIRouter:
             "message": f"🤖 AI Outing Synthesizer Built '{theme}'! 3 verified stops scheduled with zero manual input."
         }
 
+    # ---- Seeding: a city that has something in it before anyone arrives ----
+    #
+    # These reported counts nobody counted -- "160 Verified Third Places", "284 events
+    # ingested", "48 curated third-places" -- identical for every city. They run against two
+    # real sources now, both free and neither needing a key: OpenStreetMap via Overpass for
+    # places, and Open-Meteo for weather, sea state and geocoding. Seeding writes to the
+    # graph, so a second run updates rather than doubles.
+
+    def _seed_city(body: dict) -> str:
+        return str(body.get("city", "") or "").strip()
+
     @router.post("/seeding/third-places-directory")
     def verified_third_places_directory_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        return {
-            "directory_enriched": True,
-            "city": city,
-            "total_third_places": 160,
-            "breakdown": {
-                "specialty_coffee_workspaces": 42,
-                "bouldering_and_calisthenics": 18,
-                "sunset_viewpoints_miradouros": 24,
-                "botanical_parks_and_greenhouses": 16,
-                "quiet_reading_libraries": 20,
-                "dog_friendly_social_parks": 40
-            },
-            "live_status": "100% OPERATIONAL (Live Opening Hours & Wi-Fi Speeds Verified)",
-            "message": f"📍 160 Verified Third Places Ingested for {city}! Specialty coffee, gyms, parks & reading spots populated."
-        }
+        """Pull a city's cafés, climbing walls, viewpoints, parks and libraries from
+        OpenStreetMap into the graph.
+
+        Claimed "160 Verified Third Places" with a breakdown down to 42 specialty coffee
+        workspaces and a `live_status` of "Live Opening Hours & Wi-Fi Speeds Verified".
+        Nothing was stored, nothing was verified, and every city got the same numbers.
+        Operator-only: it writes public rows and talks to a volunteer-run service.
+        """
+        from modules.city import places
+        _operator(request)
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: places.seed(
+            _graph(request), city, category=str(body.get("category", "") or "").strip(),
+            radius_m=int(body.get("radius_m", 4000) or 4000)))
+
+    @router.get("/city/places")
+    def city_places_endpoint(request: Request, city: str, category: str = ""):
+        """What is in this city. The read side, and what a new arrival actually sees."""
+        from modules.city import places
+        return guard(lambda: places.listing(_graph(request), city, category=category))
+
+    @router.get("/city/places/categories")
+    def city_place_categories_endpoint(request: Request):
+        from modules.city import places
+        return {"categories": places.categories()}
 
     @router.post("/seeding/weather-triggers")
     def weather_triggered_activity_generator_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        current_condition = body.get("condition", "Sunny 24°C with 4ft Ocean Swell").strip()
-        return {
-            "weather_triggers_evaluated": True,
-            "city": city,
-            "live_conditions": current_condition,
-            "auto_published_outings": [
-                {"activity": "Dawn Patrol Surf Squad @ Carcavelos (4ft Swell, Offshore Wind)", "status": "PUBLISHED_LIVE"},
-                {"activity": "Sunset Catamaran Golden Hour Co-Share @ Belém (Clear 24°C Sky)", "status": "PUBLISHED_LIVE"},
-                {"activity": "Rooftop Natural Wine Tasting @ Miradouro (Warm Evening)", "status": "PUBLISHED_LIVE"}
-            ],
-            "trigger_engine": "NOAA & Open-Meteo Autonomous Ingestion",
-            "message": f"☀️ Weather Trigger Engine Published 3 Spontaneous Outings for {city} based on live conditions!"
-        }
+        """What the conditions actually make worth doing.
+
+        Published a dawn-patrol surf squad at Carcavelos in a 4 ft swell, as a literal, for
+        every city. Each trigger now carries its reading and the threshold it fired on, so
+        it is checkable rather than asserted -- and a reading the API did not return
+        produces no trigger at all.
+        """
+        from modules.city import conditions
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.post("/hobbies/sports-outdoors")
     def sports_outdoors_hobby_hub_endpoint(request: Request, body: dict):
@@ -4051,20 +4103,23 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/zero-user-event-crawler")
     def zero_user_event_crawler_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "crawler_active": True,
-            "city": city,
-            "sources_aggregated": [
-                {"source": "Resident Advisor (RA)", "events_ingested": 42, "category": "Underground Electronic & Ambient Listening"},
-                {"source": "Luma (lu.ma)", "events_ingested": 38, "category": "Tech, Founder & Creative Salons"},
-                {"source": "Dice.fm & Eventbrite", "events_ingested": 84, "category": "Indie Live Music & Stand-Up Comedy"},
-                {"source": "Local Culture Substacks & City Calendars", "events_ingested": 56, "category": "Art Crawls, Farmers Markets & Film Revivals"}
-            ],
-            "total_verified_events": 220,
-            "quality_filter_pass_rate": "92% High-Vibe Approved",
-            "message": f"📡 Zero-User Autonomous Crawler Ingested 220 Verified Live Events in {city}! Instant rich content with 0 app users needed."
-        }
+        """Find a venue's calendar from its homepage and subscribe to it.
+
+        Listed 220 "verified events" aggregated from Resident Advisor, Luma, Dice.fm and
+        "Local Culture Substacks". The real crawler this app has is feed discovery: give it
+        a venue's website and it finds the ICS nobody knows the URL of.
+        """
+        from modules.feeds import ingest
+        _operator(request)
+        url = str(body.get("url", "") or "").strip()
+        if not url:
+            raise HTTPException(
+                status_code=400,
+                detail="a venue website to crawl — this discovers calendars, it does not "
+                       "scrape ticketing sites it has no agreement with")
+        return guard(lambda: ingest.discover_feeds(
+            _graph(request), url, add=bool(body.get("add")),
+            city=_seed_city(body)))
 
     @router.post("/seeding/tastemaker-curation")
     def tastemaker_hidden_gem_curation_endpoint(request: Request, body: dict):
@@ -4563,29 +4618,16 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/weather-tide-triggers")
     def weather_tide_activity_triggers_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            triggers = [
-                {"trigger": "River Surf Wave Telemetry", "condition": "Isar discharge 45 m³/s (Optimal Standing Wave)", "action": "Invites Englischer Garten dawn surf crew"},
-                {"trigger": "Biergarten Golden Sunset Window", "condition": "22°C Clear Sky · Sunset 20:45", "action": "Pre-reserves long wooden table at Chinesischer Turm"},
-                {"trigger": "Alps Panorama Stargazing Alert", "condition": "0% Cloud Cover · Mountain Föhn Wind", "action": "Auto-plans twilight bike ride to Perlacher Mugl lookout"}
-            ]
-            conditions = "22°C Sunny · 6 km/h Breeze · 0% Clouds"
-        else:
-            triggers = [
-                {"trigger": "Golden Hour Stargazing Alert", "condition": "0% clouds + Kp 4.8 Northern Lights index", "action": "Auto-invites 4-person dark-sky circle to Blackford Hill"},
-                {"trigger": "Glassy Waters Sea Kayak & Swim", "condition": "Wind < 5 knots + high tide at 18:30", "action": "Pre-notifies coastal water sports squad"},
-                {"trigger": "Terrace Natural Wine & Sun Soak", "condition": "Sunny 19°C afternoon window", "action": "Pre-reserves sunlit terrace table at Artisan Loft"}
-            ]
-            conditions = "19°C Sunny · 4 knots wind · 0% Cloud Cover"
-        return {
-            "weather_engine_active": True,
-            "city": city,
-            "current_conditions": conditions,
-            "spontaneous_weather_triggers": triggers,
-            "message": f"☀️ Weather & Tide-Triggered Spontaneous Activity Engine Synced for {city}! 3 climate-perfect outings generated."
-        }
+        """Same thing, including sea state.
+
+        The old version branched on the word "munich" in the request and returned
+        hand-written Isar river-surf telemetry; everything else got Edinburgh's.
+        """
+        from modules.city import conditions
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.post("/vision/intake")
     def ai_vision_poster_intake_endpoint(request: Request, body: dict):
@@ -4604,61 +4646,19 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/live-external-api-ingest")
     def live_external_api_ingestion_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        
-        lat, lon = ("48.1351", "11.5820") if ("munich" in city_lower or "münchen" in city_lower) else ("55.9533", "-3.1883")
-        wiki_page = "Englischer_Garten" if ("munich" in city_lower or "münchen" in city_lower) else "Edinburgh_Festival_Fringe"
-        
-        live_weather = {"temp_c": 22.4, "wind_kmh": 7.2, "status": "LIVE_TELEMETRY"}
-        try:
-            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
-            req = urllib.request.Request(url, headers={"User-Agent": "ConnectOS/1.0"})
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                cw = data.get("current_weather", {})
-                live_weather = {
-                    "temp_c": cw.get("temperature", 22.4),
-                    "wind_kmh": cw.get("windspeed", 7.2),
-                    "time": cw.get("time"),
-                    "status": "LIVE_HTTP_200_OK"
-                }
-        except Exception:
-            pass
+        """Live readings for a city, from the outside.
 
-        live_cultural_events = []
-        try:
-            wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{wiki_page}"
-            req1 = urllib.request.Request(wiki_url, headers={"User-Agent": "ConnectOS/1.0 (contact@connectos.app)"})
-            with urllib.request.urlopen(req1, timeout=3) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                live_cultural_events.append({
-                    "title": data.get("title", wiki_page.replace("_", " ")),
-                    "source": "Wikipedia REST API v1 (Live)",
-                    "extract": data.get("extract", "Renowned cultural hub.")[:140] + "...",
-                    "status": "INGESTED_LIVE"
-                })
-        except Exception:
-            live_cultural_events.append({
-                "title": wiki_page.replace("_", " "),
-                "source": "Wikipedia REST API (Cached Fallback)",
-                "extract": "Historic landmark park and cultural gathering space.",
-                "status": "CACHED_FALLBACK"
-            })
-
-        return {
-            "live_ingestion_complete": True,
-            "city": city,
-            "live_weather": live_weather,
-            "live_cultural_events": live_cultural_events,
-            "connected_apis": [
-                "Open-Meteo Live Marine/Atmospheric Telemetry",
-                "Wikipedia Live REST API v1",
-                "OpenStreetMap Overpass Geocoding Engine",
-                "Luma / RA Headless Discovery Feeds"
-            ],
-            "message": f"🌐 Real-Time Live External APIs Ingested for {city}! Live weather: {live_weather.get('temp_c')}°C, live festival encyclopedia synced."
-        }
+        This one did make a real Open-Meteo call -- and then fell back to a hardcoded
+        22.4 °C on any failure, from a lat/lon table with exactly two cities in it. The
+        geocoder places any city now, and a failed fetch is a status rather than a plausible
+        temperature.
+        """
+        from modules.city import conditions
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: conditions.read(_graph(request), city,
+                                             refresh=bool(body.get("refresh"))))
 
     @router.post("/nightlife/party-radar")
     def nightlife_party_and_club_radar_endpoint(request: Request, body: dict):
