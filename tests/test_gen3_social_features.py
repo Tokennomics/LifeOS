@@ -117,9 +117,13 @@ def test_ar_flares_and_copilot_icebreaker(cfg):
     assert res1.status_code == 200
     assert len(res1.json()["flares"]) >= 3
 
+    # Three sentences about a washed Ethiopian pour-over at Fabrica, for whatever name you
+    # sent — including one you typed yourself. An opener is only worth sending when it
+    # points at something you both actually published, so with no match there is nothing.
     res2 = client.post("/v1/ai/copilot-icebreaker", json={"partner_name": "Elena R."})
     assert res2.status_code == 200
-    assert len(res2.json()["icebreakers"]) >= 3
+    assert res2.json()["openers"] == []
+    assert res2.json()["grounded_in"] == []
 
 def test_gen3_core_pillars(cfg):
     client = TestClient(create_app(cfg))
@@ -127,9 +131,12 @@ def test_gen3_core_pillars(cfg):
     assert res1.status_code == 200
     assert res1.json()["recovery_tier"] == "HIGH_RECOVERY"
 
+    # Reported it had negotiated five calendars and confirmed Alex, Elena R., Marcus T. and
+    # Sophia K. There are no calendars, no booking and no payment rail — now stated.
     res2 = client.post("/v1/ai/squad-agent", json={"crew_id": "crw-001"})
     assert res2.status_code == 200
-    assert res2.json()["negotiated"] is True
+    assert res2.json()["plans"] == []
+    assert "calendar negotiation" in res2.json()["not_included"]
 
     res3 = client.get("/v1/city/live-globe")
     assert res3.status_code == 200
@@ -155,9 +162,11 @@ def test_karma_audio_itinerary_and_sos(cfg):
     assert res2.status_code == 200
     assert len(res2.json()["active_lounges"]) >= 2
 
+    # Fabrica, Miradouro and Lux Frágil — the same three venues for every user in every
+    # city, on an empty database.
     res3 = client.post("/v1/ai/micro-itinerary", json={"city": "Lisbon"})
     assert res3.status_code == 200
-    assert len(res3.json()["stops"]) >= 3
+    assert res3.json()["stops"] == [] and res3.json()["empty"] is True
 
     res4 = client.post("/v1/safety/emergency-sos", json={"location": "Miradouro"})
     assert res4.status_code == 200
@@ -241,9 +250,12 @@ def test_monetization_perks_and_subscriptions(cfg):
 
 def test_voice_brief_gifting_and_wellness(cfg):
     client = TestClient(create_app(cfg))
+    # There is no speech-to-text in this app and there never was: the endpoint defaulted
+    # the transcript for you and returned two venues that appeared in no note.
     res1 = client.post("/v1/ai/voice-brief", json={"transcript": "Coffee at 4 PM then drinks"})
     assert res1.status_code == 200
-    assert res1.json()["processed"] is True
+    assert res1.json()["speech_to_text"] is False
+    assert res1.json()["available"] is False        # no ANTHROPIC_API_KEY in tests
 
     res2 = client.post("/v1/ledger/gift-coffee", json={"recipient": "Elena R.", "amount": 3.80})
     assert res2.status_code == 200
@@ -300,9 +312,12 @@ def test_zero_friction_convenience_features(cfg):
     assert res1.status_code == 200
     assert res1.json()["checked_in"] is True
 
+    # `SPOT_PRE_RESERVED` for a Wednesday surf that did not exist. Joining is a public act
+    # with somebody expecting you; nothing does it on your behalf.
     res2 = client.post("/v1/ai/smart-autorsvp", json={"rule": "Wednesdays 7 AM Surf"})
     assert res2.status_code == 200
-    assert res2.json()["auto_rsvp_active"] is True
+    assert res2.json()["auto_joined"] is False
+    assert res2.json()["matches"] == []
 
     res3 = client.post("/v1/events/apple-wallet-pass", json={"event_name": "Rooftop Party"})
     assert res3.status_code == 200
@@ -421,9 +436,12 @@ def test_global_bridge_beacon_and_residency(cfg):
 
 def test_ai_butler_magic_split_and_house_swap(cfg):
     client = TestClient(create_app(cfg))
+    # The old handler substring-matched the request: "fringe" returned a five-stop
+    # Edinburgh week with Kirsty the master distiller, "munich" returned Felix the river
+    # surfer. Three hand-written itineraries behind a keyword check, called synthesis.
     res1 = client.post("/v1/ai/outing-butler", json={"weekend": "Saturday"})
     assert res1.status_code == 200
-    assert res1.json()["blueprint_generated"] is True
+    assert res1.json()["stops"] == []
 
     res2 = client.post("/v1/payments/one-tap-settle", json={"bill_total": "€84.00", "members_count": 4})
     assert res2.status_code == 200
@@ -505,7 +523,7 @@ def test_frontier_stack_all_four_engines(cfg):
 
     res4 = client.post("/v1/ai/agent-negotiator", json={"topic": "Weekend Sunset Surf"})
     assert res4.status_code == 200
-    assert res4.json()["negotiation_consensus_reached"] is True
+    assert res4.json()["plans"] == []
 
 def test_city_seeding_and_cold_start_engine(cfg):
     client = TestClient(create_app(cfg))
@@ -604,9 +622,14 @@ def test_frontier_voice_nfc_culture_and_dao(cfg):
     assert res2.status_code == 200
     assert res2.json()["handshake_verified"] is True
 
-    res3 = client.post("/v1/ai/culture-bridge-translator", json={"city": "Edinburgh"})
+    # Four Scottish words in a dict — braw, scran, dreich, wee — returned for every city on
+    # earth, with an etiquette tip about buying rounds. It is the one endpoint here that
+    # genuinely needs a key, so it reports unavailable rather than shrinking the lie.
+    res3 = client.post("/v1/ai/culture-bridge-translator",
+                       json={"city": "Edinburgh", "phrase": "it's a wee bit dreich"})
     assert res3.status_code == 200
-    assert res3.json()["translation_active"] is True
+    assert res3.json()["available"] is False
+    assert "braw" not in res3.text
 
     res4 = client.post("/v1/dao/community-treasury", json={"city": "Edinburgh"})
     assert res4.status_code == 200
@@ -614,58 +637,78 @@ def test_frontier_voice_nfc_culture_and_dao(cfg):
 
 def test_anti_boredom_and_genuine_fulfillment_engine(cfg):
     client = TestClient(create_app(cfg))
+    # Five quests with invented hosts and crew sizes.
     res1 = client.post("/v1/ai/spontaneous-quests", json={"city": "Edinburgh"})
     assert res1.status_code == 200
-    assert res1.json()["quests_generated"] is True
-    assert len(res1.json()["anti_boredom_quests"]) >= 3
+    assert res1.json()["quests"] == []
 
+    # `fulfillment_score: 87`, plus four ikigai pillars written on the user's behalf. A
+    # graph of meetups cannot measure whether a life is aligned with its purpose.
     res2 = client.post("/v1/ai/ikigai-compass", json={})
     assert res2.status_code == 200
-    assert res2.json()["ikigai_aligned"] is True
+    assert "fulfillment_score" not in res2.json()
+    assert res2.json()["no_score"]
 
-    res3 = client.post("/v1/ai/flow-mastery", json={"skill": "Ceramics"})
+    # Catriona the studio master, at the Broughton Craft Workshop, for any skill.
+    res3 = client.post("/v1/ai/flow-mastery", json={"city": "Lisbon", "skill": "Ceramics"})
     assert res3.status_code == 200
-    assert res3.json()["flow_lab_scheduled"] is True
+    assert res3.json()["matched"] is False
 
-    res4 = client.post("/v1/ai/meaningful-salons", json={"theme": "Courage"})
+    # `salon_confirmed: True` confirmed a six-person table hosted by Ewan the philosopher
+    # and sourdough baker. Nothing was booked and nobody was invited.
+    res4 = client.post("/v1/ai/meaningful-salons", json={"city": "Lisbon", "theme": "Courage"})
     assert res4.status_code == 200
-    assert res4.json()["salon_confirmed"] is True
+    assert res4.json()["confirmed"] is False
+    assert len(res4.json()["table_prompts"]) == 3      # a writing prompt is not a claim
 
 def test_proactive_butler_4_superhuman_engines(cfg):
     client = TestClient(create_app(cfg))
+    # Detected a "serendipity window" with a named friend 400 m away and a weather
+    # condition. There is no location sharing and no weather provider.
     res1 = client.post("/v1/ai/serendipity-engine", json={"user": "Robert"})
     assert res1.status_code == 200
-    assert res1.json()["serendipity_detected"] is True
+    assert res1.json()["overlaps"] == []
 
+    # Claimed to *detect* an emotional state, then matched the user with Isla, a quiet tea
+    # and book enthusiast. Nothing here reads a mood.
     res2 = client.post("/v1/ai/empathy-vibe-tuner", json={"vibe": "Overstimulated"})
     assert res2.status_code == 200
-    assert res2.json()["vibe_tuned"] is True
+    assert res2.json()["options"] == []
+    assert res2.json()["no_mood_detection"]
 
     res3 = client.post("/v1/ai/group-concierge", json={"group": "Lisbon Crew"})
     assert res3.status_code == 200
-    assert res3.json()["group_negotiation_complete"] is True
+    assert res3.json()["plans"] == []
 
+    # Three friends with invented notes and nudges, while the reconnect module that ranks
+    # real people by contact decay sat unread since Sprint 1.
     res4 = client.post("/v1/ai/friendship-compounding", json={})
     assert res4.status_code == 200
-    assert res4.json()["friendship_vault_active"] is True
+    assert res4.json()["people"] == []
 
 def test_butler_of_true_life_value(cfg):
     client = TestClient(create_app(cfg))
+    # Three more invented scores: longevity, life vision, and a "fulfilment ROI" that
+    # divided money by a number the app did not have.
     res1 = client.post("/v1/ai/vitality-circadian-flow", json={})
     assert res1.status_code == 200
-    assert res1.json()["vitality_engine_active"] is True
+    assert res1.json()["wearable_connected"] is False
+    assert "longevity_score" not in res1.json()
 
     res2 = client.post("/v1/ai/regret-minimization", json={})
     assert res2.status_code == 200
-    assert res2.json()["regret_minimization_active"] is True
+    assert "life_vision_score" not in res2.json()
+    assert res2.json()["goals"] == []
 
     res3 = client.post("/v1/ai/wealth-value-optimizer", json={})
     assert res3.status_code == 200
-    assert res3.json()["wealth_optimizer_active"] is True
+    assert res3.json()["splits"] == [] and res3.json()["no_roi"]
 
-    res4 = client.post("/v1/ai/stoic-presence-mirror", json={"moment": "Sunset tea", "gratitude": "Health"})
+    # It claimed to log a peak moment and stored nothing; `lifetime_gratitude_count` was a
+    # constant. Reflections are real rows now, so a written one comes back in the count.
+    res4 = client.post("/v1/ai/stoic-presence-mirror", json={"note": "Sunset tea"})
     assert res4.status_code == 200
-    assert res4.json()["reflection_logged"] is True
+    assert res4.json()["logged"] is True and res4.json()["total"] == 1
 
 def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
     client = TestClient(create_app(cfg))

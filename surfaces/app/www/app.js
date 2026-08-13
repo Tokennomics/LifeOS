@@ -550,7 +550,7 @@ function todayView() {
         <span class="badge" style="font-size:10px;">310m away · 280° W</span>
       </div>
     </div>
-    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">🤖 AI Social Co-Pilot: Generate Tailored Icebreakers</button>
+    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">Openers for a match ✍️</button>
     <div id="ai-icebreaker-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -666,7 +666,8 @@ function todayView() {
       <h2>🎙️ AI Voice Outing Brief & Social Micro-Gifting</h2>
       <span class="badge good" style="font-weight:bold;">Voice & Perks</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Convert 30-sec voice notes into instant outings or gift a specialty coffee to a friend!</p>
+    <p class="hint" style="margin-bottom:8px;">Paste a note you already have in text. There is no speech-to-text here — this reads words, it does not hear them.</p>
+    <input class="field" id="vb-note" placeholder="Coffee at four, then the viewpoint" style="margin-bottom:6px;">
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="convert-voice-brief">Convert Voice Brief 🎙️</button>
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Gift Coffee to Elena (€3.80) 🎁</button>
@@ -947,6 +948,9 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">NFC Tap-to-Synergy 📳</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="field" id="cb-phrase" placeholder="A phrase you heard and didn't get">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-dao-treasury">DAO Community Treasury 🏛️</button>
     </div>
     <div id="frontier-social-output" style="margin-top:10px;"></div>
@@ -962,8 +966,12 @@ function todayView() {
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-boredom-quest">I'm Bored (15m Quests) ⚡</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="align-ikigai-compass">Ikigai Fulfillment Compass 🧘</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Screen-Free Flow Lab 🌊</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Deep Dinner Salon 🕊️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Find a practice partner 🌊</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Find a dinner table 🕊️</button>
+    </div>
+    <div class="row2" style="margin-bottom:8px;">
+      <input class="field" id="fm-skill" placeholder="Skill to practise">
+      <input class="field" id="ms-theme" placeholder="Dinner theme">
     </div>
     <div id="fulfillment-butler-output" style="margin-top:10px;"></div>
   </div>`;
@@ -995,7 +1003,10 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="optimize-circadian-vitality">Circadian Vitality 🧬</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="track-regret-minimization">Regret Minimizer 🌟</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="optimize-life-wealth">Wealth & Memory ROI 💰</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Stoic Presence Mirror 🕊️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Write it down 🕊️</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="field" id="sr-note" placeholder="Something worth remembering (private, never scored)">
     </div>
     <div id="life-value-output" style="margin-top:10px;"></div>
   </div>`;
@@ -3570,6 +3581,57 @@ function wire(root) {
     renderMatch(res, "#instant-match-output");
   }));
 
+  /* ---- /ai/*: one renderer, because there was only ever one shape ----
+     Twenty handlers each pulled different invented keys out of a literal — Elena R.'s
+     icebreakers, a negotiation across five calendars, a fulfilment score of 87. They all
+     answer the same question now ("what is actually here?"), so they share a renderer that
+     shows the records, the empty state, and whether a model wrote the wording. */
+
+  const AI_LISTS = ["openers", "stops", "quests", "plans", "options", "matches", "people",
+                    "overlaps", "splits", "recent", "goals"];
+
+  function aiLine(item) {
+    if (typeof item === "string") return esc(item);
+    const title = item.what || item.title || item.name || item.handle || item.note
+                  || item.activity || "";
+    const when = item.when || item.starts_at || item.day || item.open_until || "";
+    const where = item.where || item.place || item.city_label || item.city || "";
+    const extra = [where, when ? whenLabel(when) : ""].filter(Boolean).join(" · ");
+    const going = item.going_count !== undefined ? `${item.going_count} going` : "";
+    return `<div><strong>${esc(String(title))}</strong></div>` +
+           (extra ? `<div style="font-size:11px; color:var(--muted);">${esc(extra)}</div>` : "") +
+           (going ? `<div style="font-size:11px; color:var(--muted);">${esc(going)}</div>` : "");
+  }
+
+  function renderAI(res, targetId, heading) {
+    const out = $(targetId);
+    if (!out) return;
+    if (res.available === false) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Not available</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.reason || "")}</div>
+      </div>`;
+      bindLater(out);
+      return;
+    }
+    const key = AI_LISTS.find((k) => Array.isArray(res[k]) && res[k].length);
+    const items = key ? res[key] : [];
+    const notes = ["no_score", "no_roi", "no_mood_detection", "why_not", "next_step",
+                   "suggestion", "safety_note"]
+      .map((k) => res[k]).filter(Boolean);
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(heading || "")}</div>
+        ${items.map((item) => `<div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">${aiLine(item)}</div>`).join("")}
+        ${notes.map((n) => `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(n)}</div>`).join("")}
+        ${res.assisted === false ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">Assembled from your graph — no model key set.</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  const aiCity = () => (($("#sy-city") && $("#sy-city").value.trim())
+                        || ($("#dt-city") && $("#dt-city").value.trim()) || "");
+
   /* ---- Dating: discovery, then a two-sided agreement ----
      The old card ran a "7-Factor Match Engine" over seven constants and handed back Elena
      R., 1.2 km away, then let you "Both Agree" with her — a confirmed meeting, an ETA and
@@ -3766,60 +3828,18 @@ function wire(root) {
     toast(res.message || `Published '${name}' to ConnectOS Developer Hub! 🚀`);
   }));
 
-  on("[data-act=gen-ai-icebreakers]", () => act(async () => {
-    const res = await api("/v1/ai/copilot-icebreaker", { partner_name: "Elena R.", shared_hobby: "Specialty Coffee & Bouldering" });
-    const out = $("#ai-icebreaker-output");
-    if (!out) return;
-    const ibs = res.icebreakers || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">🤖 Tailored Icebreakers for ${esc(res.partner_name)}:</div>
-        ${ibs.map(ib => `
-          <div style="font-size:12px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
-            <span>${esc(ib)}</span>
-            <button class="ghost" style="font-size:10px; padding:2px 8px; margin-left:6px;" onclick="navigator.clipboard.writeText('${esc(ib.replace(/'/g, "\\'"))}'); toast('Icebreaker copied! 💬');">Copy 📲</button>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }, "AI Social Co-Pilot Icebreakers Generated! 🤖"));
-
+  on("[data-act=gen-ai-icebreakers]", (el) => act(async () => {
+    const target = el.dataset.target || "";
+    renderAI(await api("/v1/ai/copilot-icebreaker", { target_account_id: target, city: aiCity() }),
+             "#ai-icebreaker-output", "Openers");
+  }));
   on("[data-act=launch-squad-agent]", () => act(async () => {
-    const res = await api("/v1/ai/squad-agent", { crew_id: "crw-001", activity: "Sunset Tapas & Bouldering" });
-    const out = $("#squad-agent-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🤖 Autonomous Squad Agent Confirmed:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.activity)}</strong> (${esc(res.time_slot)})</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Members Confirmed: ${res.confirmed_members.join(", ")}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Spot: ${esc(res.reservation_status)} · Split: ${esc(res.expense_split)}</div>
-      </div>
-    `;
-  }, "Autonomous Squad Agent Negotiated Outing! 🤖"));
-
-  // The ZK "proof" handler was here. It told the user "🔐 ZK-SNARK Proof Verified ·
-  // AGE_OVER_18 · Zero Identity Disclosed" after calling an endpoint that verified nothing
-  // and returned a random string. Telling somebody they are age-verified when nothing
-  // happened is the worst thing in the app to get wrong.
-
+    renderAI(await api("/v1/ai/squad-agent", {}), "#squad-agent-output", "Your crew's plans");
+  }));
   on("[data-act=gen-micro-itinerary]", () => act(async () => {
-    const res = await api("/v1/ai/micro-itinerary", { city: "Lisbon", vibe: "Coffee to Sunset Drinks & Rave" });
-    const out = $("#karma-concierge-output");
-    if (!out) return;
-    const stops = res.stops || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:6px;">🗺️ Spontaneous Micro-Itinerary (${esc(res.total_duration)}):</div>
-        ${stops.map(st => `
-          <div style="font-size:12.5px; margin-bottom:4px; color:var(--text);">
-            <strong>Stop ${st.step} (${esc(st.time)}):</strong> ${esc(st.activity)} @ <em>${esc(st.venue)}</em>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }, "Spontaneous Micro-Itinerary Generated! 🗺️"));
-
+    renderAI(await api("/v1/ai/micro-itinerary", { city: aiCity() }),
+             "#karma-concierge-output", "Next day and a half");
+  }));
   on("[data-act=trigger-sos]", () => act(async () => {
     const res = await api("/v1/safety/emergency-sos", { location: "Miradouro Rooftop, Lisbon" });
     const out = $("#karma-concierge-output");
@@ -3923,19 +3943,10 @@ function wire(root) {
   }, "Explorer Pro Subscription Active (€9.99/mo)! 💳"));
 
   on("[data-act=convert-voice-brief]", () => act(async () => {
-    const res = await api("/v1/ai/voice-brief", { transcript: "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!" });
-    const out = $("#voice-gift-output");
-    if (!out) return;
-    const stops = res.extracted_stops || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎙️ AI Voice Outing Brief Created:</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">"${esc(res.transcript)}"</div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})`).join(" ➔ ")}</div>
-      </div>
-    `;
-  }, "AI Voice Brief Converted to Outing Card! 🎙️"));
-
+    const transcript = $("#vb-note") ? $("#vb-note").value.trim() : "";
+    if (!transcript) { toast("Paste or type the note first."); return; }
+    renderAI(await api("/v1/ai/voice-brief", { transcript }), "#voice-gift-output", "Stops in that note");
+  }));
   on("[data-act=gift-friend-coffee]", () => act(async () => {
     const res = await api("/v1/ledger/gift-coffee", { recipient: "Elena R.", item: "Specialty Flat White", amount: 3.80 });
     const out = $("#voice-gift-output");
@@ -4288,19 +4299,8 @@ function wire(root) {
   }, "Creator Residency Awarded! 💎"));
 
   on("[data-act=gen-ai-blueprint]", () => act(async () => {
-    const res = await api("/v1/ai/outing-butler", { weekend: "Saturday & Sunday" });
-    const out = $("#ai-butler-output");
-    if (!out) return;
-    const schedule = (res.curated_schedule || []).map((s) => `• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} (with ${s.crew.join(", ")})`).join("<br>");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
-        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:6px;">🤖 Perfect Weekend Blueprint Generated (${esc(res.weekend)}):</div>
-        <div style="font-size:12.5px; line-height:1.5; margin-bottom:6px;">${schedule}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Est. Cost: ${esc(res.estimated_cost)}</div>
-      </div>
-    `;
-  }, "AI Weekend Blueprint Generated! 🤖"));
-
+    renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#ai-butler-output", "What's on");
+  }));
   on("[data-act=settle-one-tap-split]", () => act(async () => {
     const res = await api("/v1/payments/one-tap-settle", { bill_total: "€84.00", members_count: 4 });
     const out = $("#ai-butler-output");
@@ -4490,19 +4490,8 @@ function wire(root) {
   }, "Global Edge Mesh Replicated! 🌍"));
 
   on("[data-act=negotiate-ai-agents]", () => act(async () => {
-    const res = await api("/v1/ai/agent-negotiator", { topic: "Weekend Sunset Surf & Dinner" });
-    const out = $("#frontier-stack-output");
-    if (!out) return;
-    const agents = res.participating_agents || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 Multi-Agent Consensus Confirmed (${agents.length} Agents):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Slot: <strong>${esc(res.unanimous_slot)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Venue: ${esc(res.selected_venue)} · Split: ${esc(res.split_agreement)}</div>
-      </div>
-    `;
-  }, "AI Multi-Agent Consensus Reached! 🤖"));
-
+    renderAI(await api("/v1/ai/agent-negotiator", {}), "#frontier-stack-output", "Your crew's plans");
+  }));
   on("[data-act=seed-city-bootstrap]", () => act(async () => {
     const res = await api("/v1/seeding/city-bootstrap", { city: "Lisbon" });
     const out = $("#seeding-output");
@@ -4770,20 +4759,8 @@ function wire(root) {
   }, "Lisbon Festas & Web Summit Radar Synced! 🐟"));
 
   on("[data-act=sync-ai-butler-landmarks]", () => act(async () => {
-    const res = await api("/v1/ai/outing-butler", { weekend: "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting" });
-    const out = $("#landmark-radar-output");
-    if (!out) return;
-    const sched = res.curated_schedule || [];
-    const items = sched.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} @ <em>${esc(s.venue)}</em></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🤖 AI Outing Butler Landmark Blueprint (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Cost: ${esc(res.estimated_cost)} · Group Split Synchronized</div>
-      </div>
-    `;
-  }, "AI Outing Butler Synced with Landmark Festivals! 🤖"));
-
+    renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#landmark-radar-output", "What's on");
+  }));
   on("[data-act=open-voice-huddle]", () => act(async () => {
     const res = await api("/v1/voice/crew-huddle", { event_name: "Edinburgh Festival Fringe Crowds" });
     const out = $("#frontier-social-output");
@@ -4816,19 +4793,19 @@ function wire(root) {
   }, "NFC Tap-to-Synergy Handshake Verified! 📳"));
 
   on("[data-act=translate-local-culture]", () => act(async () => {
-    const res = await api("/v1/ai/culture-bridge-translator", { city: "Edinburgh" });
+    const phrase = $("#cb-phrase") ? $("#cb-phrase").value.trim() : "";
+    if (!phrase) { toast("Which phrase?"); return; }
+    const res = await api("/v1/ai/culture-bridge-translator", { phrase, city: aiCity() });
     const out = $("#frontier-social-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🗣️ Culture & Dialect Bridge (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Phrase: <em>"${esc(res.original_phrase)}"</em></div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth); margin-bottom:4px;">➔ ${esc(res.translation)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Etiquette Tip: ${esc(res.cultural_etiquette_tip)}</div>
-      </div>
-    `;
-  }, "Local Culture & Dialect Translated! 🗣️"));
-
+    out.innerHTML = res.available
+      ? `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:13px; margin-bottom:6px;">${esc(res.translation)}</div>
+           ${res.etiquette ? `<div style="font-size:12px; color:var(--muted);">${esc(res.etiquette)}</div>` : ""}
+           ${Object.entries(res.glossary || {}).map(([k, v]) => `<div style="font-size:12px;"><strong>${esc(k)}</strong> — ${esc(v)}</div>`).join("")}
+         </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:12px; color:var(--muted);">${esc(res.reason)}</div>`;
+  }));
   on("[data-act=view-dao-treasury]", () => act(async () => {
     const res = await api("/v1/dao/community-treasury", { city: "Edinburgh" });
     const out = $("#frontier-social-output");
@@ -4845,183 +4822,49 @@ function wire(root) {
   }, "Community DAO Treasury Synced! 🏛️"));
 
   on("[data-act=trigger-boredom-quest]", () => act(async () => {
-    const res = await api("/v1/ai/spontaneous-quests", { city: "Edinburgh", time_available: "Right Now (Next 15 Mins)" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const quests = res.anti_boredom_quests || [];
-    const items = quests.map(q => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(q.title)}</strong> (${esc(q.eta)})<br><span style="font-size:11px; color:var(--growth);">Host: ${esc(q.host)} · Crew: ${q.crew_size} ready</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">⚡ Instant 15-Min Anti-Boredom Quests (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "3 Instant Spontaneous Quests Ready! ⚡"));
-
+    renderAI(await api("/v1/ai/spontaneous-quests", { city: aiCity() }),
+             "#fulfillment-butler-output", "Happening soon");
+  }));
   on("[data-act=align-ikigai-compass]", () => act(async () => {
-    const res = await api("/v1/ai/ikigai-compass", {});
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const sched = res.recommended_weekly_purpose_schedule || [];
-    const items = sched.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.day)}</strong>: ${esc(s.focus)} (<em>${esc(s.vibe)}</em>)</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Ikigai Purpose Compass (${res.fulfillment_score}% Alignment):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: Screen-free, deep-flow weekly fulfillment blueprint active</div>
-      </div>
-    `;
-  }, "Ikigai Purpose Blueprint Activated! 🧘"));
-
+    renderAI(await api("/v1/ai/ikigai-compass", {}), "#fulfillment-butler-output", "What you have been doing");
+  }));
   on("[data-act=book-flow-mastery]", () => act(async () => {
-    const res = await api("/v1/ai/flow-mastery", { skill: "Ceramics Wheel Throwing & Glaze Chemistry" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌊 Screen-Free Flow Lab Scheduled (${esc(res.duration)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Skill: <strong>${esc(res.skill)}</strong> with ${esc(res.flow_partner)}</div>
-        <div style="font-size:12px; margin-bottom:4px;">Creation: ${esc(res.hands_on_creation)} @ ${esc(res.venue)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.screen_free_guarantee)}</div>
-      </div>
-    `;
-  }, "Screen-Free Flow Lab Booked! 🌊"));
-
+    const skill = $("#fm-skill") ? $("#fm-skill").value.trim() : "";
+    renderMatch(await api("/v1/ai/flow-mastery", { skill, city: aiCity() }), "#fulfillment-butler-output");
+  }));
   on("[data-act=book-meaningful-salon]", () => act(async () => {
-    const res = await api("/v1/ai/meaningful-salons", { theme: "Courage, Transition & The Next Chapter" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const prompts = res.table_prompts || [];
-    const items = prompts.map(p => `<div style="margin-top:2px; font-style:italic;">"${esc(p)}"</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ ${esc(res.format)}:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> @ ${esc(res.venue)}</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Anti-Small-Talk Prompts:<br>${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Host: ${esc(res.host)} · Split: ${esc(res.split)}</div>
-      </div>
-    `;
-  }, "Meaningful Conversation Salon Booked! 🕊️"));
-
+    const theme = $("#ms-theme") ? $("#ms-theme").value.trim() : "";
+    renderMatch(await api("/v1/ai/meaningful-salons", { theme, city: aiCity() }), "#fulfillment-butler-output");
+  }));
   on("[data-act=predict-serendipity]", () => act(async () => {
-    const res = await api("/v1/ai/serendipity-engine", { user: "Robert" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    const friend = res.nearby_friend || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🔮 Proactive Serendipity Opportunity:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Window: <strong>${esc(res.opportunity_window)}</strong> (${esc(res.weather_condition)})</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Friend Proximity: <strong>${esc(friend.name)}</strong> (${esc(friend.distance)}) · ${esc(friend.availability)}</div>
-        <div style="font-size:12px; font-style:italic;">Suggestion: ${esc(res.proactive_suggestion)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Action: ${esc(res.one_tap_action)}</div>
-      </div>
-    `;
-  }, "Proactive Serendipity Predicted! 🔮"));
-
+    renderAI(await api("/v1/ai/serendipity-engine", {}), "#butler-4-output", "Overlaps right now");
+  }));
   on("[data-act=tune-empathy-vibe]", () => act(async () => {
-    const res = await api("/v1/ai/empathy-vibe-tuner", { vibe: "Slightly Overstimulated & Reflective" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧠 Empathy Vibe Tuner (${esc(res.detected_state)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Environment: <strong>${esc(res.tailored_environment)}</strong> @ ${esc(res.venue)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.social_battery_protection)} · Companion: ${esc(res.companion_match)}</div>
-        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Restorative Activity: ${esc(res.soothing_activity)}</div>
-      </div>
-    `;
-  }, "Empathy Vibe Tuned! 🧠"));
-
+    renderAI(await api("/v1/ai/empathy-vibe-tuner", { city: aiCity(), max_group: 4 }),
+             "#butler-4-output", "Small enough to be quiet");
+  }));
   on("[data-act=auto-group-concierge]", () => act(async () => {
-    const res = await api("/v1/ai/group-concierge", { group: "Weekend Lisbon Crew (4 People)" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🗺️ Group Concierge Negotiation Complete:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Time: <strong>${esc(res.mutually_free_slot)}</strong> @ <strong>${esc(res.booked_venue)}</strong></div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Dietary Consensus: ${esc(res.dietary_consensus)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Pre-Authorized Split: ${esc(res.apple_pay_split_pre_authorized)} · Calendar Invites Sent</div>
-      </div>
-    `;
-  }, "Autonomous Group Dining Booked! 🗺️"));
-
+    renderAI(await api("/v1/ai/group-concierge", {}), "#butler-4-output", "Your crew's plans");
+  }));
   on("[data-act=view-friendship-vault]", () => act(async () => {
-    const res = await api("/v1/ai/friendship-compounding", {});
-    const out = $("#butler-4-output");
-    if (!out) return;
-    const stones = res.meaningful_milestones || [];
-    const items = stones.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.friend)}</strong>: ${esc(s.note)} ➔ <span style="color:var(--growth); font-weight:bold;">${esc(s.nudge)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Friendship Compounding Vault (${res.compounding_score}% Score):</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Privacy: ${esc(res.privacy)}</div>
-      </div>
-    `;
-  }, "Friendship Vault Synced! 🌱"));
-
+    renderAI(await api("/v1/ai/friendship-compounding", {}), "#butler-4-output", "Not seen in a while");
+  }));
   on("[data-act=optimize-circadian-vitality]", () => act(async () => {
-    const res = await api("/v1/ai/vitality-circadian-flow", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const c = res.circadian_rhythm_sync || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧬 Circadian Vitality Flow (${res.longevity_score}% Longevity Score):</div>
-        <div style="font-size:12px; margin-bottom:2px;">☀️ Morning Lux: ${esc(c.morning_lux_window)}</div>
-        <div style="font-size:12px; margin-bottom:2px;">🏃 Zone-2 Movement: ${esc(c.optimal_zone2_window)}</div>
-        <div style="font-size:12px; margin-bottom:2px;">🌙 Melatonin Wind-Down: ${esc(c.melatonin_wind_down)} ➔ ${esc(c.recommended_sleep_time)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Sauna Contrast: ${esc(res.weekly_contrast_therapy)}</div>
-      </div>
-    `;
-  }, "Circadian Vitality Protocol Optimized! 🧬"));
-
+    renderAI(await api("/v1/ai/vitality-circadian-flow", {}), "#life-value-output", "Sleep and rhythm");
+  }));
   on("[data-act=track-regret-minimization]", () => act(async () => {
-    const res = await api("/v1/ai/regret-minimization", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const quests = res.top_aspirational_quests || [];
-    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.quest)}</strong> <span class="badge good" style="font-size:10px;">${esc(q.status)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(q.milestone)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌟 Regret Minimization Framework (${res.life_vision_score}% Vision):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">"${esc(res.be_present_reminder)}"</div>
-      </div>
-    `;
-  }, "Regret Minimization Quests Synced! 🌟"));
-
+    renderAI(await api("/v1/ai/regret-minimization", {}), "#life-value-output", "Your goals");
+  }));
   on("[data-act=optimize-life-wealth]", () => act(async () => {
-    const res = await api("/v1/ai/wealth-value-optimizer", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const allocs = res.optimized_allocations || [];
-    const items = allocs.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.category)}</strong>: <span style="color:var(--growth); font-weight:bold;">${esc(a.roi || a.savings)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💰 Wealth & Memory ROI Optimizer:</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.total_annual_memory_dividends)}</div>
-      </div>
-    `;
-  }, "Wealth & Memory ROI Optimized! 💰"));
-
+    renderAI(await api("/v1/ai/wealth-value-optimizer", {}), "#life-value-output", "What outings cost");
+  }));
   on("[data-act=log-stoic-reflection]", () => act(async () => {
-    const res = await api("/v1/ai/stoic-presence-mirror", { moment: "Sunset tea with good friends overlooking the sea", gratitude: "Health & genuine companionship" });
-    const out = $("#life-value-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Stoic Daily Presence Mirror (#${res.lifetime_gratitude_count}):</div>
-        <div style="font-size:13px; margin-bottom:2px;">Daily Peak Moment: <strong>"${esc(res.daily_peak_moment)}"</strong></div>
-        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Gratitude Anchor: ${esc(res.gratitude_anchor)}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">Wisdom: "${esc(res.stoic_wisdom)}" (${esc(res.privacy)})</div>
-      </div>
-    `;
-  }, "Stoic Reflection Logged! 🕊️"));
-
+    const note = $("#sr-note") ? $("#sr-note").value.trim() : "";
+    const res = await api("/v1/ai/stoic-presence-mirror", note ? { note } : {});
+    if ($("#sr-note")) $("#sr-note").value = "";
+    renderAI({ recent: res.recent || [], suggestion: res.privacy || "", assisted: true },
+             "#life-value-output", res.logged ? `Written down (${res.total})` : "Yours so far");
+  }));
   on("[data-act=crawl-zero-user-events]", () => act(async () => {
     const res = await api("/v1/seeding/zero-user-event-crawler", { city: "Edinburgh" });
     const out = $("#zero-user-seeding-output");

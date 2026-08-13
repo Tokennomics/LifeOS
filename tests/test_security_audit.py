@@ -584,7 +584,15 @@ def test_the_pwa_escapes_every_value_it_renders_from_a_response():
     app_js = (pathlib.Path(__file__).resolve().parent.parent
               / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
     assert "${esc(c.name)} (€${Number(c.amount).toFixed(2)})" in app_js
-    assert "${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})" in app_js
+
+    # The second site was the voice-brief render, which interpolated `s.time`, `s.place`
+    # and `s.activity` from a response. That handler is gone: it displayed two hardcoded
+    # Lisbon venues, and the endpoint now reads a real transcript. Its replacement is the
+    # shared `/ai/*` renderer, and the day those fields carry a real place name is the day
+    # the escaping matters — so the check follows the code rather than being dropped.
+    assert "function aiLine(item)" in app_js
+    for rendered in ("esc(String(title))", "esc(extra)", "esc(going)"):
+        assert rendered in app_js, f"aiLine renders {rendered} unescaped"
 
 
 def test_the_pwa_builds_no_link_target_out_of_response_data():

@@ -2692,20 +2692,30 @@ def build_router(auth) -> APIRouter:
             "message": "👓 AR Spatial Radar Active: 3 real-world social beacons rendered in your 3D view!"
         }
 
+    # ---- /ai/*: grounded in the graph, better with a key -------------------
+    #
+    # None of these called a model. They returned prose -- Elena R.'s icebreakers, three
+    # Lisbon venues, a negotiation across five calendars nobody had. They run over
+    # modules/ai/assist.py now, which gathers what the graph actually holds and generates
+    # only over that; `assisted` says whether the wording came from a model or was
+    # assembled. Nothing 500s without a key.
+
+    def _ai_caller(request: Request) -> str:
+        caller = getattr(request.state, "caller", None) or {}
+        return caller.get("account_id", "") or ""
+
     @router.post("/ai/copilot-icebreaker")
     def generate_ai_icebreaker_endpoint(request: Request, body: dict):
-        partner_name = body.get("partner_name", "Elena R.").strip()
-        shared_hobby = body.get("shared_hobby", "Specialty Coffee & Bouldering").strip()
-        return {
-            "partner_name": partner_name,
-            "shared_hobby": shared_hobby,
-            "icebreakers": [
-                f"☕ 'Hey {partner_name}! Saw you're into specialty coffee too — have you tried the washed Ethiopian pour-over at Fabrica?'",
-                f"🧗 'Hi {partner_name}! Down for a quick bouldering session at Monsanto Crag before coffee?'",
-                f"🌅 'Hey {partner_name}! Going to tonight's sunset drinks at Miradouro Rooftop?'"
-            ],
-            "message": f"🤖 AI Social Co-Pilot: 3 tailored icebreakers generated for {partner_name}!"
-        }
+        """Openers built from what the two of you actually published.
+
+        Was three sentences about a washed Ethiopian pour-over at Fabrica, returned for
+        whatever `partner_name` you sent -- including a name you typed yourself.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.icebreakers(
+            _graph(request), account_id=_ai_caller(request),
+            target_account_id=str(body.get("target_account_id", "") or "").strip(),
+            city=str(body.get("city", "") or "").strip(), claude=_claude(request)))
 
     @router.post("/biometrics/circadian-sync")
     def biometrics_circadian_sync_endpoint(request: Request, body: dict):
@@ -2723,18 +2733,16 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/squad-agent")
     def autonomous_squad_agent_endpoint(request: Request, body: dict):
-        crew_id = body.get("crew_id", "crw-001").strip()
-        activity = body.get("activity", "Sunset Tapas & Bouldering").strip()
-        return {
-            "negotiated": True,
-            "crew_id": crew_id,
-            "activity": activity,
-            "confirmed_members": ["You", "Alex", "Elena R.", "Marcus T.", "Sophia K."],
-            "time_slot": "Tonight @ 7:30 PM",
-            "reservation_status": "CONFIRMED (Miradouro Rooftop)",
-            "expense_split": "€15.00/person (Auto-Split Active)",
-            "message": f"🤖 Autonomous Squad Agent: Negotiated 5 calendars & reserved spot at Miradouro Rooftop for {activity}!"
-        }
+        """What the crew is actually going to.
+
+        Reported "negotiated 5 calendars", a confirmed table and an auto-split, naming Alex,
+        Elena R., Marcus T. and Sophia K. There are no calendars, no booking integration and
+        no payment rail; `not_included` now says so out loud.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.crew_plan(
+            _graph(request), str(body.get("crew_id", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.get("/city/live-globe")
     def get_live_3d_globe_telemetry_endpoint(request: Request):
@@ -2791,19 +2799,12 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/micro-itinerary")
     def generate_micro_itinerary_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        vibe = body.get("vibe", "Coffee to Sunset Drinks & Rave").strip()
-        return {
-            "city": city,
-            "vibe": vibe,
-            "stops": [
-                {"step": 1, "time": "6:30 PM", "venue": "Fabrica Coffee Roasters", "activity": "Specialty Coffee Pour-Over ☕"},
-                {"step": 2, "time": "7:45 PM", "venue": "Miradouro Rooftop Bar", "activity": "Sunset Cocktails & Tapas 🍷"},
-                {"step": 3, "time": "10:00 PM", "venue": "Lux Frágil", "activity": "Underground Electronic Music Set 🪩"}
-            ],
-            "total_duration": "3.5 Hours",
-            "message": f"🗺️ Micro-Itinerary Generated for {city} ({vibe})!"
-        }
+        """The next day and a half, out of things that exist. Was Fabrica, Miradouro and Lux
+        Frágil -- the same three venues for every user in every city."""
+        from modules.ai import assist
+        return guard(lambda: assist.itinerary(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/safety/emergency-sos")
     def trigger_emergency_sos_endpoint(request: Request, body: dict):
@@ -3021,17 +3022,14 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/voice-brief")
     def process_voice_note_brief_endpoint(request: Request, body: dict):
-        audio_transcript = body.get("transcript", "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!").strip()
-        return {
-            "processed": True,
-            "transcript": audio_transcript,
-            "extracted_stops": [
-                {"time": "16:00", "place": "Fabrica Coffee Roasters", "activity": "Specialty Coffee"},
-                {"time": "18:30", "place": "Miradouro Rooftop Bar", "activity": "Sunset Drinks"}
-            ],
-            "outing_card_created": True,
-            "message": "🎙️ AI Voice Note Summarized: 2 stops extracted and converted into an instant squad outing!"
-        }
+        """Read a transcript into stops.
+
+        There is no speech-to-text here and there never was: the endpoint defaulted the
+        transcript for you and returned two venues that appeared in no note. Bring text.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.extract_plan(
+            str(body.get("transcript", "") or ""), claude=_claude(request)))
 
     @router.post("/ledger/gift-coffee")
     def gift_coffee_or_drink_endpoint(request: Request, body: dict):
@@ -3272,45 +3270,17 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/outing-butler")
     def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
-        weekend = body.get("weekend", "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting").strip()
-        city = body.get("city", "Edinburgh" if "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower() or "fringe" in weekend.lower() or "tattoo" in weekend.lower() else ("Munich" if "munich" in weekend.lower() else "Lisbon")).strip()
-        
-        if any(k in (weekend + " " + city).lower() for k in ["edinburgh", "endivurgh", "fringe", "tattoo", "highland", "gin"]):
-            schedule = [
-                {"time": "Wednesday 06:30 PM", "activity": "🍸 Edinburgh Gin Distillery Tour & Master Botanical Tasting Flight", "venue": "Edinburgh Gin West End Distillery (Rutland Place)", "crew": ["Kirsty (Master Distiller)", "Callum", "Fiona"]},
-                {"time": "Thursday 03:00 PM – 11:00 PM", "activity": "🎭 Edinburgh Festival Fringe 3-Show Comedy & Theatre Marathon", "venue": "Pleasance Courtyard ➔ Underbelly Cowgate ➔ Assembly Hall", "crew": ["Hamish (Fringe Host)", "Catriona", "Ewan", "Isla"]},
-                {"time": "Friday 08:30 PM", "activity": "🏰 The Royal Edinburgh Military Tattoo @ Edinburgh Castle Esplanade", "venue": "Edinburgh Castle Esplanade (Castlehill)", "crew": ["Alastair (Highland Historian)", "Morag", "Craig", "You"]},
-                {"time": "Saturday 10:30 AM", "activity": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Highland Games (Caber Toss, Tug-of-War & Bagpipes)", "venue": "Highland Games Gathering Arena", "crew": ["Gregor (Highland Games Athlete)", "Maisie", "Lachlan"]},
-                {"time": "Sunday 01:00 PM", "activity": "⛰️ Arthur's Seat Summit & Sheep Heid Inn 1360 AD Fireside Roast", "venue": "Holyrood Park Summit ➔ The Sheep Heid Inn (Duddingston)", "crew": ["Hamish", "Catriona", "You"]}
-            ]
-            total_split = "£38.50 (split)"
-            msg = "🏴󠁧󠁢󠁳󠁣󠁴󠁿 AI Outing Butler Synthesized your Ultimate Edinburgh Festival, Tattoo, Highland Games & Gin Tasting Week! 5 world-class Scottish experiences reserved."
-        elif "munich" in city.lower() or "munich" in weekend.lower():
-            schedule = [
-                {"time": "08:30 AM", "activity": "🏄 Eisbachwelle River Surfing & Specialty Flat White", "venue": "Eisbach River Wave @ Englischer Garten ➔ Man Versus Machine Coffee", "crew": ["Felix (River Surfer)", "Lukas (Barista)"]},
-                {"time": "01:00 PM", "activity": "🥨 Viktualienmarkt Farmers Market & Communal Feast", "venue": "Viktualienmarkt Organic Market Stalls", "crew": ["Hanna (Foodie)", "Maximilian (Chef)", "Elena"]},
-                {"time": "04:30 PM", "activity": "🚴 Isar River Gravel Ride & Flaucher Pebble Cold Plunge", "venue": "Isar River Trail @ Flaucher Strand", "crew": ["Sophie", "Markus (Cyclist)"]},
-                {"time": "07:30 PM", "activity": "🍺 Sunset Biergarten Long-Table Chess & Craft Brews", "venue": "Chinesischer Turm Biergarten (Englischer Garten)", "crew": ["Niklas (Chess Host)", "Leon", "Anna", "You"]}
-            ]
-            total_split = "€19.50 (split)"
-            msg = "🤖 AI Outing Butler Synthesized your Full Day in Munich! 4 seamless outdoor & cultural adventures planned."
-        else:
-            schedule = [
-                {"time": "08:00 AM", "activity": "Dawn Patrol Surf @ Carcavelos (4ft Swell)", "venue": "Carcavelos Beach", "crew": ["Marco", "Sofia"]},
-                {"time": "01:00 PM", "activity": "Specialty Brunch @ Fabrica Coffee Baixa", "venue": "Fabrica Baixa", "crew": ["Inês", "Alex"]},
-                {"time": "07:30 PM", "activity": "Sunset Acoustic Jam @ Miradouro Santa Catarina", "venue": "Miradouro Santa Catarina", "crew": ["Elena", "Lucas"]}
-            ]
-            total_split = "€24.00 (split)"
-            msg = "🤖 AI Outing Butler Generated your Perfect Blueprint! 3 seamless outings planned."
+        """A blueprint for the days ahead.
 
-        return {
-            "blueprint_generated": True,
-            "city": city,
-            "weekend": weekend,
-            "curated_schedule": schedule,
-            "estimated_cost": total_split,
-            "message": msg
-        }
+        The old handler branched on keywords in the request -- say "fringe" and it returned
+        a five-stop Edinburgh week with Kirsty the master distiller and Hamish the Fringe
+        host, say "munich" and it returned Felix the river surfer. Three hand-written
+        itineraries and a substring match, presented as synthesis.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.itinerary(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/payments/one-tap-settle")
     def one_tap_magic_split_settle_endpoint(request: Request, body: dict):
@@ -3561,19 +3531,13 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/ai/agent-negotiator")
-    def autonomous_ai_agent_negotiator_endpoint(request: Request, body: dict):
-        outing_topic = body.get("topic", "Weekend Sunset Surf & Dinner").strip()
-        crew_members = body.get("crew", ["Alex's Agent", "Sofia's Agent", "Marco's Agent", "Your Agent"])
-        return {
-            "negotiation_consensus_reached": True,
-            "topic": outing_topic,
-            "participating_agents": crew_members,
-            "unanimous_slot": "Saturday @ 5:30 PM (Sunset @ 7:45 PM)",
-            "selected_venue": "Carcavelos Surf Point ➔ Praia do Sol Seafood Tavern",
-            "split_agreement": "€22.50 / person (Pre-Authorized via Apple Pay)",
-            "booking_status": "CONFIRMED_ZERO_HUMAN_OVERHEAD",
-            "message": f"🤖 Multi-Agent Consensus Reached! 4 AI agents scheduled '{outing_topic}' for Saturday @ 5:30 PM with zero human back-and-forth!"
-        }
+    def ai_agent_negotiator_endpoint(request: Request, body: dict):
+        """The same question as `/ai/squad-agent`, and now the same real answer: who has
+        said they are coming to what."""
+        from modules.ai import assist
+        return guard(lambda: assist.crew_plan(
+            _graph(request), str(body.get("crew_id", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/seeding/city-bootstrap")
     def city_bootstrap_autoseeder_endpoint(request: Request, body: dict):
@@ -3887,22 +3851,17 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/culture-bridge-translator")
     def local_culture_and_dialect_bridge_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        phrase = body.get("phrase", "Having a braw time with the scran, but it's a wee bit dreich").strip()
-        return {
-            "translation_active": True,
-            "city": city,
-            "original_phrase": phrase,
-            "translation": "Having a wonderful time with the delicious food, though the weather is a bit gloomy/rainy.",
-            "cultural_etiquette_tip": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Pub Etiquette: Always buy rounds for the group; it is customary to offer before getting your own drink.",
-            "local_slang_lexicon": {
-                "braw": "Excellent / Fantastic",
-                "scran": "Food / Delicious meal",
-                "dreich": "Gloomy / Rainy Scottish weather",
-                "wee": "Small / Little bit"
-            },
-            "message": f"🗣️ Local Culture & Dialect Bridge Active for {city}! Etiquette and local slang translated."
-        }
+        """Translate a local phrase.
+
+        The one endpoint in this group that genuinely cannot work without a key: it was four
+        Scottish words in a dict -- braw, scran, dreich, wee -- returned for every city on
+        earth along with an etiquette tip about buying rounds. It reports unavailable now
+        rather than degrading into a smaller lie.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.translate(
+            str(body.get("phrase", "") or ""), str(body.get("city", "") or "").strip(),
+            claude=_claude(request)))
 
     @router.post("/dao/community-treasury")
     def dao_community_treasury_endpoint(request: Request, body: dict):
@@ -3921,225 +3880,174 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/ai/spontaneous-quests")
-    def spontaneous_instant_quest_radar_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        time_available = body.get("time_available", "Right Now (Next 15 Mins)").strip()
-        return {
-            "quests_generated": True,
-            "city": city,
-            "timeframe": time_available,
-            "anti_boredom_quests": [
-                {
-                    "title": "☕ Gesha Pour-Over Cupping & Sourdough Tasting",
-                    "eta": "10 mins away",
-                    "venue": "Artisan Roast Loft",
-                    "crew_size": 3,
-                    "host": "Lukas (Lead Barista)",
-                    "action": "JOIN_IMMEDIATELY"
-                },
-                {
-                    "title": "🎨 Sunset Charcoal Sketch & Acoustic Jam",
-                    "eta": "12 mins away",
-                    "venue": "Calton Hill Viewpoint",
-                    "crew_size": 4,
-                    "host": "Catriona (Artist)",
-                    "action": "JOIN_IMMEDIATELY"
-                },
-                {
-                    "title": "♟️ Outdoor Park Blitz Chess Challenge",
-                    "eta": "8 mins away",
-                    "venue": "Meadows Park Pavilion",
-                    "crew_size": 6,
-                    "host": "Niklas (Chess Master)",
-                    "action": "JOIN_IMMEDIATELY"
-                }
-            ],
-            "message": f"⚡ 3 High-Energy Spontaneous Quests Ready in {city}! Zero waiting, instant human connection."
-        }
+    def ai_spontaneous_quests_endpoint(request: Request, body: dict):
+        """Small things you could do soon -- real ones, with real hosts. The old five came
+        with invented hosts and crew sizes."""
+        from modules.ai import assist
+        return guard(lambda: assist.quests(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/ai/ikigai-compass")
-    def ikigai_deep_fulfillment_compass_endpoint(request: Request, body: dict):
-        interests = body.get("interests", ["Outdoor Sport", "Creative Making", "Community Mentorship"])
-        return {
-            "ikigai_aligned": True,
-            "fulfillment_score": 96,
-            "ikigai_pillars": {
-                "what_you_love": "Trail mountain running & analog film darkroom development",
-                "what_youre_good_at": "Organizing communal cooking feasts & strategy board games",
-                "what_the_world_needs": "Weekly coastal beach cleanup steward & youth chess mentoring",
-                "what_creates_deep_bonds": "Nordic sauna contrast therapy & vulnerability dinner salons"
-            },
-            "recommended_weekly_purpose_schedule": [
-                {"day": "Tuesday", "focus": "Creative Flow Mastery (Pottery Wheel / Darkroom)", "vibe": "Deep Focus"},
-                {"day": "Thursday", "focus": "Meaningful Vulnerability Dinner Salon (6 People)", "vibe": "Deep Heart Connection"},
-                {"day": "Saturday", "focus": "Wild Nature Ridge Trail & Cold Plunge", "vibe": "Physical Eudaimonia"},
-                {"day": "Sunday", "focus": "Community Herb Garden & Seed Sharing", "vibe": "Contribution & Impact"}
-            ],
-            "message": "🧘 Ikigai Fulfillment Blueprint Activated! Purpose-driven schedule built to eliminate passive screen time and maximize genuine joy."
-        }
+    def ai_ikigai_compass_endpoint(request: Request, body: dict):
+        """What you have been doing, and what you said you wanted to do.
+
+        `fulfillment_score: 87` and four pillars written on your behalf are gone. A graph of
+        meetups cannot measure whether a life is aligned with its purpose, and a number next
+        to that question gets believed.
+        """
+        from modules.ai import reflect
+        return guard(lambda: reflect.purpose(_graph(request),
+                                             account_id=_ai_caller(request),
+                                             claude=_claude(request)))
 
     @router.post("/ai/flow-mastery")
     def flow_state_mastery_exchange_endpoint(request: Request, body: dict):
-        skill = body.get("skill", "Ceramics Wheel Throwing & Glaze Chemistry").strip()
-        return {
-            "flow_lab_scheduled": True,
-            "skill": skill,
-            "flow_partner": "Catriona (Studio Master)",
-            "venue": "Broughton Craft Workshop",
-            "duration": "2.5 Hours Deep Flow State",
-            "hands_on_creation": "Throwing 2 stoneware vessels from raw Scottish clay",
-            "screen_free_guarantee": "100% Screen-Free Physical Immersion",
-            "message": f"🌊 Flow Lab Scheduled for '{skill}'! 2.5 hours of uninterrupted creative mastery and tangible craftsmanship."
-        }
+        """Who else wants to practise this.
+
+        Was Catriona the studio master, at the Broughton Craft Workshop, for any skill you
+        named. A skill exchange is a match on the skill, so it runs the city matcher.
+        """
+        skill = str(body.get("skill", "") or "").strip()
+        return {**_synergy_match(request, body, skill, "Skills & Flow"), "skill": skill}
 
     @router.post("/ai/meaningful-salons")
     def meaningful_conversation_dinner_salon_endpoint(request: Request, body: dict):
-        theme = body.get("theme", "Courage, Transition & The Next Chapter").strip()
-        return {
-            "salon_confirmed": True,
-            "theme": theme,
-            "format": "6-Person Curated Long-Table Dinner Salon (Anti-Small-Talk)",
-            "venue": "Stockbridge Nomad Loft & Kitchen",
-            "table_prompts": [
-                "What is a deeply held belief you willingly changed your mind about recently?",
-                "What is an ambitious dream you rarely say out loud for fear of sounding foolish?",
-                "When in the last year did you feel most vibrantly alive and unhurried?"
-            ],
-            "host": "Ewan (Philosopher & Sourdough Baker)",
-            "split": "£18.00 (split organic ingredients & natural wine)",
-            "message": f"🕊️ Meaningful Conversation Dinner Salon '{theme}' Confirmed! 6 curious souls gathered for anti-small-talk connection."
-        }
+        """Who is up for a dinner on this theme.
+
+        `salon_confirmed: True` confirmed a six-person table at a loft, hosted by Ewan the
+        philosopher and sourdough baker, for any theme at all. Nothing was booked and nobody
+        was invited. The table prompts were the one good part and they are kept -- they are
+        a writing prompt, not a claim about the world.
+        """
+        theme = str(body.get("theme", "") or "").strip()
+        return {**_synergy_match(request, body, theme, "Dinner & Conversation"),
+                "theme": theme,
+                "table_prompts": [
+                    "What is something you changed your mind about recently?",
+                    "What is a plan you rarely say out loud?",
+                    "When did you last lose track of time?",
+                ],
+                "confirmed": False,
+                "next_step": "Nothing is booked. Propose it as a meetup and people can join."}
 
     @router.post("/ai/serendipity-engine")
-    def proactive_serendipity_predictor_endpoint(request: Request, body: dict):
-        user_name = body.get("user", "Robert").strip()
-        return {
-            "serendipity_detected": True,
-            "user": user_name,
-            "opportunity_window": "Tomorrow 04:00 PM – 05:30 PM (90 Min Free Slot)",
-            "weather_condition": "22°C Clear Golden Hour",
-            "nearby_friend": {
-                "name": "Alex",
-                "distance": "380m away @ Fabrica Specialty Coffee",
-                "availability": "Finished Deep Work @ 4:15 PM"
-            },
-            "proactive_suggestion": "Reserved a sunny outdoor terrace table at Fabrica Coffee for a spontaneous 45-min flat white catch-up with Alex.",
-            "one_tap_action": "CONFIRM_AND_NOTIFY_ALEX",
-            "message": f"🔮 Proactive Serendipity Detected! Free 90-min window & Alex is 380m away in sunny weather."
-        }
+    def ai_serendipity_engine_endpoint(request: Request, body: dict):
+        """Overlaps worth acting on now.
+
+        Detected a "serendipity window" with a named friend 400 m away and a weather
+        condition. There is no location sharing and no weather provider; the overlap this
+        app can observe is two people who both said they are up for the same thing.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.serendipity(_graph(request),
+                                                account_id=_ai_caller(request),
+                                                claude=_claude(request)))
 
     @router.post("/ai/empathy-vibe-tuner")
     def emotional_empathy_vibe_tuner_endpoint(request: Request, body: dict):
-        current_vibe = body.get("vibe", "Slightly Overstimulated & Reflective").strip()
-        return {
-            "vibe_tuned": True,
-            "detected_state": current_vibe,
-            "tailored_environment": "Quiet Zen Botanical Greenhouse & Silent Reading Loft",
-            "venue": "Jardim Botânico Glasshouse",
-            "social_battery_protection": "No Loud Groups / Max 1 Quiet Companion",
-            "companion_match": "Isla (Quiet Tea & Book Enthusiast)",
-            "soothing_activity": "Herbal Matcha Ceremony & 1-on-1 Philosophy Walk",
-            "message": f"🧠 Empathy Vibe Tuner Activated for '{current_vibe}'! Auto-tuned environment for peaceful restorative connection."
-        }
+        """Small plans, for when a big night is the wrong answer.
+
+        Claimed to *detect* an emotional state, then tuned an environment for it and matched
+        you with Isla, a quiet tea and book enthusiast. Nothing here reads a mood -- you say
+        how you are, and this filters what is really on down to the quiet options.
+        """
+        from modules.ai import assist
+        # `body.get("max_group", 4) or 4` turns an explicit 0 into 4 — the same defaulting
+        # bug that quietly published a presence in arrival, here quietly widening a filter
+        # somebody set precisely because they wanted it narrow.
+        raw = body.get("max_group")
+        try:
+            max_group = 4 if raw is None else int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_group must be a number")
+        return guard(lambda: assist.quiet_options(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request),
+            max_group=max_group, claude=_claude(request)))
 
     @router.post("/ai/group-concierge")
-    def group_autonomous_concierge_endpoint(request: Request, body: dict):
-        group_name = body.get("group", "Weekend Lisbon Crew (4 People)").strip()
-        return {
-            "group_negotiation_complete": True,
-            "group": group_name,
-            "members": ["Robert", "Marco", "Sofia", "Elena"],
-            "mutually_free_slot": "Saturday 07:30 PM",
-            "dietary_consensus": "1 Vegan, 1 Gluten-Free, 2 Omnivore (Consensus: Farm-to-Table Alfama)",
-            "booked_venue": "Prado Organic Wine Bar & Kitchen",
-            "table_status": "RESERVED_FOR_4",
-            "apple_pay_split_pre_authorized": "€24.00 / person",
-            "calendar_invites_sent": True,
-            "message": f"🗺️ Autonomous Group Concierge Synced! Calendar consensus reached & table booked for {group_name} with zero back-and-forth texting."
-        }
+    def ai_group_concierge_endpoint(request: Request, body: dict):
+        """The third endpoint that claimed to negotiate a group's calendars, book a table
+        and pre-authorise a card split. Same real answer as the other two."""
+        from modules.ai import assist
+        return guard(lambda: assist.crew_plan(
+            _graph(request), str(body.get("crew_id", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/ai/friendship-compounding")
-    def friendship_compounding_vault_endpoint(request: Request, body: dict):
-        return {
-            "friendship_vault_active": True,
-            "meaningful_milestones": [
-                {"friend": "Hamish", "note": "Running Edinburgh Half-Marathon on Sunday", "nudge": "Send Good Luck Toast 🏅"},
-                {"friend": "Catriona", "note": "Opening new Ceramic Studio Exhibition", "nudge": "Send Warm Congratulations 🏺"},
-                {"friend": "Marco", "note": "Haven't caught up in 28 days", "nudge": "Proactive 15-min Coffee Catch-Up Nudge ☕"}
-            ],
-            "compounding_score": 98,
-            "privacy": "100% Zero-Knowledge Encrypted",
-            "message": "🌱 Friendship Compounding Vault Synced! 3 thoughtful relationship nudges to deepen lifelong human bonds."
-        }
+    def ai_friendship_compounding_endpoint(request: Request, body: dict):
+        """Who you have not seen in a while.
+
+        Listed three friends with invented notes and nudges. The reconnect module has ranked
+        real people by contact decay since Sprint 1, and this endpoint never read it.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.reconnect(_graph(request),
+                                              account_id=_ai_caller(request),
+                                              claude=_claude(request)))
 
     @router.post("/ai/vitality-circadian-flow")
-    def vitality_circadian_flow_endpoint(request: Request, body: dict):
-        return {
-            "vitality_engine_active": True,
-            "circadian_rhythm_sync": {
-                "morning_lux_window": "07:30 AM – 08:30 AM (15 mins outdoor sunlight exposure recommended)",
-                "optimal_zone2_window": "04:30 PM – 05:45 PM (Coastal Trail Run / Cycle)",
-                "melatonin_wind_down": "09:30 PM (Blue-light filter & herbal chamomile tea)",
-                "recommended_sleep_time": "10:30 PM – 06:30 AM (8.0 Hours Targeted)"
-            },
-            "longevity_score": 94,
-            "weekly_contrast_therapy": "2x 90°C Sauna + 4°C Plunge sessions booked",
-            "message": "🧬 Vitality & Circadian Flow Optimized! Sunlight, zone-2 movement, and deep restorative sleep aligned."
+    def ai_vitality_circadian_flow_endpoint(request: Request):
+        """Sleep and rhythm nudges.
+
+        `longevity_score` is gone -- nothing here measures longevity. What is real is the
+        circadian nudge the routines module computes from your own logged sleep, so this
+        returns that and says plainly that no wearable is connected.
+        """
+        from modules.routines import sleep_nudges
+        # Returns None when there are no sleep records at all, which is the normal state of
+        # a fresh account — "we have nothing logged" is the honest nudge, not a crash.
+        nudge = guard(lambda: sleep_nudges.generate_circadian_nudge(_graph(request))) or {
+            "nudge": None, "empty": True,
+            "suggestion": "No sleep logged yet. Log a night or two and this starts saying "
+                          "something specific to you.",
         }
+        return {**nudge, "wearable_connected": False,
+                "no_score": ("No longevity or vitality score: nothing in this app measures "
+                             "either, and the numbers that used to be here were constants.")}
 
     @router.post("/ai/regret-minimization")
-    def regret_minimization_bucketlist_endpoint(request: Request, body: dict):
-        return {
-            "regret_minimization_active": True,
-            "life_vision_score": 96,
-            "top_aspirational_quests": [
-                {
-                    "quest": "⛵ Sunset Catamaran Sailing & Stargazing Expedition",
-                    "status": "SCHEDULED_THIS_WEEK",
-                    "milestone": "4 Crew Members Joined · Belém Harbor"
-                },
-                {
-                    "quest": "🏺 Master Pottery Wheel Throwing & Stoneware Glazing",
-                    "status": "IN_PROGRESS",
-                    "milestone": "2/4 Studio Sessions Completed"
-                },
-                {
-                    "quest": "📸 Curate & Print 35mm Analog Photo Book",
-                    "status": "DRAFTING",
-                    "milestone": "18 Negatives Developed @ Alfama Collective"
-                }
-            ],
-            "be_present_reminder": "You only get this exact Tuesday once in your life. Live it fully and without hesitation.",
-            "message": "🌟 Regret Minimization Framework Synced! Transforming lifelong dreams into actionable, memory-rich real-world moments."
-        }
+    def ai_regret_minimization_endpoint(request: Request, body: dict):
+        """Your goals, as you wrote them.
+
+        `life_vision_score: 92` and a list of aspirational quests with milestones were
+        literals. Your actual goals have been in the horizon modules since Sprint 1.
+        """
+        from modules.ai import reflect
+        return guard(lambda: reflect.purpose(_graph(request),
+                                             account_id=_ai_caller(request),
+                                             claude=_claude(request)))
 
     @router.post("/ai/wealth-value-optimizer")
-    def wealth_value_optimizer_endpoint(request: Request, body: dict):
-        return {
-            "wealth_optimizer_active": True,
-            "fulfillment_roi_metric": "High Memory Dividends / Euro Spent",
-            "optimized_allocations": [
-                {"category": "Real-World Shared Dinners & Outings", "roi": "★★★★★ 98% (High Memory Value)"},
-                {"category": "Craft Mastery & Tools (Pottery/Cameras/Bikes)", "roi": "★★★★★ 95% (Flow State Generator)"},
-                {"category": "Passive Streaming Subscriptions Cut", "savings": "€48 / month redirected to travel & adventures"}
-            ],
-            "total_annual_memory_dividends": "€576 saved and reinvested in real-world human connection.",
-            "message": "💰 Wealth & Life Value Optimizer Synced! Cutting passive digital waste and amplifying high-memory real-world experiences."
-        }
+    def ai_wealth_value_optimizer_endpoint(request: Request):
+        """What outings have actually cost.
+
+        Returned a "fulfilment ROI" per spending category -- a ratio between money and
+        fulfilment, and it had neither. The ledger does hold real splits.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.spending(_graph(request),
+                                             account_id=_ai_caller(request),
+                                             claude=_claude(request)))
 
     @router.post("/ai/stoic-presence-mirror")
-    def stoic_presence_gratitude_mirror_endpoint(request: Request, body: dict):
-        memory = body.get("moment", "Warm laughing conversation over sourdough bread with Alex at sunset").strip()
-        gratitude = body.get("gratitude", "Health, clear blue ocean, and good friends").strip()
-        return {
-            "reflection_logged": True,
-            "daily_peak_moment": memory,
-            "gratitude_anchor": gratitude,
-            "stoic_wisdom": "Memento Vivere — Remember to truly live. Wealth is the ability to fully experience life.",
-            "lifetime_gratitude_count": 142,
-            "privacy": "Encrypted Local Secure Enclave",
-            "message": "🕊️ Stoic Reflection Logged! Daily peak moment etched into your lifelong gratitude tapestry."
-        }
+    def ai_stoic_presence_mirror_endpoint(request: Request, body: dict):
+        """Write down something worth remembering.
+
+        It claimed to log a peak moment and a gratitude anchor and stored nothing --
+        `lifetime_gratitude_count` was a constant. Reflections are real owner-scoped rows
+        now, private to you, and the count is a count.
+        """
+        from modules.ai import reflect
+        note = str(body.get("note", "") or body.get("gratitude_anchor", "") or "").strip()
+        if not note:
+            return {"logged": False,
+                    "recent": reflect.entries(_graph(request), limit=5),
+                    "total": reflect.count(_graph(request)),
+                    "privacy": "yours only — never shared, never scored"}
+        return guard(lambda: reflect.log(_graph(request), note,
+                                         kind=str(body.get("kind", "gratitude") or "gratitude")))
 
     @router.post("/seeding/zero-user-event-crawler")
     def zero_user_event_crawler_endpoint(request: Request, body: dict):
@@ -5164,14 +5072,16 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
-        preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
-        return {
-            "auto_rsvp_active": True,
-            "rule": preference,
-            "upcoming_auto_rsvp": "Wednesday Dawn Patrol Surf @ Carcavelos (7:00 AM)",
-            "status": "SPOT_PRE_RESERVED",
-            "message": f"🤖 Zero-Click AI Auto-RSVP Active! Pre-reserved spot for '{preference}'."
-        }
+        """What a standing preference matches right now.
+
+        Reported `SPOT_PRE_RESERVED` for a Wednesday surf that did not exist. Nothing here
+        reserves anything: joining is a public act with somebody expecting you, and an agent
+        doing that silently is not a feature.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.rsvp_matches(
+            _graph(request), str(body.get("rule", "") or ""),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/events/apple-wallet-pass")
     def generate_apple_wallet_pass_endpoint(request: Request, body: dict):
