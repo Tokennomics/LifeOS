@@ -6,12 +6,16 @@ from fastapi.testclient import TestClient
 from gateway.main import create_app
 
 def test_instant_synergy_match(cfg):
+    """Used to assert Elena R. was found at Fabrica Coffee Roasters, on an empty database,
+    for every caller. On an empty database the true answer is that nobody is there."""
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/synergy/instant-match", json={"interest": "specialty coffee", "timeframe": "30 mins"})
+    res = client.post("/v1/synergy/instant-match",
+                      json={"city": "Lisbon", "interest": "specialty coffee"})
     assert res.status_code == 200
     data = res.json()
-    assert data["matched"] is True
-    assert "Fabrica Coffee Roasters" in data["suggested_venue"]
+    assert data["matched"] is False
+    assert data["people"] == []
+    assert "suggested_venue" not in data
 
 def test_instant_dating_meet_7factor(cfg):
     client = TestClient(create_app(cfg))
@@ -58,18 +62,20 @@ def test_sports_and_nomad_match(cfg):
     assert res2.json()["domain"] == "tech & design"
 
 def test_ski_rave_surf_match(cfg):
+    """`fresh_powder_alert: True` and `swell_alert: True` were literals — they fired in July
+    in Lisbon. Nothing measures snow or swell here, so the endpoints say so."""
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/synergy/ski-match", json={"resort": "Serra da Estrela"})
+    res1 = client.post("/v1/synergy/ski-match", json={"city": "Lisbon", "resort": "Serra da Estrela"})
     assert res1.status_code == 200
-    assert res1.json()["fresh_powder_alert"] is True
+    assert res1.json()["conditions"]["available"] is False
 
-    res2 = client.post("/v1/synergy/rave-match", json={"subgenre": "techno"})
+    res2 = client.post("/v1/synergy/rave-match", json={"city": "Lisbon", "subgenre": "techno"})
     assert res2.status_code == 200
-    assert res2.json()["matched"] is True
+    assert res2.json()["matched"] is False
 
-    res3 = client.post("/v1/synergy/surf-match", json={"spot": "Carcavelos"})
+    res3 = client.post("/v1/synergy/surf-match", json={"city": "Lisbon", "spot": "Carcavelos"})
     assert res3.status_code == 200
-    assert res3.json()["swell_alert"] is True
+    assert res3.json()["conditions"]["available"] is False
 
 def test_weather_radar_and_developer_plugins(cfg):
     client = TestClient(create_app(cfg))
@@ -175,9 +181,12 @@ def test_leaderboard_mentor_and_squad_routine(cfg):
     # presence-list problem wearing a scoreboard.
     assert client.get("/v1/gamification/leaderboard").status_code == 404
 
-    res2 = client.post("/v1/synergy/mentor-match", json={"domain": "AI"})
+    # Dr. Sarah Lin, ex-YC founder, 97% match, was not a person. With nobody offering AI
+    # mentorship in the city, there is no mentor to name.
+    res2 = client.post("/v1/synergy/mentor-match", json={"city": "Lisbon", "domain": "AI"})
     assert res2.status_code == 200
-    assert res2.json()["matched"] is True
+    assert res2.json()["matched"] is False
+    assert "mentor_name" not in res2.json()
 
     res3 = client.post("/v1/routines/squad-sync", json={"routine_name": "Dawn Patrol Surf"})
     assert res3.status_code == 200
@@ -324,11 +333,13 @@ def test_layover_gym_and_pet_verticals(cfg):
     assert res3.json()["matched"] is True
 
 def test_language_swap(cfg):
+    """Inês M. was matched to everyone who asked, at 98%, forever."""
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/synergy/language-swap", json={"speak": "English", "learn": "Portuguese"})
+    res1 = client.post("/v1/synergy/language-swap",
+                       json={"city": "Lisbon", "speak": "English", "learn": "Portuguese"})
     assert res1.status_code == 200
-    assert res1.json()["matched"] is True
-    assert res1.json()["partner_name"] == "Inês M."
+    assert res1.json()["matched"] is False
+    assert "partner_name" not in res1.json()
 
 def test_human_deep_needs_features(cfg):
     client = TestClient(create_app(cfg))

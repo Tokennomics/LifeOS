@@ -469,6 +469,24 @@ class CityWithdrawIn(BaseModel):
     city: str
 
 
+class SynergyOpenIn(BaseModel):
+    """What you are up for, and for how long. `city` is optional: somebody who announced
+    their arrival in Lisbon is asking about Lisbon, and making them retype it is the kind of
+    friction that stops a signal being published at all."""
+    city: str = ""
+    activity: str = ""
+    note: str = ""
+    hours: int = 4
+    category: str = ""
+    offers: str = ""
+    wants: str = ""
+
+
+class SynergyCloseIn(BaseModel):
+    city: str = ""
+    activity: str = ""
+
+
 class CityPostIn(BaseModel):
     city: str
     text: str
@@ -2330,20 +2348,82 @@ def build_router(auth) -> APIRouter:
         from modules.personal import recap
         return guard(lambda: recap.passport(_graph(request), city))
 
+    # ---- Synergy: who else in this city is up for the same thing -----------
+    #
+    # Eleven endpoints below used to answer that with Elena R., Marcus T. and a score in the
+    # nineties. They now all run the one matcher in `modules/city/synergy.py`, which reads
+    # signals real people published. Each endpoint keeps its own field name (`sport`,
+    # `cuisine`, `subgenre`) and its own category label, because a climber and a chef are
+    # asking different questions even though the machinery underneath is identical.
+
+    def _synergy_city(request: Request, body: dict, viewer_id: str) -> str:
+        """Where to look. The body wins; otherwise wherever the caller last announced they
+        are, so someone who has already said "I'm in Lisbon" is not asked twice."""
+        from modules.city import synergy
+        city = str(body.get("city", "") or "").strip()
+        if city:
+            return city
+        return synergy.city_for(_graph(request), viewer_id) if viewer_id else ""
+
+    def _synergy_match(request: Request, body: dict, activity: str, category: str) -> dict:
+        """One shape for every activity endpoint.
+
+        The viewer is read off the session rather than required, because these routes also
+        serve single-user owner mode where there is no account to be. In account mode the
+        gateway has already rejected an unauthenticated caller before this runs.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            # An honest unanswerable question rather than an invented answer: without a city
+            # there is nothing to search, and there never was.
+            return {"matched": False, "needs_city": True, "activity": activity,
+                    "category": category, "people": [], "people_count": 0,
+                    "meetups": [], "events": [],
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: synergy.find(_graph(request), city, activity,
+                                          viewer_id=viewer_id, category=category))
+
+    @router.post("/synergy/open-to")
+    def synergy_open_to_endpoint(request: Request, body: SynergyOpenIn):
+        """Say what you are up for, in a city, for the next few hours.
+
+        The piece the matcher could not work without, and the piece that did not exist: every
+        `/synergy/*-match` call searches these, so with nobody publishing, every honest
+        search returns nothing. Publishing is always explicit — searching does not do it.
+        """
+        from modules.city import synergy
+        rate_limiter.enforce(request, "synergy:open", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id = _actor(request, None)
+        city = body.city.strip() or synergy.city_for(_graph(request), account_id)
+        return guard(lambda: synergy.open_to(
+            _graph(request), city, body.activity, account_id=account_id,
+            handle=caller.get("handle", ""), note=body.note, hours=body.hours,
+            category=body.category, offers=body.offers, wants=body.wants))
+
+    @router.delete("/synergy/open-to")
+    def synergy_close_endpoint(request: Request, body: SynergyCloseIn):
+        from modules.city import synergy
+        account_id = _actor(request, None)
+        city = body.city.strip() or synergy.city_for(_graph(request), account_id)
+        return guard(lambda: synergy.close(_graph(request), city, body.activity,
+                                           account_id=account_id))
+
+    @router.get("/synergy/open-to")
+    def synergy_mine_endpoint(request: Request):
+        """What you are currently publishing about yourself, in every city."""
+        from modules.city import synergy
+        return {"signals": synergy.mine(_graph(request), account_id=_actor(request, None))}
+
     @router.post("/synergy/instant-match")
     def instant_synergy_match_endpoint(request: Request, body: dict):
-        interest = body.get("interest", "specialty coffee").strip()
-        timeframe = body.get("timeframe", "30 mins").strip()
-        return {
-            "matched": True,
-            "interest": interest,
-            "timeframe": timeframe,
-            "partner_name": "Elena R.",
-            "match_score": 96,
-            "suggested_venue": "Fabrica Coffee Roasters",
-            "event_name": "Specialty Cupping & Espresso Tasting",
-            "message": f"☕ Instant Match Found! Elena R. is also free in the next {timeframe} for {interest} at Fabrica Coffee Roasters!"
-        }
+        interest = str(body.get("interest", "") or "").strip()
+        return {**_synergy_match(request, body, interest, "Instant Match"),
+                "interest": interest,
+                "timeframe": str(body.get("timeframe", "") or "").strip()}
 
     @router.post("/dating/instant-meet")
     def instant_dating_meet_endpoint(request: Request, body: dict):
@@ -2396,97 +2476,48 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/synergy/creative-match")
     def creative_jam_match_endpoint(request: Request, body: dict):
-        genre = body.get("genre", "acoustic jam").strip()
-        return {
-            "matched": True,
-            "category": "Music & Creative Jam",
-            "genre": genre,
-            "partner_name": "Leo V.",
-            "match_score": 96,
-            "suggested_venue": "Miradouro Park Sound Shell",
-            "message": f"🎵 Creative Jam Match Found (96% Match)! Leo V. is 0.9km away & ready for an {genre} session!"
-        }
+        genre = str(body.get("genre", "") or "").strip()
+        return {**_synergy_match(request, body, genre, "Music & Creative Jam"),
+                "genre": genre}
 
     @router.post("/synergy/dining-match")
     def dining_crew_match_endpoint(request: Request, body: dict):
-        cuisine = body.get("cuisine", "seafood & tapas").strip()
-        return {
-            "matched": True,
-            "category": "Culinary & Dining",
-            "cuisine": cuisine,
-            "partner_name": "Mateo & 2 foodies",
-            "match_score": 98,
-            "suggested_venue": "Mercado da Ribeira Food Hall",
-            "message": f"🍲 Dining Crew Match Found (98% Match)! Mateo & crew are meeting for {cuisine} tonight!"
-        }
+        cuisine = str(body.get("cuisine", "") or "").strip()
+        return {**_synergy_match(request, body, cuisine, "Culinary & Dining"),
+                "cuisine": cuisine}
 
     @router.post("/synergy/ski-match")
     def ski_snowboard_match_endpoint(request: Request, body: dict):
-        resort = body.get("resort", "Serra da Estrela / Alpine Slopes").strip()
-        snow_depth = body.get("snow_depth_cm", 45)
-        return {
-            "matched": True,
-            "category": "Alpine Skiing & Snowboarding",
-            "fresh_powder_alert": True,
-            "snow_depth_cm": snow_depth,
-            "partner_name": "Julian B. (Advanced Freeride)",
-            "match_score": 99,
-            "suggested_venue": resort,
-            "breakdown": {
-                "snowfall_condition_score": 100,
-                "proximity_km": 0.9,
-                "resort_heatmap": 94,
-                "skill_level_match": 98
-            },
-            "message": f"⛷️ Powder Alert Triggered! 45cm fresh snow detected. Julian B. is ready for skiing at {resort}!"
-        }
+        """Skiing. The snow report is gone with the invented partner: `snow_depth_cm: 45` and
+        `fresh_powder_alert: True` were literals that fired in July, in Lisbon, for everyone.
+        There is no snow provider wired up, so the honest answer is that conditions are not
+        measured — not a number that happens to be plausible in February."""
+        resort = str(body.get("resort", "") or "").strip()
+        return {**_synergy_match(request, body, resort or "skiing",
+                                 "Skiing & Snowboarding"),
+                "resort": resort, "conditions": {"available": False,
+                                                 "reason": "no snow report configured"}}
 
     @router.post("/synergy/rave-match")
     def rave_nightlife_match_endpoint(request: Request, body: dict):
-        subgenre = body.get("subgenre", "techno & house").strip()
-        return {
-            "matched": True,
-            "category": "Nightlife, Raves & Underground Music",
-            "subgenre": subgenre,
-            "partner_name": "Clara & Lisbon Rave Crew (4 people)",
-            "match_score": 98,
-            "suggested_venue": "Lux Frágil Warehouse Stage",
-            "breakdown": {
-                "subgenre_match_pct": 98,
-                "club_heatmap_capacity": 94,
-                "sound_system_rating": 99,
-                "trust_index": 96
-            },
-            "message": f"🪩 Rave Match Found (98% Match)! Clara & Lisbon Rave Crew are heading to {subgenre} set at Lux Frágil!"
-        }
+        subgenre = str(body.get("subgenre", "") or "").strip()
+        return {**_synergy_match(request, body, subgenre,
+                                 "Nightlife, Raves & Underground Music"),
+                "subgenre": subgenre}
 
     @router.post("/synergy/surf-match")
     def surf_swell_match_endpoint(request: Request, body: dict):
-        spot = body.get("spot", "Carcavelos Beach").strip()
-        swell_m = body.get("swell_m", 2.2)
-        period_s = body.get("period_s", 14)
-        wind = body.get("wind", "11 knot Offshore NNE").strip()
-        return {
-            "matched": True,
-            "category": "Surfing & Ocean Sports",
-            "swell_alert": True,
-            "telemetry": {
-                "swell_height_m": swell_m,
-                "wave_period_sec": period_s,
-                "wind_conditions": wind,
-                "water_temp_c": 17.5
-            },
-            "partner_name": "Tiago M. (Shortboard / Intermediate)",
-            "match_score": 99,
-            "suggested_venue": spot,
-            "breakdown": {
-                "marine_weather_score": 100,
-                "proximity_km": 1.1,
-                "beach_break_rating": 98,
-                "skill_alignment": 97
-            },
-            "message": f"🏄 Swell Alert Active ({swell_m}m @ {period_s}s, {wind})! Tiago M. is heading to {spot}!"
-        }
+        """Surfing. Same as skiing: the swell telemetry — 2.2 m at 14 s, 17.5 °C water — was
+        four constants, not a buoy. Anything the caller passes is echoed back as theirs;
+        nothing is asserted by the server."""
+        spot = str(body.get("spot", "") or "").strip()
+        reported = {k: body[k] for k in ("swell_m", "period_s", "wind") if k in body}
+        return {**_synergy_match(request, body, spot or "surfing",
+                                 "Surfing & Ocean Sports"),
+                "spot": spot,
+                "conditions": {"available": False,
+                               "reason": "no marine forecast configured",
+                               "reported_by_caller": reported}}
 
     @router.get("/weather/radar")
     def weather_radar_telemetry_endpoint(request: Request):
@@ -2801,16 +2832,25 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/synergy/mentor-match")
     def mentor_synergy_match_endpoint(request: Request, body: dict):
-        domain = body.get("domain", "AI & Startup Founders").strip()
-        return {
-            "matched": True,
-            "mentor_name": "Dr. Sarah Lin (ex-YC Founder)",
-            "domain": domain,
-            "match_score": 97,
-            "suggested_format": "1-on-1 Walk & Talk Coffee",
-            "suggested_venue": "Fabrica Coffee Roasters, Chiado",
-            "message": f"🤝 Mentorship Match Found! {domain} mentorship session set with Dr. Sarah Lin (97% Match Score)."
-        }
+        """Mentorship is complementary, not symmetric — the match for somebody who wants to
+        learn product is somebody offering it. Falls back to a plain same-domain search when
+        the caller only names a domain, which finds peers rather than nobody."""
+        from modules.city import synergy
+        domain = str(body.get("domain", "") or "").strip()
+        seeking = str(body.get("seeking", "") or "").strip() or domain
+        offering = str(body.get("offering", "") or "").strip()
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "domain": domain, "people": [],
+                    "people_count": 0, "category": "Mentorship",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if offering and seeking:
+            return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                                 learn=seeking, viewer_id=viewer_id)),
+                    "domain": domain, "category": "Mentorship"}
+        return {**_synergy_match(request, body, seeking, "Mentorship"), "domain": domain}
 
     @router.post("/routines/squad-sync")
     def squad_recurring_routine_sync_endpoint(request: Request, body: dict):
@@ -5194,18 +5234,26 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/synergy/language-swap")
     def peer_language_swap_endpoint(request: Request, body: dict):
-        speak_lang = body.get("speak", "English").strip()
-        learn_lang = body.get("learn", "Portuguese").strip()
-        return {
-            "matched": True,
-            "speak_lang": speak_lang,
-            "learn_lang": learn_lang,
-            "partner_name": "Inês M.",
-            "match_score": 98,
-            "suggested_format": "30-Min Coffee Language Exchange",
-            "suggested_venue": "Fabrica Coffee Roasters, Baixa",
-            "message": f"🎓 Language Swap Matched! Native {learn_lang} speaker Inês M. matched for 30-min coffee exchange (98% Match Score)!"
-        }
+        """A language exchange is the one match that must be a mirror: you speak English and
+        want Portuguese, so the match speaks Portuguese and wants English. Matching on the
+        word they share would pair two people learning the same language."""
+        from modules.city import synergy
+        speak_lang = str(body.get("speak", "") or "").strip()
+        learn_lang = str(body.get("learn", "") or "").strip()
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "speak": speak_lang,
+                    "learn": learn_lang, "people": [], "people_count": 0,
+                    "category": "Language Exchange",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (speak_lang and learn_lang):
+            return {"matched": False, "speak": speak_lang, "learn": learn_lang,
+                    "people": [], "people_count": 0, "category": "Language Exchange",
+                    "suggestion": "What do you speak, and what do you want to learn?"}
+        return guard(lambda: synergy.swap(_graph(request), city, speak=speak_lang,
+                                          learn=learn_lang, viewer_id=viewer_id))
 
     @router.post("/housing/co-living-match")
     def coliving_housemate_matcher_endpoint(request: Request, body: dict):
@@ -5330,43 +5378,17 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/synergy/sports-match")
     def sports_squad_match_endpoint(request: Request, body: dict):
-        sport = body.get("sport", "bouldering").strip()
-        timeframe = body.get("timeframe", "next 45 mins").strip()
-        return {
-            "matched": True,
-            "category": "Sports & Fitness",
-            "sport": sport,
-            "partner_name": "Marcus T.",
-            "match_score": 97,
-            "breakdown": {
-                "proximity_km": 0.8,
-                "skill_match_pct": 96,
-                "venue_heatmap_pct": 92,
-                "venue_rating": 4.9
-            },
-            "suggested_venue": "Monsanto Outdoor Climbing Crag",
-            "message": f"🧗 Sports Match Found (97% Match)! Marcus T. is 0.8km away & ready for {sport} in {timeframe} at Monsanto Crag!"
-        }
+        sport = str(body.get("sport", "") or "").strip()
+        return {**_synergy_match(request, body, sport, "Sports & Fitness"),
+                "sport": sport,
+                "timeframe": str(body.get("timeframe", "") or "").strip()}
 
     @router.post("/synergy/nomad-match")
     def nomad_coworking_match_endpoint(request: Request, body: dict):
-        domain = body.get("domain", "tech & design").strip()
-        timeframe = body.get("timeframe", "next 30 mins").strip()
-        return {
-            "matched": True,
-            "category": "Co-Working & Nomads",
-            "domain": domain,
-            "partner_name": "Sophia K.",
-            "match_score": 95,
-            "breakdown": {
-                "proximity_km": 0.5,
-                "domain_match_pct": 98,
-                "wifi_speed_mbps": 350,
-                "noise_level": "Quiet / Focused"
-            },
-            "suggested_venue": "Fabrica Work Hub & Roastery",
-            "message": f"💻 Nomad Match Found (95% Match)! Sophia K. is 0.5km away & ready to co-work ({domain}) at Fabrica Work Hub!"
-        }
+        domain = str(body.get("domain", "") or "").strip()
+        return {**_synergy_match(request, body, domain, "Co-Working & Nomads"),
+                "domain": domain,
+                "timeframe": str(body.get("timeframe", "") or "").strip()}
 
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
@@ -5438,24 +5460,20 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.get("/synergy/overlap")
     def get_mutual_availability_overlap_endpoint(request: Request):
-        return {
-            "overlaps": [
-                {
-                    "friend_name": "Alex",
-                    "topic": "Bouldering & Coffee",
-                    "window": "Friday 19:00 - 22:00",
-                    "city": "Lisbon",
-                    "share_text": "⚡ Hey Alex! LifeOS noticed we are both free Friday 19:00 - 22:00 for Bouldering! Want to meet up?"
-                },
-                {
-                    "friend_name": "Elena",
-                    "topic": "Sunset Drinks",
-                    "window": "Sunday 18:00 - 20:00",
-                    "city": "Lisbon",
-                    "share_text": "🌅 Hey Elena! Are you down for Sunset Drinks Sunday 18:00?"
-                }
-            ]
-        }
+        """Everything your own open signals currently match.
+
+        The old answer said Alex was free Friday 19:00–22:00. There were no friends, no
+        calendars and no Friday in it — it was two dictionaries. The overlap this app can
+        actually observe is two people who have both said, now, that they are up for the
+        same thing in the same city.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        if not viewer_id:
+            return {"overlaps": [], "open_signals": 0,
+                    "suggestion": "Sign in to see what your open signals match."}
+        return guard(lambda: synergy.overlap(_graph(request), viewer_id=viewer_id))
 
     @router.get("/horizon/planner/micro-break")
     def list_micro_breaks_endpoint(request: Request):

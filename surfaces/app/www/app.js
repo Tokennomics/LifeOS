@@ -429,27 +429,41 @@ function todayView() {
     <div id="instant-dating-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Universal Multi-Vertical Synergy Matcher ---- */
+  /* ---- Synergy matcher ----
+     The card used to promise "7-Factor Matchmaking: Proximity + Preferences + Heatmap +
+     Popularity + Graph Trust + Energy + Weather" and there were no such factors — the seven
+     were constants and the partner was always Elena R. or Marcus T. It searches real signals
+     now, so the two things it needs are a place to type what you want and a way to publish
+     that you want it. The vertical buttons stay: they fill the box in and search. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌐 Universal 7-Factor Real-World Matchmaking Radar</h2>
-      <span class="badge good" style="font-weight:bold;">All Verticals</span>
+      <h2>🌐 Who else is up for it</h2>
+      <span class="badge good" style="font-weight:bold;">This city</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match on 7 Factors: Proximity + Preferences + Heatmap + Popularity + Graph Trust + Energy + Weather!</p>
+    <p class="hint" style="margin-bottom:8px;">Say what you want to do. This searches people who have said the same thing in the same city — and nothing else.</p>
     <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports Buddy 🧗</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Co-Working Partner ☕</button>
-    </div>
-    <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #d946ef);" data-act="match-creative-partner">🎵 Creative Jam Session 🎸</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="match-dining-partner">🍲 Dining Crew Outing 🍷</button>
+      <input class="field" id="sy-act" placeholder="Bouldering, ramen, techno…">
+      <input class="field" id="sy-city" placeholder="City (blank = where you said you are)">
     </div>
     <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="match-ski-partner">⛷️ Powder Alert Skiing ❄️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="match-surf-partner">🏄 Swell Alert Surfing 🌊</button>
+      <button class="primary" data-act="synergy-search">Find people 🔎</button>
+      <button class="ghost" data-act="synergy-open-to">I'm up for this ✋</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="bouldering">🧗 Sports</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="co-working">💻 Co-working</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="live music">🎵 Music</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="dinner">🍲 Food</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="skiing">⛷️ Skiing</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="surfing">🏄 Surfing</button>
     </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6d28d9);" data-act="match-rave-partner">🪩 Raves & Nightlife 🎶</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="techno">🪩 Nightlife</button>
+      <button class="ghost" data-act="synergy-mine">What I'm publishing 📋</button>
     </div>
     <div id="vertical-match-output" style="margin-top:10px;"></div>
   </div>`;
@@ -580,9 +594,13 @@ function todayView() {
       <h2>🤝 AI Mentorship & Squad Calendar Sync</h2>
       <span class="badge good" style="font-weight:bold;">1-on-1 & Squads</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match walk-and-talk coffee mentors or sync recurring squad outing calendar routines!</p>
+    <p class="hint" style="margin-bottom:8px;">Mentorship is a mirror: this looks for someone offering what you want to learn, in your city.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="mt-seek" placeholder="I want to learn…">
+      <input class="field" id="mt-offer" placeholder="I can help with… (optional)">
+    </div>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Match Coffee Mentor 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Find a mentor 🤝</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Sync Squad Calendar 📅</button>
     </div>
     <div id="mentor-squad-output" style="margin-top:10px;"></div>
@@ -729,6 +747,10 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy ✈️</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Gym Spotter 🏋️</button>
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="match-language-swap">Language Swap 🎓</button>
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <input class="field" id="ls-speak" placeholder="I speak…">
+      <input class="field" id="ls-learn" placeholder="I want to learn…">
     </div>
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
@@ -3514,21 +3536,11 @@ function wire(root) {
   }));
 
   on("[data-act=instant-synergy-match]", () => act(async () => {
-    const interest = $("#bc-act").value.trim() || "specialty coffee";
-    const timeframe = $("#bc-time").value.trim() || "30 mins";
-    const res = await api("/v1/synergy/instant-match", { interest, timeframe });
-    const out = $("#instant-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">☕ AI Instant Match Found (${res.match_score}% Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♂️ <strong>${esc(res.partner_name)}</strong> is also free in the next ${esc(res.timeframe)} for ${esc(res.interest)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 Suggested Venue: <strong>${esc(res.suggested_venue)}</strong></div>
-        <div style="font-size:13px; margin-bottom:6px;">🎟️ Event: <strong>${esc(res.event_name)}</strong></div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('☕ Hey ${esc(res.partner_name)}! Down to meet up at ${esc(res.suggested_venue)} in 30 mins for coffee?'); toast('Invite copied to clipboard! 📲');">Text ${esc(res.partner_name)} on WhatsApp 📲</button>
-      </div>
-    `;
-  }, "Instant Synergy Outing Matched! ☕"));
+    const interest = $("#bc-act").value.trim();
+    if (!interest) { toast("Up for what?"); return; }
+    const res = await api("/v1/synergy/instant-match", { interest });
+    renderMatch(res, "#instant-match-output");
+  }));
 
   on("[data-act=instant-dating-match]", () => act(async () => {
     const vibe = $("#dt-vibe").value.trim() || "drinks tonight";
@@ -3578,114 +3590,120 @@ function wire(root) {
     `;
   }, "Meetup Confirmed! Pin & Live ETA set 📍"));
 
-  on("[data-act=match-sports-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/sports-match", { sport: "bouldering", timeframe: "next 45 mins" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🧗 Sports Match Found (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🏃 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready for ${esc(res.sport)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Skill Match: ${bd.skill_match_pct}% · Crag Heatmap: ${bd.venue_heatmap_pct}% · Rating: ${bd.venue_rating}★</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Spot: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Invite sent to ${esc(res.partner_name)} on native chat! 💬');">Meet at Crag on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Sports Partner Matched! 🧗"));
+  /* ---- Synergy: one renderer for every activity ----
+     Seven near-identical handlers used to live here, each pulling `res.partner_name` and
+     `res.match_score` out of a literal the server made up. There is one now, because there
+     was only ever one feature. The empty state is the important half: an honest "nobody yet"
+     plus the button that fixes it beats a stranger who does not exist. */
 
-  on("[data-act=match-nomad-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/nomad-match", { domain: "tech & design", timeframe: "next 30 mins" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">💻 Nomad Match Found (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">👩‍💻 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready to co-work!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Domain Match: ${bd.domain_match_pct}% · Wi-Fi: ${bd.wifi_speed_mbps} Mbps · Noise: ${esc(bd.noise_level)}</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Work Hub: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected with ${esc(res.partner_name)} on native chat! 💬');">Meet at Work Hub on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Nomad Co-Working Partner Matched! 💻"));
+  function synergyActivity(fallback) {
+    const box = $("#sy-act");
+    const typed = box ? box.value.trim() : "";
+    return typed || fallback || "";
+  }
 
-  on("[data-act=match-creative-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/creative-match", { genre: "acoustic jam" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">🎵 Creative Jam Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎸 <strong>${esc(res.partner_name)}</strong> is ready for an ${esc(res.genre)} session!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Venue: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected on native chat for Jam Session! 🎸');">Connect on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Creative Jam Matched! 🎸"));
+  function synergyCity() {
+    const box = $("#sy-city");
+    return box ? box.value.trim() : "";
+  }
 
-  on("[data-act=match-dining-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/dining-match", { cuisine: "seafood & tapas" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🍲 Dining Crew Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🍷 <strong>${esc(res.partner_name)}</strong> are meeting for ${esc(res.cuisine)} tonight!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Food Hall: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Dining Crew chat! 🍷');">Join Dining Crew Chat 💬</button>
-      </div>
-    `;
-  }, "Dining Crew Matched! 🍷"));
+  function matchPerson(p) {
+    const shared = (p.shared_terms || []).join(", ");
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div><strong>${esc(p.handle)}</strong>${p.activity ? ` — ${esc(p.activity)}` : ""}</div>
+        ${p.note ? `<div style="font-size:12px; color:var(--muted);">${esc(p.note)}</div>` : ""}
+        ${shared ? `<div style="font-size:11px; color:var(--muted);">matched on: ${esc(shared)}</div>` : ""}
+        ${p.open_until ? `<div style="font-size:11px; color:var(--muted);">open until ${esc(whenLabel(p.open_until))}</div>` : ""}
+      </div>`;
+  }
 
-  on("[data-act=match-ski-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/ski-match", { resort: "Serra da Estrela / Alpine Slopes", snow_depth_cm: 45 });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">❄️ Powder Alert Skiing Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">⛷️ <strong>${esc(res.partner_name)}</strong> is ready for fresh powder!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Snow Condition: 100% · Proximity: ${bd.proximity_km}km · Resort Heatmap: ${bd.resort_heatmap}%</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Resort: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Ski Trip on Native Chat! ⛷️');">Plan Ski Trip on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Powder Alert Ski Match Found! ⛷️"));
+  function matchMeetup(m) {
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div>📅 <strong>${esc(m.title)}</strong>${m.place ? ` · ${esc(m.place)}` : ""}</div>
+        <div style="font-size:11px; color:var(--muted);">${esc(whenLabel(m.starts_at))} · ${m.going_count} going</div>
+        <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="meetup-join" data-id="${esc(m.meetup_id)}">Join</button>
+      </div>`;
+  }
 
-  on("[data-act=match-rave-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/rave-match", { subgenre: "techno & house" });
-    const out = $("#vertical-match-output");
+  function renderMatch(res, targetId) {
+    const out = $(targetId);
     if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:6px;">🪩 Nightlife Rave Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎶 <strong>${esc(res.partner_name)}</strong> are going to ${esc(res.subgenre)} set tonight!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Subgenre Match: ${bd.subgenre_match_pct}% · Club Capacity: ${bd.club_heatmap_capacity}% · Sound Rating: ${bd.sound_system_rating}★</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Warehouse: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Rave Squad Chatroom! 🪩');">Join Rave Squad Chatroom 💬</button>
-      </div>
-    `;
-  }, "Nightlife Rave Match Found! 🪩"));
+    const people = res.people || [];
+    const meets = res.meetups || [];
+    const events = res.events || [];
+    const where = res.city_label || res.city || "";
 
-  on("[data-act=match-surf-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/surf-match", { spot: "Carcavelos Beach", swell_m: 2.2, period_s: 14, wind: "11kt Offshore NNE" });
+    if (!res.matched) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:13px; margin-bottom:6px;">Nobody yet${where ? ` in ${esc(where)}` : ""}.</div>
+          <div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "")}</div>
+          ${res.you_are_open ? "" : `<button class="ghost" style="font-size:12px; padding:6px 12px; margin-top:8px;" data-act="synergy-open-to">I'm up for this ✋</button>`}
+        </div>`;
+      return;
+    }
+
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(res.category || "Match")}${where ? ` · ${esc(where)}` : ""}</div>
+        ${people.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${people.length} ${people.length === 1 ? "person" : "people"} open right now</div>` : ""}
+        ${people.map(matchPerson).join("")}
+        ${meets.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">Already on the board</div>` : ""}
+        ${meets.map(matchMeetup).join("")}
+        ${events.map(e => `<div style="font-size:12px; margin-bottom:4px;">🎟️ ${esc(e.title || "")}</div>`).join("")}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+  }
+
+  async function synergySearch(activity, targetId) {
+    const res = await api("/v1/synergy/instant-match",
+                          { interest: activity, city: synergyCity() });
+    renderMatch(res, targetId || "#vertical-match-output");
+    return res;
+  }
+
+  on("[data-act=synergy-search]", () => act(async () => {
+    await synergySearch(synergyActivity(""));
+  }));
+
+  on("[data-act=synergy-vertical]", (el) => act(async () => {
+    const activity = synergyActivity(el.dataset.activity);
+    const box = $("#sy-act");
+    if (box && !box.value.trim()) box.value = activity;
+    await synergySearch(activity);
+  }));
+
+  on("[data-act=synergy-open-to]", () => act(async () => {
+    const activity = synergyActivity("");
+    if (!activity) { toast("Up for what?"); return; }
+    await api("/v1/synergy/open-to", { activity, city: synergyCity() });
+    await synergySearch(activity);
+  }, "You're on the list — anyone searching for that will find you ✋"));
+
+  on("[data-act=synergy-mine]", () => act(async () => {
+    const res = await api("/v1/synergy/open-to");
     const out = $("#vertical-match-output");
     if (!out) return;
-    const bd = res.breakdown || {};
-    const tel = res.telemetry || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
-        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:6px;">🏄 Swell Alert Surf Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🌊 <strong>${esc(res.partner_name)}</strong> is heading to ${esc(res.suggested_venue)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Swell: ${tel.swell_height_m}m @ ${tel.wave_period_sec}s · Wind: ${esc(tel.wind_conditions)} · Marine Score: ${bd.marine_weather_score}%</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Surf Spot: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Surf Session on Native Chat! 🏄');">Plan Surf Session on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Swell Alert Surf Match Found! 🏄"));
+    const signals = res.signals || [];
+    out.innerHTML = signals.length ? `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">You are publishing</div>
+        ${signals.map(s => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(s.activity)}</strong> · ${esc(s.city_label || s.city)}</div>
+            <div style="font-size:11px; color:var(--muted);">until ${esc(whenLabel(s.expires_at))}</div>
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="synergy-close" data-activity="${esc(s.activity)}" data-city="${esc(s.city_label || s.city)}">Take it down</button>
+          </div>`).join("")}
+      </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px; color:var(--muted);">Nothing published. Nobody can match you until you say what you are up for.</div>`;
+  }));
+
+  on("[data-act=synergy-close]", (el) => act(async () => {
+    await apiDelete("/v1/synergy/open-to",
+                    { activity: el.dataset.activity, city: el.dataset.city });
+  }, "Taken down"));
 
   on("[data-act=register-dev-plugin]", () => act(async () => {
     const name = $("#dp-name").value.trim() || "Kitesurf Wind Radar";
@@ -3764,17 +3782,12 @@ function wire(root) {
   }, "Emergency SOS Location Broadcast Active! ⚡"));
 
   on("[data-act=match-mentor]", () => act(async () => {
-    const res = await api("/v1/synergy/mentor-match", { domain: "AI & Startup Founders" });
-    const out = $("#mentor-squad-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🤝 Mentorship Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Mentor: <strong>${esc(res.mentor_name)}</strong> · ${esc(res.domain)}</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Format: ${esc(res.suggested_format)} @ <strong>${esc(res.suggested_venue)}</strong></div>
-      </div>
-    `;
-  }, "Mentorship Synergy Match Found! 🤝"));
+    const seeking = $("#mt-seek") ? $("#mt-seek").value.trim() : "";
+    const offering = $("#mt-offer") ? $("#mt-offer").value.trim() : "";
+    if (!seeking) { toast("What do you want to learn?"); return; }
+    const res = await api("/v1/synergy/mentor-match", { seeking, offering });
+    renderMatch(res, "#mentor-squad-output");
+  }));
 
   on("[data-act=sync-squad-routine]", () => act(async () => {
     const res = await api("/v1/routines/squad-sync", { routine_name: "Wednesday Dawn Patrol Surf Crew" });
@@ -4030,17 +4043,12 @@ function wire(root) {
   }, "Bouldering Spotter Matched! 🏋️"));
 
   on("[data-act=match-language-swap]", () => act(async () => {
-    const res = await api("/v1/synergy/language-swap", { speak: "English", learn: "Portuguese" });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎓 Language Swap Matched (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Partner: <strong>${esc(res.partner_name)}</strong> (Native ${esc(res.learn_lang)} Speaker)</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Format: ${esc(res.suggested_format)} @ ${esc(res.suggested_venue)}</div>
-      </div>
-    `;
-  }, "Language Swap Coffee Partner Matched! 🎓"));
+    const speak = $("#ls-speak") ? $("#ls-speak").value.trim() : "";
+    const learn = $("#ls-learn") ? $("#ls-learn").value.trim() : "";
+    if (!speak || !learn) { toast("What do you speak, and what do you want to learn?"); return; }
+    const res = await api("/v1/synergy/language-swap", { speak, learn });
+    renderMatch(res, "#layover-gym-output");
+  }));
 
   on("[data-act=match-coliving]", () => act(async () => {
     const res = await api("/v1/housing/co-living-match", { city: "Lisbon", budget: "€900/mo" });

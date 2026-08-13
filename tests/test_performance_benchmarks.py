@@ -60,9 +60,14 @@ def test_edge_cases_and_null_fallbacks(cfg):
     client = TestClient(create_app(cfg))
 
     # Empty payload edge cases
+    #
+    # `matched is True` on an empty payload was the clearest single statement of what was
+    # wrong here: no interest, no city, no accounts in the database, and the answer was yes.
+    # An unanswerable question now says so instead.
     res1 = client.post("/v1/synergy/instant-match", json={})
     assert res1.status_code == 200
-    assert res1.json()["matched"] is True
+    assert res1.json()["matched"] is False
+    assert res1.json()["needs_city"] is True
 
     res2 = client.post("/v1/dating/agree-meet", json={})
     assert res2.status_code == 200
