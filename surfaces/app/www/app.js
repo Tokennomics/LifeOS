@@ -1798,16 +1798,11 @@ function peopleView() {
     <button class="primary" data-act="auto-ingest-city">Sync Live Events 🎟️</button></div>
   </div>`;
 
-  /* ---- ZK Anonymous Attribute Verification ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🔐 Zero-Knowledge (ZK) Anonymous Credential Engine</h2>
-      <span class="badge good" style="font-weight:bold;">ZK-SNARKs</span>
-    </div>
-    <p class="hint" style="margin-bottom:8px;">Prove age (>18), local residency, or skill level without revealing identity or DOB!</p>
-    <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="zk-verify-attr">Generate ZK-Proof (>18 Age / Verified Resident) 🔐</button>
-    <div id="zk-proof-output" style="margin-top:10px;"></div>
-  </div>`;
+  /* A "Zero-Knowledge Anonymous Credential Engine" card sat here, offering to prove you
+     were over 18 or a verified resident. Nothing behind it verified anything — the endpoint
+     returned success for any attribute from any caller. Removed rather than restyled: an
+     age claim the app displays as proven is the one piece of theatre that can actually hurt
+     somebody. */
 
   html += `<div class="subhead" style="margin-top:12px;">Publish Public Activity</div>
     <div class="row2"><input class="field" id="fa-title" placeholder="Title (e.g. Sushi & Drinks)">
@@ -3733,18 +3728,10 @@ function wire(root) {
     `;
   }, "Autonomous Squad Agent Negotiated Outing! 🤖"));
 
-  on("[data-act=zk-verify-attr]", () => act(async () => {
-    const res = await api("/v1/zk/verify-attribute", { attribute: "AGE_OVER_18" });
-    const out = $("#zk-proof-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔐 ZK-SNARK Proof Verified!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Attribute: <strong>${esc(res.attribute)}</strong> · Zero Identity Disclosed</div>
-        <div style="font-size:11px; color:var(--muted);">ZK Proof: ${esc(res.zk_proof)}</div>
-      </div>
-    `;
-  }, "ZK-SNARK Proof Verified! 🔐"));
+  // The ZK "proof" handler was here. It told the user "🔐 ZK-SNARK Proof Verified ·
+  // AGE_OVER_18 · Zero Identity Disclosed" after calling an endpoint that verified nothing
+  // and returned a random string. Telling somebody they are age-verified when nothing
+  // happened is the worst thing in the app to get wrong.
 
   on("[data-act=gen-micro-itinerary]", () => act(async () => {
     const res = await api("/v1/ai/micro-itinerary", { city: "Lisbon", vibe: "Coffee to Sunset Drinks & Rave" });

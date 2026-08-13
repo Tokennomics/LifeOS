@@ -125,16 +125,21 @@ def test_gen3_core_pillars(cfg):
     assert res3.status_code == 200
     assert len(res3.json()["active_cities"]) >= 5
 
-    res4 = client.post("/v1/zk/verify-attribute", json={"attribute": "AGE_OVER_18"})
-    assert res4.status_code == 200
-    assert res4.json()["verified"] is True
-    assert "ZK-" in res4.json()["zk_proof"]
+    # `/v1/zk/verify-attribute` is gone, and this test is the reason it lasted: it asserted
+    # that an AGE_OVER_18 check returns verified=True, which the endpoint did for every
+    # attribute from every caller with a random "ZK-" string attached. The route must stay
+    # gone — an age claim the app displays as proven is the one prop that can hurt somebody.
+    assert client.post("/v1/zk/verify-attribute",
+                       json={"attribute": "AGE_OVER_18"}).status_code == 404
 
 def test_karma_audio_itinerary_and_sos(cfg):
     client = TestClient(create_app(cfg))
+    # Was `karma_score == 98` — returned to every account on the instance, including one
+    # created a second earlier. There is no score now: nobody rates anybody in this app, so
+    # a number out of 100 could only ever have been invented.
     res1 = client.get("/v1/trust/karma-score")
     assert res1.status_code == 200
-    assert res1.json()["karma_score"] == 98
+    assert res1.json()["outings_attended"] == 0 and res1.json()["empty"] is True
 
     res2 = client.get("/v1/audio/lounge-spaces")
     assert res2.status_code == 200
@@ -164,9 +169,11 @@ def test_nomad_memory_and_vip(cfg):
 
 def test_leaderboard_mentor_and_squad_routine(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.get("/v1/gamification/leaderboard")
-    assert res1.status_code == 200
-    assert len(res1.json()["leaderboard"]) >= 4
+    # The leaderboard ranked "You" #1 above three people who do not exist. Removed on its
+    # merits as well as its honesty: ranking people by outings attended rewards performative
+    # meeting-up, and publishing one person's activity count to everyone else is the
+    # presence-list problem wearing a scoreboard.
+    assert client.get("/v1/gamification/leaderboard").status_code == 404
 
     res2 = client.post("/v1/synergy/mentor-match", json={"domain": "AI"})
     assert res2.status_code == 200
@@ -254,9 +261,10 @@ def test_viral_growth_and_traction(cfg):
     assert res1.status_code == 200
     assert "CREW-" in res1.json()["invite_code"]
 
+    # Was a fixed 7 for everybody. Counted from real activity now, so a fresh account is 0.
     res2 = client.get("/v1/gamification/streaks")
     assert res2.status_code == 200
-    assert res2.json()["current_streak_days"] == 7
+    assert res2.json()["current_streak_days"] == 0 and res2.json()["empty"] is True
 
     res3 = client.post("/v1/viral/social-share", json={"title": "Rooftop Party"})
     assert res3.status_code == 200

@@ -33,7 +33,10 @@ def test_api_latency_benchmarks(cfg):
         ("POST", "/v1/biometrics/circadian-sync", {"hrv_ms": 70}),
         ("POST", "/v1/ai/squad-agent", {"crew_id": "c1"}),
         ("GET", "/v1/city/live-globe", None),
-        ("POST", "/v1/zk/verify-attribute", {"attribute": "AGE_18"})
+        # `/v1/zk/verify-attribute` was benchmarked here until it was removed: it answered
+        # "verified" to any attribute from any caller, including AGE_OVER_18. Benchmarking
+        # how fast a prop responds is the least useful thing to know about it.
+        ("GET", "/v1/gamification/streaks", None),
     ]
 
     for method, path, payload in endpoints:

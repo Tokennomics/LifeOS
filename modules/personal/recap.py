@@ -205,3 +205,122 @@ def social_battery(graph: Graph, *, now: str = "") -> dict:
         "window_days": 14,
         "recommendation": advice,
     }
+
+
+def _activity_days(graph: Graph, since, until) -> dict:
+    """Distinct days you did something, and how much, from the caller's own graph.
+
+    One place computes this so the heatmap, the streak and the recap can never disagree —
+    three surfaces telling you three different stories about the same fortnight is its own
+    kind of dishonesty.
+    """
+    session = _session(graph)
+    tally: dict = {}
+
+    def mark(stamp: str, weight: int = 1):
+        when = _parse(stamp)
+        if when is None or not (since <= when <= until):
+            return
+        day = when.date()
+        tally[day] = tally.get(day, 0) + weight
+
+    for row in session.find_entities("content", limit=1000):
+        if row.get("attrs", {}).get("type") in ("capture", "note", "journal"):
+            mark(row.get("created_at", ""))
+    for row in session.find_entities("task", limit=1000):
+        if row.get("attrs", {}).get("status") == "done":
+            mark(row.get("updated_at") or row.get("created_at", ""))
+    for row in session.find_entities("event", limit=500):
+        if row.get("attrs", {}).get("status") in STAMP_KINDS:
+            # An outing counts for more than a note, because leaving the house is the thing
+            # this app is actually for.
+            mark(row.get("attrs", {}).get("start") or row.get("created_at", ""), weight=2)
+    return tally
+
+
+def heatmap(graph: Graph, days: int = 30, *, now: str = "") -> dict:
+    """The last N days of your own activity.
+
+    Was `[{"day": i + 1, "level": (i % 3) + 1} for i in range(30)]` — a sawtooth that looks
+    like data from a distance and is the same for every account, forever. It even imported
+    `random` and then did not use it.
+    """
+    stamp = _parse(now) or _now()
+    days = max(1, min(int(days or 30), 366))
+    since = stamp - datetime.timedelta(days=days - 1)
+    tally = _activity_days(graph, since - datetime.timedelta(days=1), stamp)
+
+    out = []
+    for offset in range(days):
+        day = (since + datetime.timedelta(days=offset)).date()
+        score = tally.get(day, 0)
+        out.append({"date": day.isoformat(),
+                    "level": 0 if score == 0 else 1 if score <= 2 else 2 if score <= 5 else 3})
+    active = sum(1 for d in out if d["level"] > 0)
+    return {"days": out, "window_days": days, "active_days": active,
+            "empty": active == 0}
+
+
+def streaks(graph: Graph, *, now: str = "") -> dict:
+    """Consecutive days you showed up, counted rather than asserted.
+
+    Today not being logged yet does not break a streak — a streak that resets at midnight
+    before you have had breakfast is a streak that punishes you for sleeping.
+    """
+    stamp = _parse(now) or _now()
+    tally = _activity_days(graph, stamp - datetime.timedelta(days=400), stamp)
+    if not tally:
+        return {"current_streak_days": 0, "longest_streak_days": 0, "last_active": "",
+                "empty": True,
+                "note": "No streak yet. Capture something or mark an outing attended."}
+
+    days = sorted(tally)
+    longest = run = 1
+    for earlier, later in zip(days, days[1:]):
+        run = run + 1 if (later - earlier).days == 1 else 1
+        longest = max(longest, run)
+
+    today = stamp.date()
+    current = 0
+    cursor = today if today in tally else today - datetime.timedelta(days=1)
+    while cursor in tally:
+        current += 1
+        cursor -= datetime.timedelta(days=1)
+
+    return {"current_streak_days": current, "longest_streak_days": longest,
+            "last_active": days[-1].isoformat(), "empty": False, "note": ""}
+
+
+def standing(graph: Graph, *, now: str = "") -> dict:
+    """What you have actually done, instead of a karma score out of 100.
+
+    The old version returned 98/100, "LEGEND_CREW_MEMBER", 99% punctual arrivals and a 4.98
+    crew rating to every account on the instance — including one created ten seconds ago.
+
+    It is not replaced with a smaller number. A single trust score invites people to farm it,
+    tells you nothing about *why*, and cannot be computed honestly from data this app has:
+    nobody rates anybody here, and punctuality is not measured. What can be said truthfully
+    is what you turned up to and how long you have been around, so that is what it says.
+    """
+    session = _session(graph)
+    stamp = _parse(now) or _now()
+
+    events = session.find_entities("event", limit=500)
+    attended = [e for e in events if e.get("attrs", {}).get("status") in STAMP_KINDS]
+    accounts = session.find_entities("content", limit=1000)
+    joined = min((row.get("created_at", "") for row in accounts if row.get("created_at")),
+                 default="")
+    since_days = 0
+    if joined and (first := _parse(joined)) is not None:
+        since_days = max(0, (stamp - first).days)
+
+    return {
+        "outings_attended": len(attended),
+        "days_since_first_activity": since_days,
+        "streak": streaks(graph, now=now)["current_streak_days"],
+        "empty": not attended,
+        # Said plainly, because the honest version of this is a sentence rather than a score.
+        "summary": ("Nothing logged yet — this fills in as you go to things."
+                    if not attended else
+                    f"{len(attended)} outing{'s' if len(attended) != 1 else ''} attended."),
+    }

@@ -2690,32 +2690,21 @@ def build_router(auth) -> APIRouter:
             "message": "🗺️ Live 3D Globe Telemetry: 115 active social beacons across 5 global hubs!"
         }
 
-    @router.post("/zk/verify-attribute")
-    def zk_anonymous_attribute_verification_endpoint(request: Request, body: dict):
-        attribute = body.get("attribute", "AGE_OVER_18").strip()
-        proof_hash = "ZK-" + "".join(__import__("random").choices("0123456789abcdef", k=16))
-        return {
-            "verified": True,
-            "attribute": attribute,
-            "zk_proof": proof_hash,
-            "identity_disclosed": False,
-            "message": f"🔐 ZK-SNARK Proof Generated for '{attribute}'! Zero identity disclosed. Cryptographically verified ✓"
-        }
+    # `POST /zk/verify-attribute` was here. It returned {"verified": true,
+    # "identity_disclosed": false} with a random "ZK-" string for ANY attribute from ANY
+    # caller — including AGE_OVER_18, in a repo that contains a dating surface. An age check
+    # that passes everyone is worse than no age check, because the rest of the system, and
+    # the user reading "Proof Verified", both believe it happened. Removed rather than
+    # rewritten: real attribute proofs need an issuer, and there isn't one.
 
     @router.get("/trust/karma-score")
     def get_social_karma_score_endpoint(request: Request):
-        return {
-            "karma_score": 98,
-            "trust_tier": "LEGEND_CREW_MEMBER",
-            "metrics": {
-                "punctual_arrivals_pct": 99,
-                "verified_badges": 12,
-                "safewalk_completions": 8,
-                "crew_rating": 4.98
-            },
-            "message": "🏆 Social Karma Score: 98/100 (Legend Crew Tier)! Highly trusted across all outing matchers."
-        }
-
+        """What you have actually turned up to. Was 98/100 "LEGEND_CREW_MEMBER" with a 4.98
+        crew rating, for every account including one made ten seconds ago — and a single
+        trust score invites farming, explains nothing, and cannot be computed honestly from
+        data this app has. Nobody rates anybody here."""
+        from modules.personal import recap
+        return guard(lambda: recap.standing(_graph(request)))
     @router.get("/audio/lounge-spaces")
     def get_spatial_audio_lounges_endpoint(request: Request):
         return {
@@ -2805,17 +2794,10 @@ def build_router(auth) -> APIRouter:
             "message": f"🎟️ VIP Guestlist Access Granted for {venue}! (Karma Score: {karma_score}/100 verified)."
         }
 
-    @router.get("/gamification/leaderboard")
-    def get_global_synergy_leaderboard_endpoint(request: Request):
-        return {
-            "leaderboard": [
-                {"rank": 1, "user": "You", "karma_score": 98, "badge": "👑 Lisbon Coffee & Tech Legend", "outings_count": 42},
-                {"rank": 2, "user": "Elena R.", "karma_score": 96, "badge": "🌅 Rooftop Sunset Master", "outings_count": 39},
-                {"rank": 3, "user": "Alex M.", "karma_score": 94, "badge": "🧗 Bouldering & Outdoor Pro", "outings_count": 35},
-                {"rank": 4, "user": "Marcus T.", "karma_score": 92, "badge": "🏄 Dawn Patrol Surfer", "outings_count": 31}
-            ],
-            "message": "🏆 Global Synergy Leaderboard: You are Ranked #1 in Lisbon!"
-        }
+    # `GET /gamification/leaderboard` was here, ranking "You" #1 above Elena R., Alex M. and
+    # Marcus T. — none of whom exist. Not reimplemented: ranking people by how many outings
+    # they attend rewards performative meeting-up, and publishing one person's activity
+    # count to everyone else is the presence-list problem wearing a scoreboard.
 
     @router.post("/synergy/mentor-match")
     def mentor_synergy_match_endpoint(request: Request, body: dict):
@@ -3054,14 +3036,9 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/gamification/streaks")
     def get_user_outing_streaks_endpoint(request: Request):
-        return {
-            "current_streak_days": 7,
-            "longest_streak_days": 14,
-            "squad_streak_name": "Lisbon Sunset Crew",
-            "streak_reward": "🔥 7-Day Outing Streak Active! 15% Off VIP Tapas Unlocked.",
-            "message": "🔥 Outing Streak Active: 7 Consecutive Days of Real-World Connections!"
-        }
-
+        """Counted from your own activity. Was a fixed 7-day streak for everybody."""
+        from modules.personal import recap
+        return guard(lambda: recap.streaks(_graph(request)))
     @router.post("/viral/social-share")
     def generate_social_share_card_endpoint(request: Request, body: dict):
         title = body.get("title", "Lisbon Rooftop Sunset Party").strip()
@@ -5808,12 +5785,11 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
                 "vcard_data_uri": "data:text/vcard;charset=utf-8," + quote(vcard, safe="")}
 
     @router.get("/routines/heatmap")
-    def get_habit_heatmap_endpoint(request: Request):
-        # 30-day activity matrix (1=light, 2=medium, 3=high focus)
-        import random
-        days = [{"day": i + 1, "level": (i % 3) + 1} for i in range(30)]
-        return {"days": days, "streak_days": 14}
-
+    def get_habit_heatmap_endpoint(request: Request, days: int = 30):
+        """Your last 30 days. Was `(i % 3) + 1` — a sawtooth that looks like data from a
+        distance, identical for every account, and it imported `random` without using it."""
+        from modules.personal import recap
+        return guard(lambda: recap.heatmap(_graph(request), days))
     @router.post("/notifications/schedule")
     def schedule_notifications_endpoint(request: Request, body: dict):
         am_time = body.get("am_time", "08:00")

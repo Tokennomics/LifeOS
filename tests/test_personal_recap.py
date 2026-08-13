@@ -209,3 +209,133 @@ def test_the_battery_reports_no_precision_it_does_not_have(graph):
     assert set(body) == {"state", "recent_outings", "upcoming_outings", "window_days",
                          "recommendation"}
     assert body["state"] in ("quiet", "steady", "full")
+
+
+# ---- streaks, heatmap, standing --------------------------------------------------
+
+def _mark_days(graph, offsets):
+    """Activity on each of these days-ago."""
+    session = graph.session("t", {"content:write", "content:read"})
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for offset in offsets:
+        session.create_entity("content", {"type": "capture", "text": f"day -{offset}"},
+                              source="t",
+                              created_at=(now - datetime.timedelta(days=offset)).isoformat())
+
+
+def test_a_fresh_account_has_no_streak(two):
+    client, heads = two
+    body = client.get("/v1/gamification/streaks", headers=heads["ana"]).json()
+    assert body["current_streak_days"] == 0 and body["empty"] is True
+    assert "capture" in body["note"].lower()
+
+
+def test_a_streak_is_consecutive_days_you_showed_up(graph):
+    _mark_days(graph, [0, 1, 2])
+    body = recap.streaks(graph)
+    assert body["current_streak_days"] == 3 and body["longest_streak_days"] == 3
+
+
+def test_a_gap_breaks_the_streak_but_not_the_record(graph):
+    _mark_days(graph, [0, 1, 5, 6, 7, 8])
+    body = recap.streaks(graph)
+    assert body["current_streak_days"] == 2
+    assert body["longest_streak_days"] == 4
+
+
+def test_todays_silence_does_not_end_yesterdays_streak(graph):
+    """A streak that resets at midnight punishes you for sleeping."""
+    _mark_days(graph, [1, 2, 3])
+    assert recap.streaks(graph)["current_streak_days"] == 3
+
+
+def test_the_heatmap_is_your_own_activity(graph):
+    """Was `(i % 3) + 1` — a sawtooth that looks like data from a distance and is identical
+    for every account. It even imported `random` and never used it."""
+    body = recap.heatmap(graph)
+    assert len(body["days"]) == 30
+    assert body["active_days"] == 0 and body["empty"] is True
+    assert {d["level"] for d in body["days"]} == {0}
+
+    _mark_days(graph, [0, 3])
+    after = recap.heatmap(graph)
+    assert after["active_days"] == 2 and after["empty"] is False
+
+
+def test_the_heatmap_is_not_the_same_shape_for_everyone(two):
+    client, heads = two
+    client.post("/v1/capture", headers=heads["ana"], json={"text": "something"})
+    mine = client.get("/v1/routines/heatmap", headers=heads["ana"]).json()
+    theirs = client.get("/v1/routines/heatmap", headers=heads["bruno"]).json()
+    assert mine["active_days"] == 1 and theirs["active_days"] == 0
+
+
+def test_an_outing_counts_for_more_than_a_note(graph):
+    """Leaving the house is the thing this app is for."""
+    session = graph.session("t", {"events:write", "events:read"})
+    session.create_entity("event", {"type": "social", "status": "attended", "place": "Crag",
+                                    "start": datetime.datetime.now(
+                                        datetime.timezone.utc).isoformat()}, source="t")
+    today = [d for d in recap.heatmap(graph)["days"] if d["level"] > 0]
+    assert today and today[0]["level"] >= 1
+
+
+def test_standing_reports_what_you_did_not_a_score_out_of_100(two):
+    """Was 98/100 "LEGEND_CREW_MEMBER", 99% punctual arrivals and a 4.98 crew rating — for
+    every account, including one made ten seconds ago. Nobody rates anybody in this app, so
+    the score could only ever have been invented."""
+    client, heads = two
+    body = client.get("/v1/trust/karma-score", headers=heads["ana"]).json()
+    assert "karma_score" not in body and "trust_tier" not in body
+    assert body["outings_attended"] == 0 and body["empty"] is True
+    assert "nothing logged" in body["summary"].lower()
+
+
+def test_standing_counts_real_outings(graph):
+    session = graph.session("t", {"events:write", "events:read"})
+    for place in ("Crag", "Cafe"):
+        session.create_entity("event", {"type": "social", "status": "attended",
+                                        "place": place,
+                                        "start": datetime.datetime.now(
+                                            datetime.timezone.utc).isoformat()}, source="t")
+    body = recap.standing(graph)
+    assert body["outings_attended"] == 2 and body["empty"] is False
+    assert "2 outings" in body["summary"]
+
+
+def test_the_three_time_surfaces_agree_with_each_other(graph):
+    """Heatmap, streak and recap read the same days through one helper, so they cannot tell
+    you three different stories about the same fortnight."""
+    _mark_days(graph, [0, 1, 2])
+    assert recap.streaks(graph)["current_streak_days"] == 3
+    assert recap.heatmap(graph)["active_days"] == 3
+    assert recap.monthly(graph)["days_shown_up"] == 3
+
+
+# ---- what was removed stays removed ----------------------------------------------
+
+def test_the_fake_age_check_is_gone(two):
+    """`/v1/zk/verify-attribute` returned verified=True with a random "ZK-" string for any
+    attribute from any caller — including AGE_OVER_18, in a repo containing a dating
+    surface. An age check that passes everyone is worse than none, because the user reading
+    "Proof Verified" believes it happened."""
+    client, heads = two
+    assert client.post("/v1/zk/verify-attribute", headers=heads["ana"],
+                       json={"attribute": "AGE_OVER_18"}).status_code == 404
+
+
+def test_the_pwa_no_longer_offers_to_prove_your_age():
+    import pathlib
+    app_js = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
+    # Match live markup, not prose — the comment explaining why the card is gone naturally
+    # quotes what it used to say.
+    assert "data-act=\"zk-verify-attr\"" not in app_js
+    assert "zk-proof-output" not in app_js
+    assert "/v1/zk/verify-attribute" not in app_js
+
+
+def test_the_invented_leaderboard_is_gone(two):
+    client, heads = two
+    assert client.get("/v1/gamification/leaderboard",
+                      headers=heads["ana"]).status_code == 404
