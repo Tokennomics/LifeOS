@@ -487,6 +487,18 @@ class SynergyCloseIn(BaseModel):
     activity: str = ""
 
 
+class DatingOpenIn(BaseModel):
+    city: str = ""
+    vibe: str = ""
+    hours: int = 6
+
+
+class DatingCloseIn(BaseModel):
+    """A blank city takes every marker down, everywhere — the thing you want when you have
+    stopped wanting this at all, without having to remember where you left one."""
+    city: str = ""
+
+
 class CityPostIn(BaseModel):
     city: str
     text: str
@@ -2427,52 +2439,69 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/dating/instant-meet")
     def instant_dating_meet_endpoint(request: Request, body: dict):
-        vibe = body.get("vibe", "drinks tonight").strip()
-        timeframe = body.get("timeframe", "next hour").strip()
-        user_lat = body.get("lat", 38.711)
-        user_lon = body.get("lon", -9.139)
+        """Who is open to meeting someone in this city.
 
-        # 7-Factor Comprehensive Match Engine:
-        # Proximity (25%) + Preferences (20%) + Heatmap (15%) + Popularity (15%) + Trust Index (10%) + Energy Balance (10%) + Weather (5%)
-        proximity_km = 1.2
-        prox_score = 98        # 1.2 km distance
-        pref_score = 95        # Drinks / Specialty Coffee match
-        heatmap_density = 88   # Live venue heatmap activity (88% capacity)
-        venue_popularity = 94  # 4.9 star rating, high review volume
-        trust_index = 96       # 3 mutual friends, verified badge
-        energy_balance = 90    # High evening energy alignment
-        weather_score = 95     # Clear sky 24°C outdoor rating
+        Replaces a "7-Factor Comprehensive Match Engine" whose seven factors — proximity,
+        preferences, heatmap, popularity, trust index, energy balance, weather — were seven
+        constants, weighted into a score, attached to Elena R., 1.2 km away. There was no
+        distance because there were no coordinates, and no Elena.
 
-        composite_score = int(
-            0.25 * prox_score +
-            0.20 * pref_score +
-            0.15 * heatmap_density +
-            0.15 * venue_popularity +
-            0.10 * trust_index +
-            0.10 * energy_balance +
-            0.05 * weather_score
-        )
+        Reciprocal by construction: you see who is open here only once you are open
+        yourself, so this can never be browsed from the outside by somebody who is not in
+        it. The `lat`/`lon` the old version took are gone — city granularity is what makes
+        an "open to meeting" list safe to publish at all.
+        """
+        from modules.dating import meets
+        caller = getattr(request.state, "caller", None) or {}
+        account_id = _dating_id(request) or ""
+        city = str(body.get("city", "") or "").strip()
+        if not city and account_id:
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), account_id)
+        if not city:
+            return {"people": [], "people_count": 0, "you_are_open": False,
+                    "needs_city": True,
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
 
-        return {
-            "matched": True,
-            "vibe": vibe,
-            "timeframe": timeframe,
-            "partner_name": "Elena R.",
-            "match_score": composite_score,
-            "breakdown": {
-                "proximity_km": proximity_km,
-                "proximity_score": prox_score,
-                "preference_match": pref_score,
-                "heatmap_density_pct": heatmap_density,
-                "venue_popularity_score": venue_popularity,
-                "trust_index": trust_index,
-                "energy_balance": energy_balance,
-                "weather_score": weather_score
-            },
-            "suggested_venue": "Miradouro Rooftop Sunset Bar",
-            "venue_address": "Rua do Miradouro 14, Lisbon",
-            "message": f"🍷 Instant Dating Match Found ({composite_score}% 7-Factor Match)! Elena R. is {proximity_km}km away & free in the {timeframe} at Miradouro Rooftop!"
-        }
+        if str(body.get("open", "")).lower() in ("1", "true", "yes"):
+            dating_guard(lambda: meets.open_to_meeting(
+                _graph(request), city, account_id=account_id,
+                handle=caller.get("handle", ""), vibe=str(body.get("vibe", "") or ""),
+                hours=body.get("hours", meets.DEFAULT_HOURS)))
+        return dating_guard(lambda: meets.nearby(_graph(request), city,
+                                                 account_id=account_id))
+
+    @router.post("/dating/open-to-meeting")
+    def dating_open_to_meeting_endpoint(request: Request, body: DatingOpenIn):
+        """Publish that you are open to meeting someone here, for a few hours.
+
+        Its own call rather than a side effect of searching: being listed as open to meeting
+        strangers is a larger disclosure than looking, and the two must never be the same
+        gesture.
+        """
+        from modules.dating import meets
+        rate_limiter.enforce(request, "dating:open", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id = _dating_id(request) or ""
+        city = body.city.strip()
+        if not city and account_id:
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), account_id)
+        return dating_guard(lambda: meets.open_to_meeting(
+            _graph(request), city, account_id=account_id,
+            handle=caller.get("handle", ""), vibe=body.vibe, hours=body.hours))
+
+    @router.delete("/dating/open-to-meeting")
+    def dating_close_meeting_endpoint(request: Request, body: DatingCloseIn):
+        from modules.dating import meets
+        return dating_guard(lambda: meets.close(_graph(request), body.city,
+                                                account_id=_dating_id(request) or ""))
+
+    @router.get("/dating/open-to-meeting")
+    def dating_my_markers_endpoint(request: Request):
+        from modules.dating import meets
+        return dating_guard(lambda: {"markers": meets.mine(
+            _graph(request), account_id=_dating_id(request) or "")})
 
     @router.post("/synergy/creative-match")
     def creative_jam_match_endpoint(request: Request, body: dict):
@@ -5197,29 +5226,30 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/travel/layover-buddy")
     def airport_layover_buddy_endpoint(request: Request, body: dict):
-        airport = body.get("airport_code", "LIS (Lisbon Airport Terminal 1)").strip()
-        layover_mins = body.get("layover_mins", 120)
-        return {
-            "matched": True,
-            "airport": airport,
-            "layover_mins": layover_mins,
-            "buddy_name": "Elena R. (Digital Nomad)",
-            "suggested_spot": "TAP Premium Lounge / Specialty Coffee Stand",
-            "message": f"✈️ Layover Buddy Found at {airport}! Connecting with Elena R. for a 2-hour coffee meet before flight."
-        }
+        """Somebody else killing four hours in the same terminal.
+
+        Was Elena R., Digital Nomad, at the TAP Premium Lounge, for every airport and every
+        caller. An airport is a place people are briefly in and open to company -- exactly
+        what the city matcher already models -- so the airport code is the room.
+        """
+        airport = str(body.get("airport_code", "") or "").strip()
+        if not airport:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "Layover",
+                    "suggestion": "Which airport? Pass `airport_code`."}
+        return {**_synergy_match(request, {**body, "city": airport},
+                                 str(body.get("activity", "") or "").strip(), "Layover"),
+                "airport": airport,
+                "layover_mins": body.get("layover_mins", 0)}
 
     @router.post("/sports/gym-spotter")
     def gym_spotter_synergy_endpoint(request: Request, body: dict):
-        activity = body.get("activity", "Bouldering & Lead Climbing").strip()
-        gym_name = body.get("gym", "Vertical Wall Lisbon").strip()
-        return {
-            "matched": True,
-            "activity": activity,
-            "gym_name": gym_name,
-            "spotter_name": "Alex M.",
-            "match_score": 96,
-            "message": f"🏋️ Spotter Matched! Connected with Alex M. for {activity} @ {gym_name} (96% Match Score)."
-        }
+        """Alex M. spotted everyone, at 96%, at Vertical Wall Lisbon. Same matcher as the
+        rest -- a spotter is a person in your city who wants to climb when you do."""
+        activity = str(body.get("activity", "") or "").strip()
+        gym = str(body.get("gym", "") or "").strip()
+        return {**_synergy_match(request, body, activity or "climbing", "Gym & Climbing"),
+                "gym_name": gym}
 
     @router.post("/pets/dog-walk-crew")
     def dog_park_walk_crew_endpoint(request: Request, body: dict):
@@ -5335,18 +5365,27 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
-        partner_name = body.get("partner_name", "Elena R.").strip()
-        venue = body.get("venue", "Miradouro Rooftop Sunset Bar").strip()
-        return {
-            "agreed": True,
-            "partner_name": partner_name,
-            "venue": venue,
-            "pin_code": "4892",
-            "eta_mins": 14,
-            "lat": 38.711,
-            "lon": -9.139,
-            "message": f"🥂 Both Agreed! Meeting Pin set at {venue} (ETA: 14 mins). Security PIN: 4892 📍"
-        }
+        """Say yes to meeting one specific person, and learn whether they said it too.
+
+        It used to return `agreed: True` for any `partner_name` in the body — a name typed
+        by hand was enough to be told a meeting was confirmed, complete with an ETA and a
+        map pin, with nobody on the other end. `agreed` now means both sides declared, which
+        is the only thing the word can mean, and it runs through the same blinded handshake
+        as `/dating/interest`: nothing is shown to the other person unless they say it too.
+
+        `pin_code: "4892"` was the same four digits for every pair in the world. The code is
+        now derived per pair and only appears once the match is real.
+        """
+        from modules.dating import meets
+        target = str(body.get("target_account_id", "") or "").strip()
+        activity = str(body.get("activity_id", "") or body.get("venue", "") or "meet")
+        if not target:
+            raise HTTPException(
+                status_code=400,
+                detail=("target_account_id required — agreeing to meet a name typed into a "
+                        "box confirmed a meeting with nobody"))
+        return dating_guard(lambda: meets.agree(
+            _graph(request), target, activity, account_id=_dating_id(request) or ""))
 
     @router.post("/safety/escort")
     def start_safewalk_escort_endpoint(request: Request, body: dict):

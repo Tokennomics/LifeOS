@@ -64,3 +64,38 @@ def test_the_pwa_offers_a_way_to_sign_in():
     # Match a *call*, not the word — the comment explaining why that endpoint is gone
     # naturally mentions it by name.
     assert 'api("/v1/auth/social-sso"' not in app_js, "the fake SSO path is back"
+
+
+# ---- buttons written into the page after render ----------------------------
+#
+# `wire(root)` binds click handlers to the elements that exist at render time. Every result
+# card in `app.js` is written afterwards with `innerHTML`, so a `[data-act]` button inside
+# one has no listener: it renders, it looks live, and tapping it does nothing. Found by
+# clicking "I'd meet them" in a real browser after the Python suite was fully green — the
+# request was never sent and the card simply did not change.
+#
+# `bindLater` is the fix. These two tests keep it wired up, because the failure is silent
+# in every other check this repo runs.
+
+APP_JS = WWW / "app.js"
+
+
+def test_wire_can_bind_markup_added_after_render():
+    source = APP_JS.read_text(encoding="utf-8")
+    assert "const bindLater" in source, (
+        "wire() lost its late binder — every button inside a dynamically rendered card "
+        "stops responding, silently")
+
+
+def test_every_renderer_that_writes_a_data_act_binds_it():
+    """A renderer that injects an action button and forgets `bindLater` ships a dead button.
+
+    Deliberately crude — it counts, it does not parse — but the thing it guards against is
+    adding a card and forgetting, which is exactly what happened.
+    """
+    source = APP_JS.read_text(encoding="utf-8")
+    injected = source.count('data-act="')          # only ever written inside template markup
+    bound = source.count("bindLater(")
+    assert bound >= 5, (
+        f"{injected} data-act buttons are written into markup but bindLater is called only "
+        f"{bound} times — some of them cannot respond to a tap")

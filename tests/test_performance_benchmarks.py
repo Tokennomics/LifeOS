@@ -14,8 +14,10 @@ def test_api_latency_benchmarks(cfg):
 
     endpoints = [
         ("POST", "/v1/synergy/instant-match", {"interest": "coffee"}),
-        ("POST", "/v1/dating/instant-meet", {"vibe": "drinks"}),
-        ("POST", "/v1/dating/agree-meet", {"partner_name": "Elena R."}),
+        # `/v1/dating/instant-meet` is not benchmarked here any more: it is gated behind
+        # LIFEOS_DATING_ENABLED and a signing key, so on a default config it answers 503 and
+        # the only thing being timed is the gate refusing. Its behaviour is covered in
+        # tests/test_dating_meets.py, on a surface that is actually switched on.
         ("POST", "/v1/safety/escort", {"destination": "Home"}),
         ("POST", "/v1/ledger/quick-split", {"amount": 50}),
         ("POST", "/v1/synergy/sports-match", {"sport": "climbing"}),
@@ -69,9 +71,10 @@ def test_edge_cases_and_null_fallbacks(cfg):
     assert res1.json()["matched"] is False
     assert res1.json()["needs_city"] is True
 
+    # `agreed: True` on an empty body: a confirmed meeting with nobody, complete with an
+    # ETA and a security PIN. Agreeing now needs somebody to agree with.
     res2 = client.post("/v1/dating/agree-meet", json={})
-    assert res2.status_code == 200
-    assert res2.json()["agreed"] is True
+    assert res2.status_code == 400
 
     res3 = client.post("/v1/safety/escort", json={})
     assert res3.status_code == 200

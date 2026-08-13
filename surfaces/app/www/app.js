@@ -422,10 +422,15 @@ function todayView() {
       <h2>🍷 Instant Dating & Evening Drinks Radar</h2>
       <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Next Hour</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Want to meet someone new for drinks tonight in the next hour? Match instantly & set a shared map pin + ETA!</p>
-    <div class="row2"><input class="field" id="dt-vibe" placeholder="Vibe (e.g. drinks tonight)" value="drinks tonight">
-    <input class="field" id="dt-time" placeholder="Timeframe (e.g. next hour)" value="next hour"></div>
-    <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Match Instant Drinks Meetup 🍷</button>
+    <p class="hint" style="margin-bottom:8px;">You can see who is open to meeting here once you are open yourself — nobody browses this list from the outside. Interest stays private unless it is returned.</p>
+    <div class="row2">
+      <input class="field" id="dt-vibe" placeholder="Vibe (e.g. quiet drink)">
+      <input class="field" id="dt-city" placeholder="City (blank = where you said you are)">
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Who is open 🍷</button>
+      <button class="ghost" data-act="dating-open-to">I'm open tonight ✋</button>
+    </div>
     <div id="instant-dating-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -742,7 +747,11 @@ function todayView() {
       <h2>✈️ Airport Layover & Gym Spotter Matcher</h2>
       <span class="badge good" style="font-weight:bold;">Solo Travelers & Fitness</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match airport layover coffee buddies, climbing gym spotters, or neighborhood dog park walks!</p>
+    <p class="hint" style="margin-bottom:8px;">An airport is a city for four hours. Same matcher — it searches people who said they are there and open.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="lo-airport" placeholder="Airport code (e.g. LIS)">
+      <input class="field" id="lo-gym" placeholder="Climbing, weights…">
+    </div>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy ✈️</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Gym Spotter 🏋️</button>
@@ -2675,8 +2684,27 @@ function selectedPeople(eventId) {
 }
 
 function wire(root) {
-  const on = (selector, handler) => root.querySelectorAll(selector).forEach((el) =>
-    el.addEventListener("click", () => handler(el)));
+  // `on` binds listeners to the elements that exist *now*. Anything a renderer writes into
+  // the page afterwards with innerHTML therefore has no listener at all: the button appears,
+  // looks live, and does nothing when tapped. Every dynamic result card in this file has
+  // that shape, so `on` also records the handler by action name and `bindLater` attaches it
+  // to markup added after the fact.
+  const acts = {};
+  const on = (selector, handler) => {
+    const named = selector.match(/^\[data-act=([^\]]+)\]$/);
+    if (named) acts[named[1]] = handler;
+    root.querySelectorAll(selector).forEach((el) =>
+      el.addEventListener("click", () => handler(el)));
+  };
+  const bindLater = (container) => {
+    if (!container) return;
+    container.querySelectorAll("[data-act]").forEach((el) => {
+      const handler = acts[el.dataset.act];
+      if (!handler || el.dataset.bound) return;
+      el.dataset.bound = "1";
+      el.addEventListener("click", () => handler(el));
+    });
+  };
 
   on("[data-act=vision]", () => act(async () => {
     const text = $("#vision-text").value.trim();
@@ -3542,53 +3570,74 @@ function wire(root) {
     renderMatch(res, "#instant-match-output");
   }));
 
-  on("[data-act=instant-dating-match]", () => act(async () => {
-    const vibe = $("#dt-vibe").value.trim() || "drinks tonight";
-    const timeframe = $("#dt-time").value.trim() || "next hour";
-    const c = coords();
-    const res = await api("/v1/dating/instant-meet", { vibe, timeframe, lat: c ? c.lat : 38.711, lon: c ? c.lon : -9.139 });
+  /* ---- Dating: discovery, then a two-sided agreement ----
+     The old card ran a "7-Factor Match Engine" over seven constants and handed back Elena
+     R., 1.2 km away, then let you "Both Agree" with her — a confirmed meeting, an ETA and
+     PIN 4892, with nobody on the other end. Both halves are real now, and the second one
+     cannot fire without an account id that came from the first. */
+
+  function datingCity() {
+    const box = $("#dt-city");
+    return box ? box.value.trim() : "";
+  }
+
+  function renderDatingOpen(res) {
     const out = $("#instant-dating-output");
     if (!out) return;
-    const bd = res.breakdown || {};
+    if (res.needs_city) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(res.suggestion || "Which city?")}</div>`;
+      bindLater(out);
+      return;
+    }
+    if (!res.you_are_open) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:13px; margin-bottom:8px;">${esc(res.suggestion || "")}</div>
+          <button class="ghost" style="font-size:12px; padding:6px 12px;" data-act="dating-open-to">I'm open tonight ✋</button>
+        </div>`;
+      bindLater(out);
+      return;
+    }
+    const people = res.people || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <div style="font-size:14px; font-weight:700; color:var(--spark);">🍷 Instant Dating Match (${res.match_score}% 7-Factor Score)</div>
-          <span class="badge good" style="font-size:11px;">📍 ${bd.proximity_km || 1.2} km away</span>
-        </div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
-        <div style="font-size:11px; color:var(--muted); margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">
-          <span>🎯 Preference: ${bd.preference_match || 95}%</span> ·
-          <span>🔥 Heatmap: ${bd.heatmap_density_pct || 88}%</span> ·
-          <span>⭐ Popularity: ${bd.venue_popularity_score || 94}%</span> ·
-          <span>🤝 Trust Index: ${bd.trust_index || 96}%</span> ·
-          <span>⚡ Energy: ${bd.energy_balance || 90}%</span> ·
-          <span>🌤️ Weather: ${bd.weather_score || 95}%</span>
-        </div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Suggested Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <button class="primary" style="font-size:12px; padding:6px 14px;" data-act="agree-dating-meet" data-partner="${esc(res.partner_name)}" data-venue="${esc(res.suggested_venue)}">Both Agree & Set Map Pin 🥂</button>
-          <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Chat opened with ${esc(res.partner_name)}! 💬');">Native In-App Chat 💬</button>
-        </div>
-      </div>
-    `;
-  }, "Instant Drinks Meetup Matched! 🍷"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">Open in ${esc(res.city_label || res.city)}</div>
+        ${people.length ? "" : `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>`}
+        ${people.map(p => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(p.handle)}</strong></div>
+            ${p.vibe ? `<div style="font-size:12px; color:var(--muted);">${esc(p.vibe)}</div>` : ""}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="agree-dating-meet" data-target="${esc(p.account_id)}">I'd meet them</button>
+          </div>`).join("")}
+        ${res.next_step ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.next_step)}</div>` : ""}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  on("[data-act=instant-dating-match]", () => act(async () => {
+    renderDatingOpen(await api("/v1/dating/instant-meet", { city: datingCity() }));
+  }));
+
+  on("[data-act=dating-open-to]", () => act(async () => {
+    const vibe = $("#dt-vibe") ? $("#dt-vibe").value.trim() : "";
+    await api("/v1/dating/open-to-meeting", { city: datingCity(), vibe });
+    renderDatingOpen(await api("/v1/dating/instant-meet", { city: datingCity() }));
+  }, "You're listed for a few hours — it expires on its own ✋"));
 
   on("[data-act=agree-dating-meet]", (el) => act(async () => {
-    const partner_name = el.dataset.partner || "Elena R.";
-    const venue = el.dataset.venue || "Miradouro Rooftop";
-    const res = await api("/v1/dating/agree-meet", { partner_name, venue });
+    const res = await api("/v1/dating/agree-meet",
+                          { target_account_id: el.dataset.target, activity_id: "meet" });
     const out = $("#instant-dating-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🥂 Confirmed! Meeting Pin Set at ${esc(res.venue)}:</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Shared Map Pin:</strong> Live ETA ${res.eta_mins} mins</div>
-        <div style="font-size:13px; margin-bottom:6px;">🛡️ <strong>Safety Pin Code:</strong> ${res.pin_code}</div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="toast('Connected in native in-app chatroom! 💬');">Launch Native Chatroom 💬</button>
-      </div>
-    `;
-  }, "Meetup Confirmed! Pin & Live ETA set 📍"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${res.agreed ? "You're both in 🥂" : "Noted, privately"}</div>
+        <div style="font-size:13px; margin-bottom:6px;">${esc(res.message || "")}</div>
+        ${res.meeting_code ? `<div style="font-size:13px;">Say this out loud when you meet: <strong>${esc(res.meeting_code)}</strong></div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note || "")}</div>
+      </div>`;
+  }));
 
   /* ---- Synergy: one renderer for every activity ----
      Seven near-identical handlers used to live here, each pulling `res.partner_name` and
@@ -3642,6 +3691,7 @@ function wire(root) {
           <div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "")}</div>
           ${res.you_are_open ? "" : `<button class="ghost" style="font-size:12px; padding:6px 12px; margin-top:8px;" data-act="synergy-open-to">I'm up for this ✋</button>`}
         </div>`;
+      bindLater(out);
       return;
     }
 
@@ -3655,6 +3705,7 @@ function wire(root) {
         ${events.map(e => `<div style="font-size:12px; margin-bottom:4px;">🎟️ ${esc(e.title || "")}</div>`).join("")}
         ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note)}</div>` : ""}
       </div>`;
+    bindLater(out);
   }
 
   async function synergySearch(activity, targetId) {
@@ -3698,6 +3749,7 @@ function wire(root) {
           </div>`).join("")}
       </div>`
       : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px; color:var(--muted);">Nothing published. Nobody can match you until you say what you are up for.</div>`;
+    bindLater(out);
   }));
 
   on("[data-act=synergy-close]", (el) => act(async () => {
@@ -4017,30 +4069,17 @@ function wire(root) {
   }, "Festival Stage Flare Dropped! 🚩"));
 
   on("[data-act=match-layover-buddy]", () => act(async () => {
-    const res = await api("/v1/travel/layover-buddy", { airport_code: "LIS (Lisbon Airport Terminal 1)", layover_mins: 120 });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0ea5e9;">
-        <div style="font-size:14px; font-weight:700; color:#0ea5e9; margin-bottom:4px;">✈️ Layover Buddy Found (${esc(res.airport)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Buddy: <strong>${esc(res.buddy_name)}</strong> · ${res.layover_mins} Mins Layover</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Meeting Spot: ${esc(res.suggested_spot)}</div>
-      </div>
-    `;
-  }, "Airport Layover Coffee Buddy Matched! ✈️"));
+    const airport_code = $("#lo-airport") ? $("#lo-airport").value.trim() : "";
+    if (!airport_code) { toast("Which airport?"); return; }
+    renderMatch(await api("/v1/travel/layover-buddy", { airport_code }),
+                "#layover-gym-output");
+  }));
 
   on("[data-act=match-gym-spotter]", () => act(async () => {
-    const res = await api("/v1/sports/gym-spotter", { activity: "Bouldering & Lead Climbing", gym: "Vertical Wall Lisbon" });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏋️ Bouldering Spotter Matched (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Spotter: <strong>${esc(res.spotter_name)}</strong> @ ${esc(res.gym_name)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Activity: ${esc(res.activity)}</div>
-      </div>
-    `;
-  }, "Bouldering Spotter Matched! 🏋️"));
+    const activity = $("#lo-gym") ? $("#lo-gym").value.trim() : "";
+    renderMatch(await api("/v1/sports/gym-spotter",
+                          { activity, city: synergyCity() }), "#layover-gym-output");
+  }));
 
   on("[data-act=match-language-swap]", () => act(async () => {
     const speak = $("#ls-speak") ? $("#ls-speak").value.trim() : "";

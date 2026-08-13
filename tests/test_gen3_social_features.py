@@ -18,22 +18,26 @@ def test_instant_synergy_match(cfg):
     assert "suggested_venue" not in data
 
 def test_instant_dating_meet_7factor(cfg):
+    """The "7-Factor Comprehensive Match Engine" was seven constants -- proximity 98, trust
+    index 96 and five more -- weighted into a score and attached to Elena R., 1.2 km away.
+    There was no distance, because there were no coordinates, and no Elena."""
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/dating/instant-meet", json={"vibe": "drinks tonight", "timeframe": "next hour"})
-    assert res.status_code == 200
+    res = client.post("/v1/dating/instant-meet",
+                      json={"city": "Lisbon", "vibe": "drinks tonight"})
+    assert res.status_code in (200, 503)      # 503 when the dating surface is off
     data = res.json()
-    assert data["matched"] is True
-    assert "breakdown" in data
-    assert data["breakdown"]["proximity_score"] == 98
-    assert data["breakdown"]["trust_index"] == 96
+    assert "breakdown" not in data
+    assert "partner_name" not in data
 
 def test_agree_dating_meet(cfg):
+    """Typing a name into a box returned `agreed: True`, an ETA, a map pin and PIN 4892 --
+    the same four digits for every pair in the world -- with nobody on the other end.
+    Agreeing now requires an account to agree with."""
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/dating/agree-meet", json={"partner_name": "Elena R.", "venue": "Miradouro Rooftop"})
-    assert res.status_code == 200
-    data = res.json()
-    assert data["agreed"] is True
-    assert data["pin_code"] == "4892"
+    res = client.post("/v1/dating/agree-meet",
+                      json={"partner_name": "Elena R.", "venue": "Miradouro Rooftop"})
+    assert res.status_code == 400
+    assert "4892" not in res.text
 
 def test_safewalk_escort(cfg):
     client = TestClient(create_app(cfg))
@@ -320,13 +324,17 @@ def test_solo_festival_and_camping_features(cfg):
 
 def test_layover_gym_and_pet_verticals(cfg):
     client = TestClient(create_app(cfg))
+    # Elena R. was in every airport and Alex M. spotted everyone at 96%.
     res1 = client.post("/v1/travel/layover-buddy", json={"airport_code": "LIS"})
     assert res1.status_code == 200
-    assert res1.json()["matched"] is True
+    assert res1.json()["matched"] is False
+    assert "buddy_name" not in res1.json()
 
-    res2 = client.post("/v1/sports/gym-spotter", json={"gym": "Vertical Wall"})
+    res2 = client.post("/v1/sports/gym-spotter",
+                       json={"city": "Lisbon", "gym": "Vertical Wall"})
     assert res2.status_code == 200
-    assert res2.json()["matched"] is True
+    assert res2.json()["matched"] is False
+    assert "spotter_name" not in res2.json()
 
     res3 = client.post("/v1/pets/dog-walk-crew", json={"park": "Estrela Park"})
     assert res3.status_code == 200
