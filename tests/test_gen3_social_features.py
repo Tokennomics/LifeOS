@@ -92,9 +92,14 @@ def test_proof_of_presence_and_social_battery(cfg):
     assert res1.json()["minted"] is True
     assert "POP-" in res1.json()["token_id"]
 
+    # This used to assert `battery_pct == 82` — the literal the handler returned to every
+    # account on the instance, forever. A test that pins a prop in place is how the prop
+    # survives review. The battery is computed from real outings now, so a fresh account
+    # with nothing logged says it does not know rather than picking a cheerful number.
     res2 = client.get("/v1/vitals/social-battery")
     assert res2.status_code == 200
-    assert res2.json()["battery_pct"] == 82
+    assert res2.json()["state"] == "unknown"
+    assert res2.json()["recent_outings"] == 0
 
 def test_ar_flares_and_copilot_icebreaker(cfg):
     client = TestClient(create_app(cfg))

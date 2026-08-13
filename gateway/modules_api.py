@@ -2239,16 +2239,10 @@ def build_router(auth) -> APIRouter:
         win_text = body.get("win_text", "Shipped ConnectOS v2!").strip()
         return {"logged": True, "win": win_text, "message": f"Evening Sunset Win logged: '{win_text}' 🌅"}
 
-    @router.get("/wrapped/monthly")
-    def get_monthly_wrapped_endpoint(request: Request):
-        return {
-            "month": "August 2026",
-            "focus_hours": 48.5,
-            "real_world_meetups": 12,
-            "top_venue": "Monsanto Outdoor Crag",
-            "kudos_received": 34,
-            "share_text": "🏆 My ConnectOS August Wrapped:\n⚡ 48.5 Focus Hours\n🧗 12 Real-World Outings\n📍 Top Venue: Monsanto Crag\n👏 34 Kudos Received!"
-        }
+    # A second @router.get("/wrapped/monthly") used to sit here returning 48.5 focus hours
+    # and 12 outings to every account on the instance. FastAPI matches the first route
+    # registered, so it shadowed the graph-backed implementation further down — somebody
+    # wrote the real one and it had never run. See modules/personal/recap.py.
 
     @router.post("/feed/reviews")
     def post_venue_review_endpoint(request: Request, body: dict):
@@ -2330,16 +2324,11 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.get("/gamification/passport")
-    def get_city_passport_endpoint(request: Request):
-        return {
-            "city": "Lisbon",
-            "stamps_count": 8,
-            "stamps": [
-                {"venue": "Monsanto Outdoor Crag", "category": "Climbing", "date": "2026-08-01", "badge": "🧗 Crag Pioneer"},
-                {"venue": "Fabrica Coffee Roasters", "category": "Specialty Coffee", "date": "2026-08-03", "badge": "☕ Roast Aficionado"},
-                {"venue": "Miradouro Sunset Spot", "category": "Social Outing", "date": "2026-08-05", "badge": "🌅 Sunset Chaser"}
-            ]
-        }
+    def get_city_passport_endpoint(request: Request, city: str = ""):
+        """Places you actually went. Was three invented Lisbon venues, identical for every
+        account on the box."""
+        from modules.personal import recap
+        return guard(lambda: recap.passport(_graph(request), city))
 
     @router.post("/synergy/instant-match")
     def instant_synergy_match_endpoint(request: Request, body: dict):
@@ -2596,18 +2585,10 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/vitals/social-battery")
     def social_battery_optimizer_endpoint(request: Request):
-        return {
-            "battery_pct": 82,
-            "social_state": "OPTIMAL_FLOW",
-            "recommendation": "High Social Energy! Perfect for joining a 4-person Crew Outing or Bouldering Session.",
-            "suggested_format": "Group Crew Outing (3-6 members)",
-            "balance_index": {
-                "real_world_hours": 18.5,
-                "screen_hours": 3.2,
-                "real_world_ratio": 0.85
-            },
-            "message": "🧠 AI Social Battery: 82% Capacity. Real-World Ratio: 85% Real World / 15% Screen."
-        }
+        """How much you have been around people lately. Was a hardcoded 82% for everyone;
+        reports what it counted, and `unknown` when there is nothing to count."""
+        from modules.personal import recap
+        return guard(lambda: recap.social_battery(_graph(request)))
 
     @router.get("/ar/spatial-flares")
     def get_ar_spatial_flares_endpoint(request: Request):
@@ -5756,24 +5737,9 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.get("/wrapped/monthly")
     def monthly_wrapped_endpoint(request: Request):
-        g = _graph(request)
-        session = g.session("wrapped", {"content:read", "tasks:read", "goals:read", "events:read"})
-        tasks = session.find_entities("task", limit=500)
-        goals = session.find_entities("goal", limit=200)
-        events = session.find_entities("event", limit=300)
-
-        tasks_done = sum(1 for t in tasks if t.get("attrs", {}).get("status") == "done")
-        goals_done = sum(1 for go in goals if go.get("attrs", {}).get("status") == "done")
-        meets_attended = sum(1 for e in events if e.get("attrs", {}).get("type") == "convoy")
-
-        return {
-            "month": "August 2026",
-            "days_shown_up": max(1, min(30, tasks_done + 3)),
-            "tasks_done": tasks_done,
-            "goals_done": goals_done,
-            "meets_attended": meets_attended,
-            "share_text": f"📊 My LifeOS Monthly Wrapped (August 2026):\n⚡ {max(1, min(30, tasks_done + 3))} Days Shown Up\n🎯 {goals_done} Goals Completed\n🧗 {meets_attended} Crew Meets Attended"
-        }
+        """Your last 30 days, counted from your own graph. Zero is a real answer."""
+        from modules.personal import recap
+        return guard(lambda: recap.monthly(_graph(request)))
 
     # ---- 20% Community Treasury & Democratic Governance ------------------
 

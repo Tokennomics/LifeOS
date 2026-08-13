@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1080 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1098 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -400,6 +400,42 @@ Clean afterwards: no IDOR through 11 templated GET paths or any GET query param,
 cannot be aimed at another handle, identities cannot be stolen or unlinked across accounts,
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
+
+## READ THIS TOO: 41% of the app returns invented data
+
+`python3 tools/audit_props.py` — **183 of 447 handlers return a dict literal**, never
+touching the graph. That is fine for a sketch and fatal for a first impression, and it is
+the biggest single obstacle to launching with something people value.
+
+Measured, not guessed. A brand-new account with an empty graph was being told:
+
+- **12 real-world meetups, 34 kudos, 48.5 focus hours** this month
+- a **"Crag Pioneer" badge** and eight stamps in Lisbon
+- an **82% social battery**, "OPTIMAL_FLOW"
+
+...and two different accounts got *byte-identical* "personal" statistics, because the numbers
+were literals in the handler. `/v1/synergy/instant-match` returns Elena R. at Fabrica whether
+you ask it for climbing or knitting.
+
+**The three that fabricated the user's own history are fixed** (`modules/personal/recap.py`):
+monthly recap, city passport and social battery are computed from the caller's graph, and
+zero is a real answer — an empty month says so and offers no share button, because handing
+somebody a share button for a month in which they did nothing is the app asking them to
+advertise its own emptiness.
+
+Two things found on the way in, both worth remembering:
+
+- **There were two `/wrapped/monthly` handlers.** FastAPI matches the first registered, so a
+  graph-backed implementation further down the file had never run once. There is now a test
+  that no route is defined twice — the failure is invisible in review and silent at runtime.
+- **A test asserted `battery_pct == 82`.** Same shape as the backup test that asserted the
+  instance wipe returns 200: a test that pins a prop in place is how the prop survives
+  review. Both are rewritten.
+
+**The remaining ~180 are a triage decision, not a code task.** For each: make it real, or
+delete it. Anything that states a fact about *the user* is the urgent class; a demo panel
+that clearly shows what a feature would look like is far less harmful. This is the highest
+-value pre-launch work in the repo.
 
 ## Meetups — the object that turns talk into meeting
 

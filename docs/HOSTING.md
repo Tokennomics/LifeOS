@@ -96,7 +96,7 @@ a lost disk.
 ## Checking everything works
 
 ```sh
-python -m pytest              # 1080, and CI runs the same on 3.11 and 3.13
+python -m pytest              # 1098, and CI runs the same on 3.11 and 3.13
 ```
 
 For a live instance, the honest check is to walk it: register two accounts on two phones,

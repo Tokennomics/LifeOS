@@ -11,7 +11,7 @@ scripts). The v0.2 PWA (`surfaces/app/www`, served by the gateway at `/app/`) ne
 reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone abroad with no
 server.
 
-**Tests:** `python -m pytest` → **1080 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **1098 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ### The Antigravity expansion (2026-07-29 → 08-04) — read this before believing the rest
