@@ -3708,14 +3708,18 @@ def build_router(auth) -> APIRouter:
         whatever venue feeds have been subscribed. Each half reports separately, because a
         city with places and no feeds is a real and useful state.
         """
-        from modules.city import places
+        from modules.city import autoseed
         from modules.feeds import ingest
         _operator(request)
         city = _seed_city(body)
         if not city:
             raise HTTPException(status_code=400, detail="which city?")
         graph = _graph(request)
-        seeded = guard(lambda: places.seed(graph, city))
+        # The same bootstrap the automatic path runs, so the two cannot drift into meaning
+        # different things. Feed sync stays here rather than in `bootstrap`: it is global
+        # rather than per-city, and running it on every arrival would hit every subscribed
+        # venue because one person landed somewhere.
+        seeded = guard(lambda: autoseed.bootstrap(graph, city))
         feeds = guard(lambda: ingest.sync_all(graph))
         return {"city": seeded.get("city", ""), "places": seeded, "feeds": feeds,
                 "empty": not seeded.get("added") and not seeded.get("updated"),

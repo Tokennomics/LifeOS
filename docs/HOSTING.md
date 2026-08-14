@@ -155,7 +155,20 @@ A city has something in it before anybody arrives, because third places come fro
 OpenStreetMap and the weather comes from Open-Meteo. **Neither needs a key** — they are the
 first external sources in this repo that need no configuration at all.
 
-**Cities seed themselves.** The first person to arrive somewhere unseeded queues it, and the
+**Cities seed themselves, with content.** The first person to arrive somewhere unseeded
+queues it, and the seed runs after their response has gone out. What lands is everything a
+city can have with nobody in it:
+
+| | source | key needed |
+|---|---|---|
+| Places, all ten categories | OpenStreetMap | none |
+| Conditions and tonight's triggers | Open-Meteo | none |
+| Ticketed listings | Ticketmaster | `LIFEOS_TICKETMASTER_KEY` |
+
+Without the Ticketmaster key the first two still land, and the third reports
+`not_configured` rather than failing. A city the geocoder cannot place is asked about once
+and then left alone — no second lookup, no daily retry.
+ The first person to arrive somewhere unseeded queues it, and the
 seed runs after their response has gone out — so they see the empty city they landed in, and
 the next person finds it on the map. You do not have to do anything per city.
 

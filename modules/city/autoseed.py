@@ -34,7 +34,7 @@ import datetime
 from substrate import SYSTEM_OWNER, now_iso
 from substrate.graph import Graph
 
-from modules.city import chat, places
+from modules.city import chat, conditions, places
 
 MODULE = "city.autoseed"
 SCOPES = {"content:read", "content:write"}
@@ -174,7 +174,7 @@ def drain(graph: Graph, *, limit: int = 1, source: str = MODULE, **seed_kwargs) 
             continue
         label = row["attrs"].get("city_label") or row["attrs"].get("city", "")
         try:
-            outcome = places.seed(graph, label, **seed_kwargs)
+            outcome = bootstrap(graph, label, **seed_kwargs)
         except Exception as exc:
             session.update_entity(row["id"], {
                 "state": "failed", "attempted_at": now_iso(),
@@ -214,3 +214,45 @@ def queue(graph: Graph) -> dict:
             "seeded_last_hour": _recent_attempts(
                 graph, _now() - datetime.timedelta(hours=1)),
             "hourly_ceiling": MAX_PER_HOUR}
+
+
+def bootstrap(graph: Graph, city: str, **seed_kwargs) -> dict:
+    """Everything a city can have before anybody arrives.
+
+    Autoseeding pulled only the map, which meant a city seeded itself into a list of cafés
+    and nothing else — no sense of tonight, no listings. This is the whole of what is
+    available with no users present, and both the automatic path and the operator's
+    `city-bootstrap` run it, so the two cannot drift into meaning different things.
+
+    Three sources, each independent. One being down must not cost the others: a city with
+    places and no weather is a real and useful state, and so is the reverse.
+    """
+    from modules.feeds import ingest
+
+    outcome = places.seed(graph, city, **seed_kwargs)
+
+    # A city the geocoder could not place is asked about ONCE, and `places.seed` has already
+    # done the asking. Calling on regardless would geocode a typo a second time and quietly
+    # double the traffic this module exists to bound — caught by the guardrail test, not by
+    # reading the code.
+    if outcome.get("status") != "ok":
+        outcome["conditions"] = {"available": False, "status": "city not located"}
+        outcome["listings"] = {"status": "skipped: city not located", "added": 0}
+        return outcome
+
+    # Cached for 30 minutes, so this is one call per city rather than one per arrival.
+    try:
+        weather = conditions.read(graph, city)
+        outcome["conditions"] = {"available": weather.get("available", False),
+                                 "status": weather.get("status", "")}
+    except Exception as exc:
+        outcome["conditions"] = {"available": False, "status": type(exc).__name__}
+
+    # Tier 2 listings, when a key is set. Unconfigured is a status, never an error — the
+    # oldest rule in this repo is that a missing key degrades rather than breaks.
+    try:
+        outcome["listings"] = ingest.sync_provider(graph, "ticketmaster", city=city)
+    except Exception as exc:
+        outcome["listings"] = {"status": f"failed: {type(exc).__name__}", "added": 0}
+
+    return outcome
