@@ -136,7 +136,26 @@ A city has something in it before anybody arrives, because third places come fro
 OpenStreetMap and the weather comes from Open-Meteo. **Neither needs a key** — they are the
 first external sources in this repo that need no configuration at all.
 
-Seeding writes public rows, so it is operator-only. With your gateway token:
+**Cities seed themselves.** The first person to arrive somewhere unseeded queues it, and the
+seed runs after their response has gone out — so they see the empty city they landed in, and
+the next person finds it on the map. You do not have to do anything per city.
+
+The guardrails matter, because this is the only place where a user typing a name makes your
+server call a third party:
+
+- a name that geocodes to nothing is asked about **once**, not daily;
+- a real city is refreshed at most every 30 days;
+- **six cities an hour**, globally — a burst queues instead of fanning out;
+- one at a time, never in parallel.
+
+`GET /v1/seeding/queue` shows what is waiting and what was tried. `POST /v1/seeding/drain`
+seeds queued cities and is safe to run from a Render Cron Job — worth adding, because the
+background task runs in-process and a deploy mid-seed leaves a city queued until something
+picks it up.
+
+You can still seed a city by hand, and it is the right thing to do for a city you know you
+are about to launch in. Seeding writes public rows, so it is operator-only. With your gateway
+token:
 
 ```sh
 curl -X POST https://<your-app>.onrender.com/v1/seeding/city-bootstrap \
