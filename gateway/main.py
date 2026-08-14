@@ -75,6 +75,11 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",           # for anything predating frame-ancestors
     "Referrer-Policy": "no-referrer",    # invite links carry tokens in the query string
     "Cross-Origin-Opener-Policy": "same-origin",
+    # Sent unconditionally, which is safe: a browser ignores HSTS on a plain-HTTP response,
+    # so the LAN/NucBox case over http:// is unaffected while a public box gets the
+    # protection. Deliberately no `includeSubDomains` and no `preload` — both are hard to
+    # undo and would speak for domains this app does not own.
+    "Strict-Transport-Security": "max-age=31536000",
 }
 
 

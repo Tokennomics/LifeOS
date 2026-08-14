@@ -100,9 +100,15 @@ def test_configured_reports_the_truth(monkeypatch):
 
 def test_the_provider_listing_never_returns_a_key(monkeypatch):
     monkeypatch.setenv(ticketmaster.ENV_VAR, KEY)
-    listed = providers.status()
-    assert listed == [{"name": "ticketmaster", "configured": True,
-                       "env_var": ticketmaster.ENV_VAR}]
+    listed = {row["name"]: row for row in providers.status()}
+    assert listed["ticketmaster"] == {"name": "ticketmaster", "kind": "events",
+                                      "configured": True, "needs_key": True,
+                                      "env_var": ticketmaster.ENV_VAR}
+    # The registry now also holds Open-Meteo and Overpass, which need no key at all —
+    # `needs_key: False` is the field that keeps "nothing to configure" from reading as
+    # "somebody forgot to configure this".
+    assert listed["openmeteo"]["needs_key"] is False
+    assert listed["overpass"]["needs_key"] is False
     assert KEY not in repr(listed)
 
 
@@ -231,8 +237,9 @@ def test_the_endpoints_work(cfg, monkeypatch):
     monkeypatch.setattr(ticketmaster, "_fetch", _payload_relative)
     client = TestClient(create_app(cfg))
 
-    listed = client.get("/v1/feeds/providers").json()["providers"]
-    assert listed[0]["name"] == "ticketmaster" and listed[0]["configured"] is True
+    listed = {row["name"]: row for row in
+              client.get("/v1/feeds/providers").json()["providers"]}
+    assert listed["ticketmaster"]["configured"] is True
     assert KEY not in client.get("/v1/feeds/providers").text
 
     r = client.post("/v1/feeds/providers/ticketmaster/sync", json={"city": "Lisbon"})

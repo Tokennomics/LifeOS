@@ -15,9 +15,14 @@ not a new architecture — that was the whole point of getting Tier 1's ingest s
 first.
 """
 
-from modules.feeds.providers import ticketmaster
+from modules.feeds.providers import openmeteo, overpass, ticketmaster
 
-REGISTRY = {ticketmaster.NAME: ticketmaster}
+# Two of these need no key at all, which is a change worth naming: until Open-Meteo and
+# Overpass, "works with no API key" meant *nothing external*, and that is why the weather
+# and third-place endpoints could only choose between an invented number and a blank.
+REGISTRY = {ticketmaster.NAME: ticketmaster,
+            openmeteo.NAME: openmeteo,
+            overpass.NAME: overpass}
 
 
 def get(name: str):
@@ -29,5 +34,8 @@ def get(name: str):
 
 def status() -> list[dict]:
     """Which providers exist and which are switched on. Configuration only — never a key."""
-    return [{"name": name, "configured": mod.configured(), "env_var": mod.ENV_VAR}
+    return [{"name": name, "kind": getattr(mod, "KIND", "events"),
+             "configured": mod.configured(), "env_var": mod.ENV_VAR,
+             # An empty env_var means there is nothing to set, not that a key is missing.
+             "needs_key": bool(mod.ENV_VAR)}
             for name, mod in sorted(REGISTRY.items())]

@@ -27,9 +27,41 @@ async function api(path, body) {
   const resp = await fetch(apiBase() + path, opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || "gateway error " + resp.status);
+    const problem = new Error(err.detail || "gateway error " + resp.status);
+    // Callers need to tell "your session is gone" from "the wifi dropped". Without the
+    // status they look identical, and treating the second as the first signs people out
+    // of a working session.
+    problem.status = resp.status;
+    throw problem;
   }
   return resp.json();
+}
+
+async function apiDelete(path, body) {
+  const headers = {};
+  const token = localStorage.getItem("lifeos.token");
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const opts = { method: "DELETE", headers };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(apiBase() + path, opts);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const problem = new Error(err.detail || "gateway error " + resp.status);
+    problem.status = resp.status;
+    throw problem;
+  }
+  return resp.json();
+}
+
+function whenLabel(iso) {
+  // A meetup is almost always today or tomorrow, and "Fri 19:00" is what somebody deciding
+  // whether to go actually needs — not a full timestamp.
+  const d = new Date(iso);
+  if (isNaN(d)) return iso || "";
+  return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /* ---------- helpers ---------- */
@@ -113,7 +145,23 @@ async function refresh() {
   $("#mode-badge").className = "badge" + (state.health.claude ? " ai" : "");
   try {
     if (!state.me && localStorage.getItem("lifeos.token")) {
-      state.me = await api("/v1/auth/me").catch(() => null);
+      // Only a 401 means the session is actually gone. Clearing the token on *any*
+      // failure — which the first version of this did — signs you out of a perfectly
+      // good session the moment a request times out on a train.
+      state.me = await api("/v1/auth/me").catch((e) => {
+        if (e && e.status === 401) localStorage.removeItem("lifeos.token");
+        return null;
+      });
+    }
+    // Every /v1 route needs a session once any account exists, so with no token the whole
+    // screen is a wall of 401s. Ask for the sign-in first instead.
+    if (!state.me && !localStorage.getItem("lifeos.token")) {
+      $("#view").innerHTML =
+        `<div class="card"><h2>Welcome to LifeOS</h2>
+         <p class="hint">Sign in to start capturing, planning and finding your people.</p>
+         <button class="primary" data-act="open-auth" style="margin-top:10px;">Get started</button></div>`;
+      await openAuth();
+      return;
     }
     if (state.tab === "today") {
       [state.today, state.visions, state.admin, state.journal, state.parked, state.rings, state.weekend, state.habitChain, state.energyBalance] = await Promise.all([
@@ -133,6 +181,8 @@ async function refresh() {
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
+        // Was called with no city against a handler that required one: a 422 on every
+        // page load, swallowed here, so Explore was permanently empty and never looked it.
         api("/v1/venues/explore").catch(() => ({ venues: [] })),
         api("/v1/venues/activity-heatmap").catch(() => null),
         api("/v1/synergy/overlap").catch(() => null),
@@ -152,6 +202,21 @@ async function refresh() {
       if (state.activeChat) {
         await refreshChatMessages();
       }
+    } else if (state.tab === "city") {
+      const city = state.cityRoom || "";
+      const [rooms, room, here, plans] = await Promise.all([
+        api("/v1/city/rooms").catch(() => ({ rooms: [] })),
+        city ? api(`/v1/city/chat?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+        city ? api(`/v1/city/arrival?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+        city ? api(`/v1/city/meetups?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+      ]);
+      state.cityRooms = rooms.rooms || [];
+      state.cityChat = room;
+      state.cityArrival = here;
+      state.cityMeetups = plans;
     } else if (state.tab === "map") {
       const c = coords();
       let eventId = "outing_active";
@@ -202,7 +267,7 @@ async function refresh() {
 
 function render() {
   const view = $("#view");
-  const views = { today: todayView, capture: captureView, people: peopleView, map: mapView, graph: graphView, more: moreView };
+  const views = { today: todayView, capture: captureView, people: peopleView, city: cityView, map: mapView, graph: graphView, more: moreView };
   view.innerHTML = views[state.tab]();
   // Entrance animation only on tab change — never on in-tab updates (no flashing).
   view.classList.toggle("enter", state.enter);
@@ -234,6 +299,7 @@ function render() {
   dock.innerHTML = `
     <button class="dock-btn ${state.tab === "today" ? "active" : ""}" data-dock="today">☀️ Today</button>
     <button class="dock-btn ${state.tab === "people" ? "active" : ""}" data-dock="people">💬 Crews</button>
+    <button class="dock-btn ${state.tab === "city" ? "active" : ""}" data-dock="city">🏙️ City</button>
     <button class="dock-btn ${state.tab === "map" ? "active" : ""}" data-dock="map">🗺️ Radar</button>
     <button class="dock-btn ${state.tab === "graph" ? "active" : ""}" data-dock="graph">💎 Graph</button>
     <button class="dock-btn ${state.tab === "more" ? "active" : ""}" data-dock="more">⚙️ More</button>
@@ -244,7 +310,12 @@ function render() {
       if (state.tab !== target) {
         state.tab = target;
         state.enter = true;
-        render();
+        // `refresh()`, not `render()`. Each tab loads its own data in refresh(); rendering
+        // alone paints the new tab from whatever state was left over, so on a phone — where
+        // this dock covers the nav bar and is the only navigation — every tab showed stale
+        // or empty content until something else happened to trigger a fetch. The top nav
+        // has always called refresh(); the dock never did.
+        refresh();
       }
     });
   });
@@ -353,34 +424,53 @@ function todayView() {
       <h2>🍷 Instant Dating & Evening Drinks Radar</h2>
       <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Next Hour</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Want to meet someone new for drinks tonight in the next hour? Match instantly & set a shared map pin + ETA!</p>
-    <div class="row2"><input class="field" id="dt-vibe" placeholder="Vibe (e.g. drinks tonight)" value="drinks tonight">
-    <input class="field" id="dt-time" placeholder="Timeframe (e.g. next hour)" value="next hour"></div>
-    <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Match Instant Drinks Meetup 🍷</button>
+    <p class="hint" style="margin-bottom:8px;">You can see who is open to meeting here once you are open yourself — nobody browses this list from the outside. Interest stays private unless it is returned.</p>
+    <div class="row2">
+      <input class="field" id="dt-vibe" placeholder="Vibe (e.g. quiet drink)">
+      <input class="field" id="dt-city" placeholder="City (blank = where you said you are)">
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Who is open 🍷</button>
+      <button class="ghost" data-act="dating-open-to">I'm open tonight ✋</button>
+    </div>
     <div id="instant-dating-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Universal Multi-Vertical Synergy Matcher ---- */
+  /* ---- Synergy matcher ----
+     The card used to promise "7-Factor Matchmaking: Proximity + Preferences + Heatmap +
+     Popularity + Graph Trust + Energy + Weather" and there were no such factors — the seven
+     were constants and the partner was always Elena R. or Marcus T. It searches real signals
+     now, so the two things it needs are a place to type what you want and a way to publish
+     that you want it. The vertical buttons stay: they fill the box in and search. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌐 Universal 7-Factor Real-World Matchmaking Radar</h2>
-      <span class="badge good" style="font-weight:bold;">All Verticals</span>
+      <h2>🌐 Who else is up for it</h2>
+      <span class="badge good" style="font-weight:bold;">This city</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match on 7 Factors: Proximity + Preferences + Heatmap + Popularity + Graph Trust + Energy + Weather!</p>
+    <p class="hint" style="margin-bottom:8px;">Say what you want to do. This searches people who have said the same thing in the same city — and nothing else.</p>
     <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports Buddy 🧗</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Co-Working Partner ☕</button>
-    </div>
-    <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #d946ef);" data-act="match-creative-partner">🎵 Creative Jam Session 🎸</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="match-dining-partner">🍲 Dining Crew Outing 🍷</button>
+      <input class="field" id="sy-act" placeholder="Bouldering, ramen, techno…">
+      <input class="field" id="sy-city" placeholder="City (blank = where you said you are)">
     </div>
     <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="match-ski-partner">⛷️ Powder Alert Skiing ❄️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="match-surf-partner">🏄 Swell Alert Surfing 🌊</button>
+      <button class="primary" data-act="synergy-search">Find people 🔎</button>
+      <button class="ghost" data-act="synergy-open-to">I'm up for this ✋</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="bouldering">🧗 Sports</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="co-working">💻 Co-working</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="live music">🎵 Music</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="dinner">🍲 Food</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="skiing">⛷️ Skiing</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="surfing">🏄 Surfing</button>
     </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6d28d9);" data-act="match-rave-partner">🪩 Raves & Nightlife 🎶</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="techno">🪩 Nightlife</button>
+      <button class="ghost" data-act="synergy-mine">What I'm publishing 📋</button>
     </div>
     <div id="vertical-match-output" style="margin-top:10px;"></div>
   </div>`;
@@ -436,7 +526,8 @@ function todayView() {
       ⚡ <strong>Recommendation:</strong> Ideal time for a 4-person Bouldering or Sunset Drinks Crew Outing!
     </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">Mint Proof-of-Presence Badge 🎟️</button>
+      <input class="field" id="pop-place" placeholder="Where were you?" style="margin-bottom:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">I was there ✅</button>
     </div>
     <div id="pop-mint-output" style="margin-top:10px;"></div>
   </div>`;
@@ -462,7 +553,7 @@ function todayView() {
         <span class="badge" style="font-size:10px;">310m away · 280° W</span>
       </div>
     </div>
-    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">🤖 AI Social Co-Pilot: Generate Tailored Icebreakers</button>
+    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">Openers for a match ✍️</button>
     <div id="ai-icebreaker-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -511,9 +602,13 @@ function todayView() {
       <h2>🤝 AI Mentorship & Squad Calendar Sync</h2>
       <span class="badge good" style="font-weight:bold;">1-on-1 & Squads</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match walk-and-talk coffee mentors or sync recurring squad outing calendar routines!</p>
+    <p class="hint" style="margin-bottom:8px;">Mentorship is a mirror: this looks for someone offering what you want to learn, in your city.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="mt-seek" placeholder="I want to learn…">
+      <input class="field" id="mt-offer" placeholder="I can help with… (optional)">
+    </div>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Match Coffee Mentor 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Find a mentor 🤝</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Sync Squad Calendar 📅</button>
     </div>
     <div id="mentor-squad-output" style="margin-top:10px;"></div>
@@ -574,7 +669,8 @@ function todayView() {
       <h2>🎙️ AI Voice Outing Brief & Social Micro-Gifting</h2>
       <span class="badge good" style="font-weight:bold;">Voice & Perks</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Convert 30-sec voice notes into instant outings or gift a specialty coffee to a friend!</p>
+    <p class="hint" style="margin-bottom:8px;">Paste a note you already have in text. There is no speech-to-text here — this reads words, it does not hear them.</p>
+    <input class="field" id="vb-note" placeholder="Coffee at four, then the viewpoint" style="margin-bottom:6px;">
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="convert-voice-brief">Convert Voice Brief 🎙️</button>
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Gift Coffee to Elena (€3.80) 🎁</button>
@@ -655,11 +751,19 @@ function todayView() {
       <h2>✈️ Airport Layover & Gym Spotter Matcher</h2>
       <span class="badge good" style="font-weight:bold;">Solo Travelers & Fitness</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match airport layover coffee buddies, climbing gym spotters, or neighborhood dog park walks!</p>
+    <p class="hint" style="margin-bottom:8px;">An airport is a city for four hours. Same matcher — it searches people who said they are there and open.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="lo-airport" placeholder="Airport code (e.g. LIS)">
+      <input class="field" id="lo-gym" placeholder="Climbing, weights…">
+    </div>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy ✈️</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Gym Spotter 🏋️</button>
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="match-language-swap">Language Swap 🎓</button>
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <input class="field" id="ls-speak" placeholder="I speak…">
+      <input class="field" id="ls-learn" placeholder="I want to learn…">
     </div>
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
@@ -847,6 +951,9 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">NFC Tap-to-Synergy 📳</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="field" id="cb-phrase" placeholder="A phrase you heard and didn't get">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-dao-treasury">DAO Community Treasury 🏛️</button>
     </div>
     <div id="frontier-social-output" style="margin-top:10px;"></div>
@@ -862,8 +969,12 @@ function todayView() {
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-boredom-quest">I'm Bored (15m Quests) ⚡</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="align-ikigai-compass">Ikigai Fulfillment Compass 🧘</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Screen-Free Flow Lab 🌊</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Deep Dinner Salon 🕊️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Find a practice partner 🌊</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Find a dinner table 🕊️</button>
+    </div>
+    <div class="row2" style="margin-bottom:8px;">
+      <input class="field" id="fm-skill" placeholder="Skill to practise">
+      <input class="field" id="ms-theme" placeholder="Dinner theme">
     </div>
     <div id="fulfillment-butler-output" style="margin-top:10px;"></div>
   </div>`;
@@ -895,7 +1006,10 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="optimize-circadian-vitality">Circadian Vitality 🧬</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="track-regret-minimization">Regret Minimizer 🌟</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="optimize-life-wealth">Wealth & Memory ROI 💰</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Stoic Presence Mirror 🕊️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Write it down 🕊️</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="field" id="sr-note" placeholder="Something worth remembering (private, never scored)">
     </div>
     <div id="life-value-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1729,16 +1843,11 @@ function peopleView() {
     <button class="primary" data-act="auto-ingest-city">Sync Live Events 🎟️</button></div>
   </div>`;
 
-  /* ---- ZK Anonymous Attribute Verification ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🔐 Zero-Knowledge (ZK) Anonymous Credential Engine</h2>
-      <span class="badge good" style="font-weight:bold;">ZK-SNARKs</span>
-    </div>
-    <p class="hint" style="margin-bottom:8px;">Prove age (>18), local residency, or skill level without revealing identity or DOB!</p>
-    <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="zk-verify-attr">Generate ZK-Proof (>18 Age / Verified Resident) 🔐</button>
-    <div id="zk-proof-output" style="margin-top:10px;"></div>
-  </div>`;
+  /* A "Zero-Knowledge Anonymous Credential Engine" card sat here, offering to prove you
+     were over 18 or a verified resident. Nothing behind it verified anything — the endpoint
+     returned success for any attribute from any caller. Removed rather than restyled: an
+     age claim the app displays as proven is the one piece of theatre that can actually hurt
+     somebody. */
 
   html += `<div class="subhead" style="margin-top:12px;">Publish Public Activity</div>
     <div class="row2"><input class="field" id="fa-title" placeholder="Title (e.g. Sushi & Drinks)">
@@ -1810,10 +1919,19 @@ function peopleView() {
       <h2>🛡️ SafeWalk Live Companion & Escort</h2>
       <span class="badge good" style="font-weight:bold;">Safety Radar</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Heading out for an evening date or night outing? Notify your crew & activate live ETA monitoring!</p>
-    <div class="row2"><input class="field" id="sw-dest" placeholder="Destination Spot">
-    <input class="field" id="sw-eta" type="number" placeholder="ETA (mins)" value="15"></div>
-    <button class="primary" data-act="start-safewalk-escort">Activate SafeWalk Escort 🛡️</button>
+    <p class="hint" style="margin-bottom:8px;">Say where you are going and when you should be there. The people you name see it, and see when you are overdue. <strong>This app cannot call anyone</strong> — in an emergency, call your local emergency number.</p>
+    <div class="row2"><input class="field" id="sw-dest" placeholder="Where are you going?">
+    <input class="field" id="sw-eta" type="number" placeholder="Minutes" value="30"></div>
+    <input class="field" id="sw-watchers" placeholder="Who should see it? (handles or ids, comma separated)" style="margin-top:6px;">
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" data-act="start-safewalk-escort">Start the walk 🛡️</button>
+      <button class="ghost" data-act="safewalk-arrived">I got there ✅</button>
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="ghost" data-act="safewalk-mine">My walk</button>
+      <button class="ghost" data-act="safewalk-watching">Who I'm watching</button>
+    </div>
+    <div id="safewalk-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Outing Expense Splitter & Payment Links ---- */
@@ -2031,6 +2149,122 @@ function crewsView() {
     <select class="field" multiple id="sp-members">${peopleOpts}</select>
     <button class="primary" data-act="split-expense">Split Expense Equally</button>
   </div>`;
+
+  return html;
+}
+
+function cityView() {
+  const rooms = state.cityRooms || [];
+  const room = state.cityChat;
+  const current = state.cityRoom || "";
+
+  let html = `<div class="card"><h2>City chat</h2>
+    <p class="hint" style="margin-bottom:10px;">One room per city, for people who have just landed. Messages disappear after a week.</p>
+    <div class="row2">
+      <input class="field" id="city-name" placeholder="Which city are you in?" value="${esc(current)}" autocapitalize="words">
+      <button class="primary" style="width:auto; padding:0 16px;" data-act="city-open">Open</button>
+    </div>
+  </div>`;
+
+  const here = state.cityArrival;
+  if (here) {
+    const people = here.around || [];
+    const others = people.filter(p => !p.mine);
+    html += `<div class="card"><h2>${esc(here.label)}</h2>
+      ${here.suggestion ? `<p class="hint">${esc(here.suggestion)}</p>` : ""}
+      <div class="pills" style="margin:8px 0; flex-wrap:wrap;">
+        <span class="badge">${others.length} around</span>
+        <span class="badge">${(here.crews || []).length} crew${(here.crews || []).length === 1 ? "" : "s"}</span>
+        <span class="badge">${(here.events || []).length} event${(here.events || []).length === 1 ? "" : "s"}</span>
+      </div>
+      ${others.length ? others.map(p => `
+        <div class="feed-item">
+          <div class="label">${esc(p.handle)}</div>
+          ${p.note ? `<div>${esc(p.note)}</div>` : ""}
+        </div>`).join("") : ""}
+      ${(here.crews || []).length ? `<div class="subhead" style="margin-top:10px;">Crews here</div>
+        ${(here.crews || []).map(c => `<div class="feed-item"><div class="label">${esc(c.name || "")}</div></div>`).join("")}` : ""}
+      ${(here.places || []).length ? `<div class="subhead" style="margin-top:10px;">Places on the map</div>
+        <p class="hint" style="margin-bottom:6px;">${here.place_count} in ${esc(here.label)}, from OpenStreetMap. The one thing a city has before anybody arrives.</p>
+        ${(here.places || []).slice(0, 8).map(pl => `
+          <div class="feed-item">
+            <div class="label">${esc(pl.name)}</div>
+            <div class="hint">${esc(pl.category)}${pl.street ? ` · ${esc(pl.street)}` : ""}${pl.opening_hours ? ` · ${esc(pl.opening_hours)}` : ""}</div>
+          </div>`).join("")}
+        <p class="hint" style="margin-top:6px;">© OpenStreetMap contributors</p>` : ""}
+      <div style="margin-top:10px;">
+        ${here.you_are_here
+          ? `<button class="ghost" data-act="city-hide">You are listed as here — take it down</button>`
+          : `<div class="row2">
+               <input class="field" id="city-note" placeholder="Optional: what you are up for">
+               <button class="primary" style="width:auto; padding:0 16px;" data-act="city-here">I'm here</button>
+             </div>
+             <p class="hint" style="margin-top:6px;">Tells other travellers you are in ${esc(here.label)} for the next few days. Nobody sees anything finer than the city, and you can take it down at any moment.</p>`}
+      </div>
+    </div>`;
+  }
+
+  if (rooms.length) {
+    html += `<div class="card"><div class="subhead">Rooms with people in them</div>
+      <div class="pills" style="margin-top:8px; flex-wrap:wrap;">
+        ${rooms.map(r => `<button class="pill" data-act="city-open" data-city="${esc(r.label || r.city)}">${esc(r.label || r.city)} · ${r.voices} ${r.voices === 1 ? "voice" : "voices"}</button>`).join("")}
+      </div></div>`;
+  }
+
+  const plans = state.cityMeetups;
+  if (plans && current) {
+    const list = plans.meetups || [];
+    html += `<div class="card"><h2>What's on</h2>
+      ${list.length ? list.map(m => `
+        <div class="feed-item">
+          <div class="label">${esc(m.title)}</div>
+          <div style="font-size:13px;">${esc(whenLabel(m.starts_at))}${m.place ? ` · ${esc(m.place)}` : ""}</div>
+          ${m.note ? `<div class="hint">${esc(m.note)}</div>` : ""}
+          <div class="hint" style="margin-top:4px;">${esc(m.organiser_handle)} organising · ${m.going_count} going${m.going.length ? `: ${m.going.map(p => esc(p.handle)).join(", ")}` : ""}</div>
+          <div class="pills" style="margin-top:6px;">
+            ${m.you_are_going
+              ? `<button class="pill" data-act="meetup-leave" data-id="${esc(m.meetup_id)}">${m.yours ? "Call it off" : "Can't make it"}</button>`
+              : `<button class="pill good" data-act="meetup-join" data-id="${esc(m.meetup_id)}">I'm in</button>`}
+          </div>
+        </div>`).join("")
+        : `<p class="hint">Nothing planned here yet. Propose something — a walk, a coffee, a swim.</p>`}
+
+      <div class="subhead" style="margin-top:12px;">Propose something</div>
+      <input class="field" id="mu-title" placeholder="What is it? (e.g. Sunset at the viewpoint)">
+      <div class="row2" style="margin-top:6px;">
+        <input class="field" id="mu-place" placeholder="Where (a public place)">
+        <input class="field" id="mu-when" type="datetime-local">
+      </div>
+      <button class="primary" style="margin-top:6px;" data-act="meetup-create">Put it up</button>
+      <p class="hint" style="margin-top:8px;">${esc(plans.safety_note || "")}</p>
+    </div>`;
+  }
+
+  if (room) {
+    const lines = (room.messages || []).map(m => `
+      <div class="feed-item" style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
+        <div>
+          <div class="label">${esc(m.author_handle)}${m.mine ? " (you)" : ""}</div>
+          <div>${esc(m.text)}</div>
+        </div>
+        <div class="pills" style="flex-shrink:0;">
+          ${m.mine
+            ? `<button class="pill bad" data-act="city-remove" data-id="${esc(m.message_id)}">Delete</button>`
+            : `<button class="pill" data-act="city-mute" data-id="${esc(m.author_id)}">Mute</button>
+               <button class="pill warm" data-act="city-report" data-id="${esc(m.message_id)}">Report</button>`}
+        </div>
+      </div>`).join("");
+
+    html += `<div class="card"><h2>${esc(current || room.city)}</h2>
+      ${lines || `<p class="hint">Nobody has said anything yet. Be the first — say where you are and what you are up for.</p>`}
+      ${room.muted ? `<p class="hint" style="margin-top:8px;">${room.muted} message${room.muted === 1 ? "" : "s"} hidden from people you muted.</p>` : ""}
+      <div class="row2" style="margin-top:10px;">
+        <input class="field" id="city-say" placeholder="Say something to the room">
+        <button class="primary" style="width:auto; padding:0 16px;" data-act="city-say">Send</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">Anyone signed in can read this, and posting says you are in ${esc(current || room.city)}. Your handle is shown — never your email.</p>
+    </div>`;
+  }
 
   return html;
 }
@@ -2432,6 +2666,8 @@ function moreView() {
         </div></div>
       `).join("")}
     ` : ""}
+  </div>`;
+
   /* ---- Developer Platform & Open API Keys ---- */
   const devKeys = [
     { id: "key_live_9921", name: "Zapier Automation Key", created_at: "2026-08-05T19:30:00Z", status: "active" },
@@ -2456,7 +2692,7 @@ function moreView() {
     <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
       <a href="/docs" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📚 Interactive OpenAPI Docs (/docs)</a>
       <a href="/redoc" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📘 ReDoc API Spec (/redoc)</a>
-      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (`sdk/lifeos.py`)</span>
+      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (sdk/lifeos.py)</span>
     </div>
   </div>`;
 
@@ -2479,8 +2715,27 @@ function selectedPeople(eventId) {
 }
 
 function wire(root) {
-  const on = (selector, handler) => root.querySelectorAll(selector).forEach((el) =>
-    el.addEventListener("click", () => handler(el)));
+  // `on` binds listeners to the elements that exist *now*. Anything a renderer writes into
+  // the page afterwards with innerHTML therefore has no listener at all: the button appears,
+  // looks live, and does nothing when tapped. Every dynamic result card in this file has
+  // that shape, so `on` also records the handler by action name and `bindLater` attaches it
+  // to markup added after the fact.
+  const acts = {};
+  const on = (selector, handler) => {
+    const named = selector.match(/^\[data-act=([^\]]+)\]$/);
+    if (named) acts[named[1]] = handler;
+    root.querySelectorAll(selector).forEach((el) =>
+      el.addEventListener("click", () => handler(el)));
+  };
+  const bindLater = (container) => {
+    if (!container) return;
+    container.querySelectorAll("[data-act]").forEach((el) => {
+      const handler = acts[el.dataset.act];
+      if (!handler || el.dataset.bound) return;
+      el.dataset.bound = "1";
+      el.addEventListener("click", () => handler(el));
+    });
+  };
 
   on("[data-act=vision]", () => act(async () => {
     const text = $("#vision-text").value.trim();
@@ -3340,178 +3595,249 @@ function wire(root) {
   }));
 
   on("[data-act=instant-synergy-match]", () => act(async () => {
-    const interest = $("#bc-act").value.trim() || "specialty coffee";
-    const timeframe = $("#bc-time").value.trim() || "30 mins";
-    const res = await api("/v1/synergy/instant-match", { interest, timeframe });
-    const out = $("#instant-match-output");
+    const interest = $("#bc-act").value.trim();
+    if (!interest) { toast("Up for what?"); return; }
+    const res = await api("/v1/synergy/instant-match", { interest });
+    renderMatch(res, "#instant-match-output");
+  }));
+
+  /* ---- /ai/*: one renderer, because there was only ever one shape ----
+     Twenty handlers each pulled different invented keys out of a literal — Elena R.'s
+     icebreakers, a negotiation across five calendars, a fulfilment score of 87. They all
+     answer the same question now ("what is actually here?"), so they share a renderer that
+     shows the records, the empty state, and whether a model wrote the wording. */
+
+  const AI_LISTS = ["openers", "stops", "quests", "plans", "options", "matches", "people",
+                    "overlaps", "splits", "recent", "goals"];
+
+  function aiLine(item) {
+    if (typeof item === "string") return esc(item);
+    const title = item.what || item.title || item.name || item.handle || item.note
+                  || item.activity || "";
+    const when = item.when || item.starts_at || item.day || item.open_until || "";
+    const where = item.where || item.place || item.city_label || item.city || "";
+    const extra = [where, when ? whenLabel(when) : ""].filter(Boolean).join(" · ");
+    const going = item.going_count !== undefined ? `${item.going_count} going` : "";
+    return `<div><strong>${esc(String(title))}</strong></div>` +
+           (extra ? `<div style="font-size:11px; color:var(--muted);">${esc(extra)}</div>` : "") +
+           (going ? `<div style="font-size:11px; color:var(--muted);">${esc(going)}</div>` : "");
+  }
+
+  function renderAI(res, targetId, heading) {
+    const out = $(targetId);
     if (!out) return;
+    if (res.available === false) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Not available</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.reason || "")}</div>
+      </div>`;
+      bindLater(out);
+      return;
+    }
+    const key = AI_LISTS.find((k) => Array.isArray(res[k]) && res[k].length);
+    const items = key ? res[key] : [];
+    const notes = ["no_score", "no_roi", "no_mood_detection", "why_not", "next_step",
+                   "suggestion", "safety_note"]
+      .map((k) => res[k]).filter(Boolean);
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">☕ AI Instant Match Found (${res.match_score}% Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♂️ <strong>${esc(res.partner_name)}</strong> is also free in the next ${esc(res.timeframe)} for ${esc(res.interest)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 Suggested Venue: <strong>${esc(res.suggested_venue)}</strong></div>
-        <div style="font-size:13px; margin-bottom:6px;">🎟️ Event: <strong>${esc(res.event_name)}</strong></div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('☕ Hey ${esc(res.partner_name)}! Down to meet up at ${esc(res.suggested_venue)} in 30 mins for coffee?'); toast('Invite copied to clipboard! 📲');">Text ${esc(res.partner_name)} on WhatsApp 📲</button>
-      </div>
-    `;
-  }, "Instant Synergy Outing Matched! ☕"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(heading || "")}</div>
+        ${items.map((item) => `<div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">${aiLine(item)}</div>`).join("")}
+        ${notes.map((n) => `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(n)}</div>`).join("")}
+        ${res.assisted === false ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">Assembled from your graph — no model key set.</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  const aiCity = () => (($("#sy-city") && $("#sy-city").value.trim())
+                        || ($("#dt-city") && $("#dt-city").value.trim()) || "");
+
+  /* ---- Dating: discovery, then a two-sided agreement ----
+     The old card ran a "7-Factor Match Engine" over seven constants and handed back Elena
+     R., 1.2 km away, then let you "Both Agree" with her — a confirmed meeting, an ETA and
+     PIN 4892, with nobody on the other end. Both halves are real now, and the second one
+     cannot fire without an account id that came from the first. */
+
+  function datingCity() {
+    const box = $("#dt-city");
+    return box ? box.value.trim() : "";
+  }
+
+  function renderDatingOpen(res) {
+    const out = $("#instant-dating-output");
+    if (!out) return;
+    if (res.needs_city) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(res.suggestion || "Which city?")}</div>`;
+      bindLater(out);
+      return;
+    }
+    if (!res.you_are_open) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:13px; margin-bottom:8px;">${esc(res.suggestion || "")}</div>
+          <button class="ghost" style="font-size:12px; padding:6px 12px;" data-act="dating-open-to">I'm open tonight ✋</button>
+        </div>`;
+      bindLater(out);
+      return;
+    }
+    const people = res.people || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">Open in ${esc(res.city_label || res.city)}</div>
+        ${people.length ? "" : `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>`}
+        ${people.map(p => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(p.handle)}</strong></div>
+            ${p.vibe ? `<div style="font-size:12px; color:var(--muted);">${esc(p.vibe)}</div>` : ""}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="agree-dating-meet" data-target="${esc(p.account_id)}">I'd meet them</button>
+          </div>`).join("")}
+        ${res.next_step ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.next_step)}</div>` : ""}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
 
   on("[data-act=instant-dating-match]", () => act(async () => {
-    const vibe = $("#dt-vibe").value.trim() || "drinks tonight";
-    const timeframe = $("#dt-time").value.trim() || "next hour";
-    const c = coords();
-    const res = await api("/v1/dating/instant-meet", { vibe, timeframe, lat: c ? c.lat : 38.711, lon: c ? c.lon : -9.139 });
-    const out = $("#instant-dating-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <div style="font-size:14px; font-weight:700; color:var(--spark);">🍷 Instant Dating Match (${res.match_score}% 7-Factor Score)</div>
-          <span class="badge good" style="font-size:11px;">📍 ${bd.proximity_km || 1.2} km away</span>
-        </div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
-        <div style="font-size:11px; color:var(--muted); margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">
-          <span>🎯 Preference: ${bd.preference_match || 95}%</span> ·
-          <span>🔥 Heatmap: ${bd.heatmap_density_pct || 88}%</span> ·
-          <span>⭐ Popularity: ${bd.venue_popularity_score || 94}%</span> ·
-          <span>🤝 Trust Index: ${bd.trust_index || 96}%</span> ·
-          <span>⚡ Energy: ${bd.energy_balance || 90}%</span> ·
-          <span>🌤️ Weather: ${bd.weather_score || 95}%</span>
-        </div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Suggested Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <button class="primary" style="font-size:12px; padding:6px 14px;" data-act="agree-dating-meet" data-partner="${esc(res.partner_name)}" data-venue="${esc(res.suggested_venue)}">Both Agree & Set Map Pin 🥂</button>
-          <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Chat opened with ${esc(res.partner_name)}! 💬');">Native In-App Chat 💬</button>
-        </div>
-      </div>
-    `;
-  }, "Instant Drinks Meetup Matched! 🍷"));
+    renderDatingOpen(await api("/v1/dating/instant-meet", { city: datingCity() }));
+  }));
+
+  on("[data-act=dating-open-to]", () => act(async () => {
+    const vibe = $("#dt-vibe") ? $("#dt-vibe").value.trim() : "";
+    await api("/v1/dating/open-to-meeting", { city: datingCity(), vibe });
+    renderDatingOpen(await api("/v1/dating/instant-meet", { city: datingCity() }));
+  }, "You're listed for a few hours — it expires on its own ✋"));
 
   on("[data-act=agree-dating-meet]", (el) => act(async () => {
-    const partner_name = el.dataset.partner || "Elena R.";
-    const venue = el.dataset.venue || "Miradouro Rooftop";
-    const res = await api("/v1/dating/agree-meet", { partner_name, venue });
+    const res = await api("/v1/dating/agree-meet",
+                          { target_account_id: el.dataset.target, activity_id: "meet" });
     const out = $("#instant-dating-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🥂 Confirmed! Meeting Pin Set at ${esc(res.venue)}:</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Shared Map Pin:</strong> Live ETA ${res.eta_mins} mins</div>
-        <div style="font-size:13px; margin-bottom:6px;">🛡️ <strong>Safety Pin Code:</strong> ${res.pin_code}</div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="toast('Connected in native in-app chatroom! 💬');">Launch Native Chatroom 💬</button>
-      </div>
-    `;
-  }, "Meetup Confirmed! Pin & Live ETA set 📍"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${res.agreed ? "You're both in 🥂" : "Noted, privately"}</div>
+        <div style="font-size:13px; margin-bottom:6px;">${esc(res.message || "")}</div>
+        ${res.meeting_code ? `<div style="font-size:13px;">Say this out loud when you meet: <strong>${esc(res.meeting_code)}</strong></div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note || "")}</div>
+      </div>`;
+  }));
 
-  on("[data-act=match-sports-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/sports-match", { sport: "bouldering", timeframe: "next 45 mins" });
+  /* ---- Synergy: one renderer for every activity ----
+     Seven near-identical handlers used to live here, each pulling `res.partner_name` and
+     `res.match_score` out of a literal the server made up. There is one now, because there
+     was only ever one feature. The empty state is the important half: an honest "nobody yet"
+     plus the button that fixes it beats a stranger who does not exist. */
+
+  function synergyActivity(fallback) {
+    const box = $("#sy-act");
+    const typed = box ? box.value.trim() : "";
+    return typed || fallback || "";
+  }
+
+  function synergyCity() {
+    const box = $("#sy-city");
+    return box ? box.value.trim() : "";
+  }
+
+  function matchPerson(p) {
+    const shared = (p.shared_terms || []).join(", ");
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div><strong>${esc(p.handle)}</strong>${p.activity ? ` — ${esc(p.activity)}` : ""}</div>
+        ${p.note ? `<div style="font-size:12px; color:var(--muted);">${esc(p.note)}</div>` : ""}
+        ${shared ? `<div style="font-size:11px; color:var(--muted);">matched on: ${esc(shared)}</div>` : ""}
+        ${p.open_until ? `<div style="font-size:11px; color:var(--muted);">open until ${esc(whenLabel(p.open_until))}</div>` : ""}
+      </div>`;
+  }
+
+  function matchMeetup(m) {
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div>📅 <strong>${esc(m.title)}</strong>${m.place ? ` · ${esc(m.place)}` : ""}</div>
+        <div style="font-size:11px; color:var(--muted);">${esc(whenLabel(m.starts_at))} · ${m.going_count} going</div>
+        <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="meetup-join" data-id="${esc(m.meetup_id)}">Join</button>
+      </div>`;
+  }
+
+  function renderMatch(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    const people = res.people || [];
+    const meets = res.meetups || [];
+    const events = res.events || [];
+    const where = res.city_label || res.city || "";
+
+    if (!res.matched) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:13px; margin-bottom:6px;">Nobody yet${where ? ` in ${esc(where)}` : ""}.</div>
+          <div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "")}</div>
+          ${res.you_are_open ? "" : `<button class="ghost" style="font-size:12px; padding:6px 12px; margin-top:8px;" data-act="synergy-open-to">I'm up for this ✋</button>`}
+        </div>`;
+      bindLater(out);
+      return;
+    }
+
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(res.category || "Match")}${where ? ` · ${esc(where)}` : ""}</div>
+        ${people.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${people.length} ${people.length === 1 ? "person" : "people"} open right now</div>` : ""}
+        ${people.map(matchPerson).join("")}
+        ${meets.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">Already on the board</div>` : ""}
+        ${meets.map(matchMeetup).join("")}
+        ${events.map(e => `<div style="font-size:12px; margin-bottom:4px;">🎟️ ${esc(e.title || "")}</div>`).join("")}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  async function synergySearch(activity, targetId) {
+    const res = await api("/v1/synergy/instant-match",
+                          { interest: activity, city: synergyCity() });
+    renderMatch(res, targetId || "#vertical-match-output");
+    return res;
+  }
+
+  on("[data-act=synergy-search]", () => act(async () => {
+    await synergySearch(synergyActivity(""));
+  }));
+
+  on("[data-act=synergy-vertical]", (el) => act(async () => {
+    const activity = synergyActivity(el.dataset.activity);
+    const box = $("#sy-act");
+    if (box && !box.value.trim()) box.value = activity;
+    await synergySearch(activity);
+  }));
+
+  on("[data-act=synergy-open-to]", () => act(async () => {
+    const activity = synergyActivity("");
+    if (!activity) { toast("Up for what?"); return; }
+    await api("/v1/synergy/open-to", { activity, city: synergyCity() });
+    await synergySearch(activity);
+  }, "You're on the list — anyone searching for that will find you ✋"));
+
+  on("[data-act=synergy-mine]", () => act(async () => {
+    const res = await api("/v1/synergy/open-to");
     const out = $("#vertical-match-output");
     if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🧗 Sports Match Found (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🏃 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready for ${esc(res.sport)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Skill Match: ${bd.skill_match_pct}% · Crag Heatmap: ${bd.venue_heatmap_pct}% · Rating: ${bd.venue_rating}★</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Spot: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Invite sent to ${esc(res.partner_name)} on native chat! 💬');">Meet at Crag on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Sports Partner Matched! 🧗"));
+    const signals = res.signals || [];
+    out.innerHTML = signals.length ? `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">You are publishing</div>
+        ${signals.map(s => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(s.activity)}</strong> · ${esc(s.city_label || s.city)}</div>
+            <div style="font-size:11px; color:var(--muted);">until ${esc(whenLabel(s.expires_at))}</div>
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="synergy-close" data-activity="${esc(s.activity)}" data-city="${esc(s.city_label || s.city)}">Take it down</button>
+          </div>`).join("")}
+      </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px; color:var(--muted);">Nothing published. Nobody can match you until you say what you are up for.</div>`;
+    bindLater(out);
+  }));
 
-  on("[data-act=match-nomad-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/nomad-match", { domain: "tech & design", timeframe: "next 30 mins" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">💻 Nomad Match Found (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">👩‍💻 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready to co-work!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Domain Match: ${bd.domain_match_pct}% · Wi-Fi: ${bd.wifi_speed_mbps} Mbps · Noise: ${esc(bd.noise_level)}</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Work Hub: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected with ${esc(res.partner_name)} on native chat! 💬');">Meet at Work Hub on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Nomad Co-Working Partner Matched! 💻"));
-
-  on("[data-act=match-creative-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/creative-match", { genre: "acoustic jam" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">🎵 Creative Jam Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎸 <strong>${esc(res.partner_name)}</strong> is ready for an ${esc(res.genre)} session!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Venue: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected on native chat for Jam Session! 🎸');">Connect on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Creative Jam Matched! 🎸"));
-
-  on("[data-act=match-dining-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/dining-match", { cuisine: "seafood & tapas" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🍲 Dining Crew Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🍷 <strong>${esc(res.partner_name)}</strong> are meeting for ${esc(res.cuisine)} tonight!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Food Hall: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Dining Crew chat! 🍷');">Join Dining Crew Chat 💬</button>
-      </div>
-    `;
-  }, "Dining Crew Matched! 🍷"));
-
-  on("[data-act=match-ski-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/ski-match", { resort: "Serra da Estrela / Alpine Slopes", snow_depth_cm: 45 });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">❄️ Powder Alert Skiing Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">⛷️ <strong>${esc(res.partner_name)}</strong> is ready for fresh powder!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Snow Condition: 100% · Proximity: ${bd.proximity_km}km · Resort Heatmap: ${bd.resort_heatmap}%</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Resort: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Ski Trip on Native Chat! ⛷️');">Plan Ski Trip on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Powder Alert Ski Match Found! ⛷️"));
-
-  on("[data-act=match-rave-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/rave-match", { subgenre: "techno & house" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:6px;">🪩 Nightlife Rave Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎶 <strong>${esc(res.partner_name)}</strong> are going to ${esc(res.subgenre)} set tonight!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Subgenre Match: ${bd.subgenre_match_pct}% · Club Capacity: ${bd.club_heatmap_capacity}% · Sound Rating: ${bd.sound_system_rating}★</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Warehouse: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Rave Squad Chatroom! 🪩');">Join Rave Squad Chatroom 💬</button>
-      </div>
-    `;
-  }, "Nightlife Rave Match Found! 🪩"));
-
-  on("[data-act=match-surf-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/surf-match", { spot: "Carcavelos Beach", swell_m: 2.2, period_s: 14, wind: "11kt Offshore NNE" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    const tel = res.telemetry || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
-        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:6px;">🏄 Swell Alert Surf Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🌊 <strong>${esc(res.partner_name)}</strong> is heading to ${esc(res.suggested_venue)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Swell: ${tel.swell_height_m}m @ ${tel.wave_period_sec}s · Wind: ${esc(tel.wind_conditions)} · Marine Score: ${bd.marine_weather_score}%</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Surf Spot: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Surf Session on Native Chat! 🏄');">Plan Surf Session on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Swell Alert Surf Match Found! 🏄"));
+  on("[data-act=synergy-close]", (el) => act(async () => {
+    await apiDelete("/v1/synergy/open-to",
+                    { activity: el.dataset.activity, city: el.dataset.city });
+  }, "Taken down"));
 
   on("[data-act=register-dev-plugin]", () => act(async () => {
     const name = $("#dp-name").value.trim() || "Kitesurf Wind Radar";
@@ -3522,68 +3848,18 @@ function wire(root) {
     toast(res.message || `Published '${name}' to ConnectOS Developer Hub! 🚀`);
   }));
 
-  on("[data-act=gen-ai-icebreakers]", () => act(async () => {
-    const res = await api("/v1/ai/copilot-icebreaker", { partner_name: "Elena R.", shared_hobby: "Specialty Coffee & Bouldering" });
-    const out = $("#ai-icebreaker-output");
-    if (!out) return;
-    const ibs = res.icebreakers || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">🤖 Tailored Icebreakers for ${esc(res.partner_name)}:</div>
-        ${ibs.map(ib => `
-          <div style="font-size:12px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
-            <span>${esc(ib)}</span>
-            <button class="ghost" style="font-size:10px; padding:2px 8px; margin-left:6px;" onclick="navigator.clipboard.writeText('${esc(ib.replace(/'/g, "\\'"))}'); toast('Icebreaker copied! 💬');">Copy 📲</button>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }, "AI Social Co-Pilot Icebreakers Generated! 🤖"));
-
+  on("[data-act=gen-ai-icebreakers]", (el) => act(async () => {
+    const target = el.dataset.target || "";
+    renderAI(await api("/v1/ai/copilot-icebreaker", { target_account_id: target, city: aiCity() }),
+             "#ai-icebreaker-output", "Openers");
+  }));
   on("[data-act=launch-squad-agent]", () => act(async () => {
-    const res = await api("/v1/ai/squad-agent", { crew_id: "crw-001", activity: "Sunset Tapas & Bouldering" });
-    const out = $("#squad-agent-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🤖 Autonomous Squad Agent Confirmed:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.activity)}</strong> (${esc(res.time_slot)})</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Members Confirmed: ${res.confirmed_members.join(", ")}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Spot: ${esc(res.reservation_status)} · Split: ${esc(res.expense_split)}</div>
-      </div>
-    `;
-  }, "Autonomous Squad Agent Negotiated Outing! 🤖"));
-
-  on("[data-act=zk-verify-attr]", () => act(async () => {
-    const res = await api("/v1/zk/verify-attribute", { attribute: "AGE_OVER_18" });
-    const out = $("#zk-proof-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔐 ZK-SNARK Proof Verified!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Attribute: <strong>${esc(res.attribute)}</strong> · Zero Identity Disclosed</div>
-        <div style="font-size:11px; color:var(--muted);">ZK Proof: ${esc(res.zk_proof)}</div>
-      </div>
-    `;
-  }, "ZK-SNARK Proof Verified! 🔐"));
-
+    renderAI(await api("/v1/ai/squad-agent", {}), "#squad-agent-output", "Your crew's plans");
+  }));
   on("[data-act=gen-micro-itinerary]", () => act(async () => {
-    const res = await api("/v1/ai/micro-itinerary", { city: "Lisbon", vibe: "Coffee to Sunset Drinks & Rave" });
-    const out = $("#karma-concierge-output");
-    if (!out) return;
-    const stops = res.stops || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:6px;">🗺️ Spontaneous Micro-Itinerary (${esc(res.total_duration)}):</div>
-        ${stops.map(st => `
-          <div style="font-size:12.5px; margin-bottom:4px; color:var(--text);">
-            <strong>Stop ${st.step} (${esc(st.time)}):</strong> ${esc(st.activity)} @ <em>${esc(st.venue)}</em>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }, "Spontaneous Micro-Itinerary Generated! 🗺️"));
-
+    renderAI(await api("/v1/ai/micro-itinerary", { city: aiCity() }),
+             "#karma-concierge-output", "Next day and a half");
+  }));
   on("[data-act=trigger-sos]", () => act(async () => {
     const res = await api("/v1/safety/emergency-sos", { location: "Miradouro Rooftop, Lisbon" });
     const out = $("#karma-concierge-output");
@@ -3598,17 +3874,12 @@ function wire(root) {
   }, "Emergency SOS Location Broadcast Active! ⚡"));
 
   on("[data-act=match-mentor]", () => act(async () => {
-    const res = await api("/v1/synergy/mentor-match", { domain: "AI & Startup Founders" });
-    const out = $("#mentor-squad-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🤝 Mentorship Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Mentor: <strong>${esc(res.mentor_name)}</strong> · ${esc(res.domain)}</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Format: ${esc(res.suggested_format)} @ <strong>${esc(res.suggested_venue)}</strong></div>
-      </div>
-    `;
-  }, "Mentorship Synergy Match Found! 🤝"));
+    const seeking = $("#mt-seek") ? $("#mt-seek").value.trim() : "";
+    const offering = $("#mt-offer") ? $("#mt-offer").value.trim() : "";
+    if (!seeking) { toast("What do you want to learn?"); return; }
+    const res = await api("/v1/synergy/mentor-match", { seeking, offering });
+    renderMatch(res, "#mentor-squad-output");
+  }));
 
   on("[data-act=sync-squad-routine]", () => act(async () => {
     const res = await api("/v1/routines/squad-sync", { routine_name: "Wednesday Dawn Patrol Surf Crew" });
@@ -3692,19 +3963,10 @@ function wire(root) {
   }, "Explorer Pro Subscription Active (€9.99/mo)! 💳"));
 
   on("[data-act=convert-voice-brief]", () => act(async () => {
-    const res = await api("/v1/ai/voice-brief", { transcript: "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!" });
-    const out = $("#voice-gift-output");
-    if (!out) return;
-    const stops = res.extracted_stops || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎙️ AI Voice Outing Brief Created:</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">"${esc(res.transcript)}"</div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})`).join(" ➔ ")}</div>
-      </div>
-    `;
-  }, "AI Voice Brief Converted to Outing Card! 🎙️"));
-
+    const transcript = $("#vb-note") ? $("#vb-note").value.trim() : "";
+    if (!transcript) { toast("Paste or type the note first."); return; }
+    renderAI(await api("/v1/ai/voice-brief", { transcript }), "#voice-gift-output", "Stops in that note");
+  }));
   on("[data-act=gift-friend-coffee]", () => act(async () => {
     const res = await api("/v1/ledger/gift-coffee", { recipient: "Elena R.", item: "Specialty Flat White", amount: 3.80 });
     const out = $("#voice-gift-output");
@@ -3838,43 +4100,25 @@ function wire(root) {
   }, "Festival Stage Flare Dropped! 🚩"));
 
   on("[data-act=match-layover-buddy]", () => act(async () => {
-    const res = await api("/v1/travel/layover-buddy", { airport_code: "LIS (Lisbon Airport Terminal 1)", layover_mins: 120 });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0ea5e9;">
-        <div style="font-size:14px; font-weight:700; color:#0ea5e9; margin-bottom:4px;">✈️ Layover Buddy Found (${esc(res.airport)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Buddy: <strong>${esc(res.buddy_name)}</strong> · ${res.layover_mins} Mins Layover</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Meeting Spot: ${esc(res.suggested_spot)}</div>
-      </div>
-    `;
-  }, "Airport Layover Coffee Buddy Matched! ✈️"));
+    const airport_code = $("#lo-airport") ? $("#lo-airport").value.trim() : "";
+    if (!airport_code) { toast("Which airport?"); return; }
+    renderMatch(await api("/v1/travel/layover-buddy", { airport_code }),
+                "#layover-gym-output");
+  }));
 
   on("[data-act=match-gym-spotter]", () => act(async () => {
-    const res = await api("/v1/sports/gym-spotter", { activity: "Bouldering & Lead Climbing", gym: "Vertical Wall Lisbon" });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏋️ Bouldering Spotter Matched (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Spotter: <strong>${esc(res.spotter_name)}</strong> @ ${esc(res.gym_name)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Activity: ${esc(res.activity)}</div>
-      </div>
-    `;
-  }, "Bouldering Spotter Matched! 🏋️"));
+    const activity = $("#lo-gym") ? $("#lo-gym").value.trim() : "";
+    renderMatch(await api("/v1/sports/gym-spotter",
+                          { activity, city: synergyCity() }), "#layover-gym-output");
+  }));
 
   on("[data-act=match-language-swap]", () => act(async () => {
-    const res = await api("/v1/synergy/language-swap", { speak: "English", learn: "Portuguese" });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎓 Language Swap Matched (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Partner: <strong>${esc(res.partner_name)}</strong> (Native ${esc(res.learn_lang)} Speaker)</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Format: ${esc(res.suggested_format)} @ ${esc(res.suggested_venue)}</div>
-      </div>
-    `;
-  }, "Language Swap Coffee Partner Matched! 🎓"));
+    const speak = $("#ls-speak") ? $("#ls-speak").value.trim() : "";
+    const learn = $("#ls-learn") ? $("#ls-learn").value.trim() : "";
+    if (!speak || !learn) { toast("What do you speak, and what do you want to learn?"); return; }
+    const res = await api("/v1/synergy/language-swap", { speak, learn });
+    renderMatch(res, "#layover-gym-output");
+  }));
 
   on("[data-act=match-coliving]", () => act(async () => {
     const res = await api("/v1/housing/co-living-match", { city: "Lisbon", budget: "€900/mo" });
@@ -4075,19 +4319,8 @@ function wire(root) {
   }, "Creator Residency Awarded! 💎"));
 
   on("[data-act=gen-ai-blueprint]", () => act(async () => {
-    const res = await api("/v1/ai/outing-butler", { weekend: "Saturday & Sunday" });
-    const out = $("#ai-butler-output");
-    if (!out) return;
-    const schedule = (res.curated_schedule || []).map((s) => `• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} (with ${s.crew.join(", ")})`).join("<br>");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
-        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:6px;">🤖 Perfect Weekend Blueprint Generated (${esc(res.weekend)}):</div>
-        <div style="font-size:12.5px; line-height:1.5; margin-bottom:6px;">${schedule}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Est. Cost: ${esc(res.estimated_cost)}</div>
-      </div>
-    `;
-  }, "AI Weekend Blueprint Generated! 🤖"));
-
+    renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#ai-butler-output", "What's on");
+  }));
   on("[data-act=settle-one-tap-split]", () => act(async () => {
     const res = await api("/v1/payments/one-tap-settle", { bill_total: "€84.00", members_count: 4 });
     const out = $("#ai-butler-output");
@@ -4277,19 +4510,8 @@ function wire(root) {
   }, "Global Edge Mesh Replicated! 🌍"));
 
   on("[data-act=negotiate-ai-agents]", () => act(async () => {
-    const res = await api("/v1/ai/agent-negotiator", { topic: "Weekend Sunset Surf & Dinner" });
-    const out = $("#frontier-stack-output");
-    if (!out) return;
-    const agents = res.participating_agents || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 Multi-Agent Consensus Confirmed (${agents.length} Agents):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Slot: <strong>${esc(res.unanimous_slot)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Venue: ${esc(res.selected_venue)} · Split: ${esc(res.split_agreement)}</div>
-      </div>
-    `;
-  }, "AI Multi-Agent Consensus Reached! 🤖"));
-
+    renderAI(await api("/v1/ai/agent-negotiator", {}), "#frontier-stack-output", "Your crew's plans");
+  }));
   on("[data-act=seed-city-bootstrap]", () => act(async () => {
     const res = await api("/v1/seeding/city-bootstrap", { city: "Lisbon" });
     const out = $("#seeding-output");
@@ -4557,20 +4779,8 @@ function wire(root) {
   }, "Lisbon Festas & Web Summit Radar Synced! 🐟"));
 
   on("[data-act=sync-ai-butler-landmarks]", () => act(async () => {
-    const res = await api("/v1/ai/outing-butler", { weekend: "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting" });
-    const out = $("#landmark-radar-output");
-    if (!out) return;
-    const sched = res.curated_schedule || [];
-    const items = sched.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} @ <em>${esc(s.venue)}</em></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🤖 AI Outing Butler Landmark Blueprint (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Cost: ${esc(res.estimated_cost)} · Group Split Synchronized</div>
-      </div>
-    `;
-  }, "AI Outing Butler Synced with Landmark Festivals! 🤖"));
-
+    renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#landmark-radar-output", "What's on");
+  }));
   on("[data-act=open-voice-huddle]", () => act(async () => {
     const res = await api("/v1/voice/crew-huddle", { event_name: "Edinburgh Festival Fringe Crowds" });
     const out = $("#frontier-social-output");
@@ -4603,19 +4813,19 @@ function wire(root) {
   }, "NFC Tap-to-Synergy Handshake Verified! 📳"));
 
   on("[data-act=translate-local-culture]", () => act(async () => {
-    const res = await api("/v1/ai/culture-bridge-translator", { city: "Edinburgh" });
+    const phrase = $("#cb-phrase") ? $("#cb-phrase").value.trim() : "";
+    if (!phrase) { toast("Which phrase?"); return; }
+    const res = await api("/v1/ai/culture-bridge-translator", { phrase, city: aiCity() });
     const out = $("#frontier-social-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🗣️ Culture & Dialect Bridge (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Phrase: <em>"${esc(res.original_phrase)}"</em></div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth); margin-bottom:4px;">➔ ${esc(res.translation)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Etiquette Tip: ${esc(res.cultural_etiquette_tip)}</div>
-      </div>
-    `;
-  }, "Local Culture & Dialect Translated! 🗣️"));
-
+    out.innerHTML = res.available
+      ? `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:13px; margin-bottom:6px;">${esc(res.translation)}</div>
+           ${res.etiquette ? `<div style="font-size:12px; color:var(--muted);">${esc(res.etiquette)}</div>` : ""}
+           ${Object.entries(res.glossary || {}).map(([k, v]) => `<div style="font-size:12px;"><strong>${esc(k)}</strong> — ${esc(v)}</div>`).join("")}
+         </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:12px; color:var(--muted);">${esc(res.reason)}</div>`;
+  }));
   on("[data-act=view-dao-treasury]", () => act(async () => {
     const res = await api("/v1/dao/community-treasury", { city: "Edinburgh" });
     const out = $("#frontier-social-output");
@@ -4632,183 +4842,49 @@ function wire(root) {
   }, "Community DAO Treasury Synced! 🏛️"));
 
   on("[data-act=trigger-boredom-quest]", () => act(async () => {
-    const res = await api("/v1/ai/spontaneous-quests", { city: "Edinburgh", time_available: "Right Now (Next 15 Mins)" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const quests = res.anti_boredom_quests || [];
-    const items = quests.map(q => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(q.title)}</strong> (${esc(q.eta)})<br><span style="font-size:11px; color:var(--growth);">Host: ${esc(q.host)} · Crew: ${q.crew_size} ready</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">⚡ Instant 15-Min Anti-Boredom Quests (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "3 Instant Spontaneous Quests Ready! ⚡"));
-
+    renderAI(await api("/v1/ai/spontaneous-quests", { city: aiCity() }),
+             "#fulfillment-butler-output", "Happening soon");
+  }));
   on("[data-act=align-ikigai-compass]", () => act(async () => {
-    const res = await api("/v1/ai/ikigai-compass", {});
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const sched = res.recommended_weekly_purpose_schedule || [];
-    const items = sched.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.day)}</strong>: ${esc(s.focus)} (<em>${esc(s.vibe)}</em>)</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Ikigai Purpose Compass (${res.fulfillment_score}% Alignment):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: Screen-free, deep-flow weekly fulfillment blueprint active</div>
-      </div>
-    `;
-  }, "Ikigai Purpose Blueprint Activated! 🧘"));
-
+    renderAI(await api("/v1/ai/ikigai-compass", {}), "#fulfillment-butler-output", "What you have been doing");
+  }));
   on("[data-act=book-flow-mastery]", () => act(async () => {
-    const res = await api("/v1/ai/flow-mastery", { skill: "Ceramics Wheel Throwing & Glaze Chemistry" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌊 Screen-Free Flow Lab Scheduled (${esc(res.duration)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Skill: <strong>${esc(res.skill)}</strong> with ${esc(res.flow_partner)}</div>
-        <div style="font-size:12px; margin-bottom:4px;">Creation: ${esc(res.hands_on_creation)} @ ${esc(res.venue)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.screen_free_guarantee)}</div>
-      </div>
-    `;
-  }, "Screen-Free Flow Lab Booked! 🌊"));
-
+    const skill = $("#fm-skill") ? $("#fm-skill").value.trim() : "";
+    renderMatch(await api("/v1/ai/flow-mastery", { skill, city: aiCity() }), "#fulfillment-butler-output");
+  }));
   on("[data-act=book-meaningful-salon]", () => act(async () => {
-    const res = await api("/v1/ai/meaningful-salons", { theme: "Courage, Transition & The Next Chapter" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const prompts = res.table_prompts || [];
-    const items = prompts.map(p => `<div style="margin-top:2px; font-style:italic;">"${esc(p)}"</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ ${esc(res.format)}:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> @ ${esc(res.venue)}</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Anti-Small-Talk Prompts:<br>${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Host: ${esc(res.host)} · Split: ${esc(res.split)}</div>
-      </div>
-    `;
-  }, "Meaningful Conversation Salon Booked! 🕊️"));
-
+    const theme = $("#ms-theme") ? $("#ms-theme").value.trim() : "";
+    renderMatch(await api("/v1/ai/meaningful-salons", { theme, city: aiCity() }), "#fulfillment-butler-output");
+  }));
   on("[data-act=predict-serendipity]", () => act(async () => {
-    const res = await api("/v1/ai/serendipity-engine", { user: "Robert" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    const friend = res.nearby_friend || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🔮 Proactive Serendipity Opportunity:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Window: <strong>${esc(res.opportunity_window)}</strong> (${esc(res.weather_condition)})</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Friend Proximity: <strong>${esc(friend.name)}</strong> (${esc(friend.distance)}) · ${esc(friend.availability)}</div>
-        <div style="font-size:12px; font-style:italic;">Suggestion: ${esc(res.proactive_suggestion)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Action: ${esc(res.one_tap_action)}</div>
-      </div>
-    `;
-  }, "Proactive Serendipity Predicted! 🔮"));
-
+    renderAI(await api("/v1/ai/serendipity-engine", {}), "#butler-4-output", "Overlaps right now");
+  }));
   on("[data-act=tune-empathy-vibe]", () => act(async () => {
-    const res = await api("/v1/ai/empathy-vibe-tuner", { vibe: "Slightly Overstimulated & Reflective" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧠 Empathy Vibe Tuner (${esc(res.detected_state)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Environment: <strong>${esc(res.tailored_environment)}</strong> @ ${esc(res.venue)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.social_battery_protection)} · Companion: ${esc(res.companion_match)}</div>
-        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Restorative Activity: ${esc(res.soothing_activity)}</div>
-      </div>
-    `;
-  }, "Empathy Vibe Tuned! 🧠"));
-
+    renderAI(await api("/v1/ai/empathy-vibe-tuner", { city: aiCity(), max_group: 4 }),
+             "#butler-4-output", "Small enough to be quiet");
+  }));
   on("[data-act=auto-group-concierge]", () => act(async () => {
-    const res = await api("/v1/ai/group-concierge", { group: "Weekend Lisbon Crew (4 People)" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🗺️ Group Concierge Negotiation Complete:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Time: <strong>${esc(res.mutually_free_slot)}</strong> @ <strong>${esc(res.booked_venue)}</strong></div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Dietary Consensus: ${esc(res.dietary_consensus)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Pre-Authorized Split: ${esc(res.apple_pay_split_pre_authorized)} · Calendar Invites Sent</div>
-      </div>
-    `;
-  }, "Autonomous Group Dining Booked! 🗺️"));
-
+    renderAI(await api("/v1/ai/group-concierge", {}), "#butler-4-output", "Your crew's plans");
+  }));
   on("[data-act=view-friendship-vault]", () => act(async () => {
-    const res = await api("/v1/ai/friendship-compounding", {});
-    const out = $("#butler-4-output");
-    if (!out) return;
-    const stones = res.meaningful_milestones || [];
-    const items = stones.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.friend)}</strong>: ${esc(s.note)} ➔ <span style="color:var(--growth); font-weight:bold;">${esc(s.nudge)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Friendship Compounding Vault (${res.compounding_score}% Score):</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Privacy: ${esc(res.privacy)}</div>
-      </div>
-    `;
-  }, "Friendship Vault Synced! 🌱"));
-
+    renderAI(await api("/v1/ai/friendship-compounding", {}), "#butler-4-output", "Not seen in a while");
+  }));
   on("[data-act=optimize-circadian-vitality]", () => act(async () => {
-    const res = await api("/v1/ai/vitality-circadian-flow", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const c = res.circadian_rhythm_sync || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧬 Circadian Vitality Flow (${res.longevity_score}% Longevity Score):</div>
-        <div style="font-size:12px; margin-bottom:2px;">☀️ Morning Lux: ${esc(c.morning_lux_window)}</div>
-        <div style="font-size:12px; margin-bottom:2px;">🏃 Zone-2 Movement: ${esc(c.optimal_zone2_window)}</div>
-        <div style="font-size:12px; margin-bottom:2px;">🌙 Melatonin Wind-Down: ${esc(c.melatonin_wind_down)} ➔ ${esc(c.recommended_sleep_time)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Sauna Contrast: ${esc(res.weekly_contrast_therapy)}</div>
-      </div>
-    `;
-  }, "Circadian Vitality Protocol Optimized! 🧬"));
-
+    renderAI(await api("/v1/ai/vitality-circadian-flow", {}), "#life-value-output", "Sleep and rhythm");
+  }));
   on("[data-act=track-regret-minimization]", () => act(async () => {
-    const res = await api("/v1/ai/regret-minimization", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const quests = res.top_aspirational_quests || [];
-    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.quest)}</strong> <span class="badge good" style="font-size:10px;">${esc(q.status)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(q.milestone)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌟 Regret Minimization Framework (${res.life_vision_score}% Vision):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">"${esc(res.be_present_reminder)}"</div>
-      </div>
-    `;
-  }, "Regret Minimization Quests Synced! 🌟"));
-
+    renderAI(await api("/v1/ai/regret-minimization", {}), "#life-value-output", "Your goals");
+  }));
   on("[data-act=optimize-life-wealth]", () => act(async () => {
-    const res = await api("/v1/ai/wealth-value-optimizer", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const allocs = res.optimized_allocations || [];
-    const items = allocs.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.category)}</strong>: <span style="color:var(--growth); font-weight:bold;">${esc(a.roi || a.savings)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💰 Wealth & Memory ROI Optimizer:</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.total_annual_memory_dividends)}</div>
-      </div>
-    `;
-  }, "Wealth & Memory ROI Optimized! 💰"));
-
+    renderAI(await api("/v1/ai/wealth-value-optimizer", {}), "#life-value-output", "What outings cost");
+  }));
   on("[data-act=log-stoic-reflection]", () => act(async () => {
-    const res = await api("/v1/ai/stoic-presence-mirror", { moment: "Sunset tea with good friends overlooking the sea", gratitude: "Health & genuine companionship" });
-    const out = $("#life-value-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Stoic Daily Presence Mirror (#${res.lifetime_gratitude_count}):</div>
-        <div style="font-size:13px; margin-bottom:2px;">Daily Peak Moment: <strong>"${esc(res.daily_peak_moment)}"</strong></div>
-        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Gratitude Anchor: ${esc(res.gratitude_anchor)}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">Wisdom: "${esc(res.stoic_wisdom)}" (${esc(res.privacy)})</div>
-      </div>
-    `;
-  }, "Stoic Reflection Logged! 🕊️"));
-
+    const note = $("#sr-note") ? $("#sr-note").value.trim() : "";
+    const res = await api("/v1/ai/stoic-presence-mirror", note ? { note } : {});
+    if ($("#sr-note")) $("#sr-note").value = "";
+    renderAI({ recent: res.recent || [], suggestion: res.privacy || "", assisted: true },
+             "#life-value-output", res.logged ? `Written down (${res.total})` : "Yours so far");
+  }));
   on("[data-act=crawl-zero-user-events]", () => act(async () => {
     const res = await api("/v1/seeding/zero-user-event-crawler", { city: "Edinburgh" });
     const out = $("#zero-user-seeding-output");
@@ -5251,6 +5327,71 @@ function wire(root) {
     `;
   }, "Pre-Game Squad Matched! 🍻"));
 
+  /* ---- City chat ---- */
+  on("[data-act=city-open]", (el) => act(async () => {
+    const city = (el.dataset.city || ($("#city-name") || {}).value || "").trim();
+    if (!city) throw new Error("Which city?");
+    state.cityRoom = city;
+    localStorage.setItem("lifeos.city", city);
+    await refresh();
+  }));
+
+  on("[data-act=meetup-create]", () => act(async () => {
+    const title = ($("#mu-title").value || "").trim();
+    const place = ($("#mu-place").value || "").trim();
+    const when = ($("#mu-when").value || "").trim();
+    if (!title) throw new Error("What is the plan?");
+    if (!when) throw new Error("When?");
+    await api("/v1/city/meetups", { city: state.cityRoom, title, place, starts_at: when });
+    await refresh();
+  }, "It's up — people can join now"));
+
+  on("[data-act=meetup-join]", (el) => act(async () => {
+    await api("/v1/city/meetups/join", { meetup_id: el.dataset.id });
+    await refresh();
+  }, "You're in. Meet somewhere public the first time."));
+
+  on("[data-act=meetup-leave]", (el) => act(async () => {
+    await api("/v1/city/meetups/leave", { meetup_id: el.dataset.id });
+    await refresh();
+  }));
+
+  on("[data-act=city-here]", () => act(async () => {
+    const note = (($("#city-note") || {}).value || "").trim();
+    await api("/v1/city/around", { city: state.cityRoom, note, days: 3 });
+    await refresh();
+  }, "You are listed as here"));
+
+  on("[data-act=city-hide]", () => act(async () => {
+    await apiDelete("/v1/city/around", { city: state.cityRoom });
+    await refresh();
+  }, "Taken down"));
+
+  on("[data-act=city-say]", () => act(async () => {
+    const box = $("#city-say");
+    const text = (box.value || "").trim();
+    if (!text) throw new Error("Say something first");
+    await api("/v1/city/chat", { city: state.cityRoom, text });
+    box.value = "";
+    await refresh();
+  }, "Sent"));
+
+  on("[data-act=city-remove]", (el) => act(async () => {
+    await apiDelete(`/v1/city/chat/message/${encodeURIComponent(el.dataset.id)}`);
+    await refresh();
+  }, "Message removed"));
+
+  on("[data-act=city-mute]", (el) => act(async () => {
+    await api("/v1/city/chat/mute", { target_id: el.dataset.id });
+    await refresh();
+  }, "Muted — they are not told"));
+
+  on("[data-act=city-report]", (el) => act(async () => {
+    const reason = prompt("What is wrong with this message? Only the operator sees this.");
+    if (!reason) return;
+    await api("/v1/city/chat/report", { message_id: el.dataset.id, reason });
+  }, "Reported to the operator"));
+
   on("[data-act=vcard-download]", () => act(async () => {
     const res = await api("/v1/people/qr");
     const out = $("#vcard-output");
@@ -5579,24 +5720,68 @@ function wire(root) {
   }, "VIP Fast-Track Pass Verified! 🎟️"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
-    const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
+    const place = $("#pop-place") ? $("#pop-place").value.trim() : "";
+    if (!place) { toast("Where were you?"); return; }
+    const res = await api("/v1/gamification/mint-presence", { event_name: place });
     const out = $("#pop-mint-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🎟️ Proof-of-Presence Minted!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Token ID: <strong>${esc(res.token_id)}</strong> · ${esc(res.badge_name)}</div>
-        <div style="font-size:11px; color:var(--muted);">Tx Hash: ${esc(res.tx_hash)} (Verified on Blockchain ⛓️)</div>
-      </div>
-    `;
-  }, "Proof-of-Presence Badge Minted! 🎟️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Noted: ${esc(place)}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.note || "")}</div>
+      </div>`;
+  }, "Check-in recorded"));
+
+  /* ---- SafeWalk ----
+     The old handler posted a destination and toasted "Crew notified & ETA timer set". No
+     message left the building, and the escort code was the same eight digits for every walk
+     in the world. Somebody who believes their crew is watching walks home differently from
+     somebody who knows nobody is, so this screen says exactly who can see the walk. */
+
+  function renderWalk(res) {
+    const out = $("#safewalk-output");
+    if (!out) return;
+    const walks = res.walks || [];
+    const overdue = res.overdue || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${res.watching ? `
+          <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Walking to ${esc(res.destination)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${res.can_see_it} ${res.can_see_it === 1 ? "person" : "people"} can see this · ${esc(res.delivery_note || "")}</div>` : ""}
+        ${overdue.length ? `<div style="font-size:13px; font-weight:700; color:var(--warm); margin-bottom:6px;">${overdue.length} overdue</div>` : ""}
+        ${walks.map(w => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(w.handle)}</strong> → ${esc(w.destination)}${w.severity === "sos" ? " · SOS" : ""}</div>
+            <div style="font-size:11px; color:${w.overdue ? "var(--warm)" : "var(--muted)"};">${w.overdue ? `${w.overdue_minutes} min overdue` : `due ${esc(whenLabel(w.due_at))}`}</div>
+          </div>`).join("")}
+        ${!res.watching && !walks.length ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "Nothing active.")}</div>` : ""}
+        ${res.disclaimer ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.disclaimer)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  const walkWatchers = () => ($("#sw-watchers") ? $("#sw-watchers").value : "")
+    .split(",").map(w => w.trim()).filter(Boolean);
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
-    const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
-    const eta_mins = parseInt($("#sw-eta").value, 10) || 15;
-    const res = await api("/v1/safety/escort", { destination, eta_mins });
-    $("#sw-dest").value = "";
-    toast(res.message || "SafeWalk Live Escort active! 🛡️");
+    const destination = $("#sw-dest").value.trim();
+    if (!destination) { toast("Where are you going?"); return; }
+    const eta_mins = parseInt($("#sw-eta").value, 10) || 30;
+    renderWalk(await api("/v1/safety/escort",
+                         { destination, eta_mins, watchers: walkWatchers() }));
+  }));
+
+  on("[data-act=safewalk-arrived]", () => act(async () => {
+    await api("/v1/safety/escort/arrived", {});
+    renderWalk(await api("/v1/safety/escort"));
+  }, "Good. Watch cleared ✅"));
+
+  on("[data-act=safewalk-mine]", () => act(async () => {
+    renderWalk(await api("/v1/safety/escort"));
+  }));
+
+  on("[data-act=safewalk-watching]", () => act(async () => {
+    renderWalk(await api("/v1/safety/watching"));
   }));
 
   on("[data-act=quick-split-expense]", () => act(async () => {
@@ -5742,6 +5927,14 @@ document.querySelectorAll("nav .tab").forEach((b) => b.addEventListener("click",
 $("#settings-btn").addEventListener("click", () => {
   $("#set-base").value = localStorage.getItem("lifeos.base") || "";
   $("#set-token").value = localStorage.getItem("lifeos.token") || "";
+  const who = $("#set-account");
+  if (who) {
+    who.textContent = state.me
+      ? `Signed in as ${state.me.handle}`
+      : "Not signed in.";
+  }
+  const out = $("#set-signout");
+  if (out) out.hidden = !state.me;
   $("#settings").showModal();
 });
 $("#set-save").addEventListener("click", () => {
@@ -5863,35 +6056,126 @@ window.addEventListener("keydown", (evt) => {
   }
 });
 
-/* ---- Passkey & WebAuthn SSO Listener ---- */
-const passkeyBtn = $("#set-passkey");
-if (passkeyBtn) {
-  passkeyBtn.addEventListener("click", async () => {
-    if (window.PublicKeyCredential) {
-      toast("Authenticating with WebAuthn Passkey (Fingerprint / FaceID)... 🔑");
-      setTimeout(() => toast("Passkey Authenticated! Device paired to gateway. ✓"), 1200);
-    } else {
-      toast("WebAuthn Passkey fallback: Using Gateway Bearer Token");
-    }
-  });
+/* ---- Signing in ------------------------------------------------------------
+   The gateway has had register / login / email-code / OIDC since the accounts work
+   landed, and the PWA had no screen for any of it: the only route to a session was
+   pasting a bearer token into the developer field in Settings. What stood here instead
+   was a "1-Tap Social SSO" block whose buttons called /v1/auth/social-sso — an endpoint
+   that returns a made-up user id, no token, no session — and then toasted
+   "Authenticated! Cloud Sync Active". Telling someone they are signed in when nothing
+   happened is worse than offering nothing at all, so that is gone and this is real. */
+
+let authMode = "register";
+state.cityRoom = localStorage.getItem("lifeos.city") || "";
+
+function authError(message) {
+  const el = $("#auth-error");
+  if (!el) return;
+  el.textContent = message || "";
+  el.hidden = !message;
 }
 
-/* ---- 1-Tap Social SSO & Magic Link Listener ---- */
-document.querySelectorAll("[data-sso]").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const provider = btn.dataset.sso;
-    const res = await api("/v1/auth/social-sso", { provider }).catch(() => null);
-    toast(res ? res.message : `Signed in via ${provider.toUpperCase()}! Cloud Sync Active ✓`);
-  });
+function setSession(result) {
+  if (!result || !result.token) throw new Error("the gateway did not return a session");
+  localStorage.setItem("lifeos.token", result.token);
+  state.me = null;
+  $("#auth").close();
+  authError("");
+  toast(`Signed in as ${result.handle || "you"}`);
+  refresh();
+}
+
+async function openAuth() {
+  if ($("#auth").open) return;
+  authError("");
+  // Only offer what this deployment can actually deliver. An email box that mints a code
+  // nobody can receive, or a Google button with no client id, is the same lie in a
+  // different shape.
+  const providers = await api("/v1/auth/providers").catch(() => null);
+  const emailBlock = $("#auth-email-block");
+  if (emailBlock) emailBlock.hidden = !(providers && providers.email && providers.email.available);
+
+  const oidc = $("#auth-oidc-block");
+  if (oidc) {
+    const usable = ((providers && providers.providers) || []).filter((p) => p.configured);
+    oidc.hidden = usable.length === 0;
+    oidc.innerHTML = usable.length
+      ? `<p class="hint">${usable.map((p) => esc(p.provider)).join(" and ")} sign-in is configured on this server — use the button your device offers.</p>`
+      : "";
+  }
+  $("#auth").showModal();
+}
+
+function applyAuthMode() {
+  const registering = authMode === "register";
+  $("#auth-title").textContent = registering ? "Welcome to LifeOS" : "Welcome back";
+  $("#auth-sub").textContent = registering
+    ? "Create an account to keep your graph across devices."
+    : "Sign in to pick up where you left off.";
+  $("#auth-submit").textContent = registering ? "Create account" : "Sign in";
+  $("#auth-toggle").textContent = registering ? "I already have one" : "I need an account";
+  $("#auth-pass").setAttribute("autocomplete", registering ? "new-password" : "current-password");
+  authError("");
+}
+
+$("#auth-toggle").addEventListener("click", () => {
+  authMode = authMode === "register" ? "login" : "register";
+  applyAuthMode();
 });
 
-const magicBtn = $("#sso-magic");
-if (magicBtn) {
-  magicBtn.addEventListener("click", async () => {
-    const identifier = $("#sso-email").value.trim() || "user@example.com";
-    const res = await api("/v1/auth/social-sso", { provider: "email", identifier }).catch(() => null);
-    toast(`Magic Link sent to ${identifier}! ✉️ Check your inbox to complete sign-in.`);
-  });
-}
+$("#auth-submit").addEventListener("click", async () => {
+  const handle = $("#auth-handle").value.trim();
+  const password = $("#auth-pass").value;
+  if (!handle || !password) return authError("A handle and a password, please.");
+  try {
+    if (authMode === "register") {
+      await api("/v1/auth/register", { handle, password });
+    }
+    setSession(await api("/v1/auth/login", { handle, password }));
+  } catch (e) {
+    authError(e.message || "That did not work.");
+  }
+});
+
+$("#auth-email-send").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim();
+  if (!email) return authError("Which address should the code go to?");
+  try {
+    const res = await api("/v1/auth/email/code", { email });
+    $("#auth-code-row").hidden = false;
+    authError("");
+    toast(res.delivered ? `Code sent to ${email}` : "Email is not configured on this server");
+  } catch (e) {
+    authError(e.message || "Could not send a code.");
+  }
+});
+
+$("#auth-code-verify").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim();
+  const code = $("#auth-code").value.trim();
+  if (!code) return authError("Enter the code from your email.");
+  try {
+    setSession(await api("/v1/auth/email/verify", { email, code }));
+  } catch (e) {
+    authError(e.message || "That code is not valid.");
+  }
+});
+
+$("#set-signout").addEventListener("click", async () => {
+  await api("/v1/auth/logout", {}).catch(() => null);
+  localStorage.removeItem("lifeos.token");
+  state.me = null;
+  $("#settings").close();
+  toast("Signed out");
+  refresh();
+});
+
+applyAuthMode();
+
+document.addEventListener("click", (evt) => {
+  // The welcome card is written straight into #view and so never goes through wire(),
+  // which is where every other data-act is bound.
+  if (evt.target.closest("[data-act=open-auth]")) openAuth();
+});
 
 refresh();

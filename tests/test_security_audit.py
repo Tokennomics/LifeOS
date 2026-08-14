@@ -531,14 +531,18 @@ def test_an_issued_credential_is_never_the_same_twice(world):
     worse than no secret at all, because callers will trust it to authenticate a webhook."""
     client, headers = world["c"], world["h"]["ana"]
     first = client.post("/v1/developers/webhooks", headers=headers,
-                        json={"target_url": "https://a.example/hook"}).json()
+                        json={"target_url": "https://a.example/hook",
+                              "events": ["meetup.created"]}).json()
     second = client.post("/v1/developers/webhooks", headers=headers,
-                         json={"target_url": "https://b.example/hook"}).json()
+                         json={"target_url": "https://b.example/hook",
+                               "events": ["meetup.created"]}).json()
     assert first["signing_secret"] != second["signing_secret"]
     assert len(first["signing_secret"]) >= 32
 
+    # `api_key` became `secret`, because the credential is now returned exactly once and the
+    # field name should say so. Uniqueness is still the property under test.
     keys = {client.post("/v1/developers/api-keys", headers=headers,
-                        json={"app_name": "x"}).json()["api_key"] for _ in range(3)}
+                        json={"app_name": f"x{i}"}).json()["secret"] for i in range(3)}
     assert len(keys) == 3
 
 
@@ -584,7 +588,15 @@ def test_the_pwa_escapes_every_value_it_renders_from_a_response():
     app_js = (pathlib.Path(__file__).resolve().parent.parent
               / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
     assert "${esc(c.name)} (€${Number(c.amount).toFixed(2)})" in app_js
-    assert "${esc(s.time)} @ ${esc(s.place)} (${esc(s.activity)})" in app_js
+
+    # The second site was the voice-brief render, which interpolated `s.time`, `s.place`
+    # and `s.activity` from a response. That handler is gone: it displayed two hardcoded
+    # Lisbon venues, and the endpoint now reads a real transcript. Its replacement is the
+    # shared `/ai/*` renderer, and the day those fields carry a real place name is the day
+    # the escaping matters — so the check follows the code rather than being dropped.
+    assert "function aiLine(item)" in app_js
+    for rendered in ("esc(String(title))", "esc(extra)", "esc(going)"):
+        assert rendered in app_js, f"aiLine renders {rendered} unescaped"
 
 
 def test_the_pwa_builds_no_link_target_out_of_response_data():
@@ -953,3 +965,19 @@ def test_a_nonsense_focus_session_is_a_400(cfg, bad):
     assert client.post("/v1/routines/mindfulness/session",
                        headers={"Authorization": f"Bearer {token}"},
                        json=bad).status_code == 400
+
+
+def test_https_is_pinned_once_a_browser_has_seen_it(cfg):
+    """HSTS was simply missing. A browser that has once loaded the app over TLS should
+    refuse to be downgraded to http on a hostile network — which is the exact situation this
+    app is for, since its users are on hotel and cafe wifi.
+
+    No `includeSubDomains` and no `preload`: both are hard to undo and would speak for
+    domains this app does not own. Browsers ignore the header over plain HTTP, so the
+    LAN/NucBox case is unaffected.
+    """
+    headers = TestClient(create_app(cfg)).get("/health").headers
+    hsts = headers.get("strict-transport-security", "")
+    assert hsts.startswith("max-age=")
+    assert int(hsts.split("=")[1].split(";")[0]) >= 15552000     # 180 days
+    assert "preload" not in hsts and "includeSubDomains" not in hsts
