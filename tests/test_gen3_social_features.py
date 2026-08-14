@@ -624,9 +624,11 @@ def test_automated_city_content_pipeline_and_weather_triggers(cfg):
     assert "events_ingested" not in res1.json()
     assert res1.json()["provider"]["status"] == "not_configured"
 
-    res2 = client.post("/v1/seeding/ai-outing-synthesizer", json={"city": "Lisbon", "theme": "Vinyl & Beer"})
+    # A hand-written itinerary, presented as synthesis. Same real answer as
+    # /v1/ai/micro-itinerary, which is what this always claimed to be.
+    res2 = client.post("/v1/seeding/ai-outing-synthesizer", json={"city": "Lisbon"})
     assert res2.status_code == 200
-    assert res2.json()["itinerary_synthesized"] is True
+    assert res2.json()["stops"] == [] and res2.json()["empty"] is True
 
     # "160 Verified Third Places", with a live_status claiming opening hours and wi-fi
     # speeds were verified, for every city. Nothing was stored and nothing was verified.
@@ -780,18 +782,15 @@ def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
     assert res1.status_code == 400
     assert "220" not in res1.text
 
-    res2 = client.post("/v1/seeding/tastemaker-curation", json={"city": "Edinburgh"})
-    assert res2.status_code == 200
-    assert res2.json()["curation_active"] is True
-    assert len(res2.json()["top_hidden_gems"]) >= 3
-
-    res3 = client.post("/v1/seeding/recurring-gravity-hubs", json={"city": "Edinburgh"})
-    assert res3.status_code == 200
-    assert res3.json()["gravity_hubs_synced"] is True
-
-    res4 = client.post("/v1/seeding/city-culture-guide", json={"city": "Edinburgh"})
-    assert res4.status_code == 200
-    assert res4.json()["guide_generated"] is True
+    # Curation needs curators: it listed "hidden gems" chosen by nobody, and gravity scores
+    # for venues it had invented. All three are views over the seeded map and the board now,
+    # so an unseeded city is honestly empty.
+    for path in ("/v1/seeding/tastemaker-curation", "/v1/seeding/recurring-gravity-hubs",
+                 "/v1/seeding/city-culture-guide"):
+        res = client.post(path, json={"city": "Edinburgh"})
+        assert res.status_code == 200, path
+        assert res.json()["empty"] is True, path
+        assert res.json()["places"] == [] and res.json()["events"] == [], path
 
 def test_full_day_user_ux_simulation(cfg):
     client = TestClient(create_app(cfg))
@@ -854,35 +853,34 @@ def test_universal_master_controller(cfg):
 
 def test_nextgen_content_seeding_engines(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/seeding/underground-vinyl-radar", json={"city": "Edinburgh"})
-    assert res1.status_code == 200
-    assert res1.json()["vinyl_radar_active"] is True
-
-    res2 = client.post("/v1/seeding/culinary-popup-drops", json={"city": "Edinburgh"})
-    assert res2.status_code == 200
-    assert res2.json()["culinary_drops_active"] is True
-
-    res3 = client.post("/v1/seeding/wild-nature-trails", json={"city": "Edinburgh"})
-    assert res3.status_code == 200
-    assert res3.json()["wilderness_radar_active"] is True
-
-    res4 = client.post("/v1/seeding/literary-salon-radar", json={"city": "Edinburgh"})
-    assert res4.status_code == 200
-    assert res4.json()["literary_radar_active"] is True
+    # All four branched on the word "munich" in the request: say it and you got hand-written
+    # Isar river swims and Krautrock nights, say anything else and you got Edinburgh's.
+    for path in ("/v1/seeding/underground-vinyl-radar", "/v1/seeding/culinary-popup-drops",
+                 "/v1/seeding/wild-nature-trails", "/v1/seeding/literary-salon-radar"):
+        res = client.post(path, json={"city": "Edinburgh"})
+        assert res.status_code == 200, path
+        assert res.json()["empty"] is True, path
+        for invented in ("Krautrock", "Unter Deck", "Isar", "Flaucher"):
+            assert invented not in res.text, f"{path} still names {invented}"
 
 def test_hyper_autonomous_discovery_signals(cfg):
     client = TestClient(create_app(cfg))
+    # Trending venues with view counts and a virality index. Nothing counts views or shares
+    # here, so the measure is the only real one: how many people said they are going.
     res1 = client.post("/v1/seeding/social-viral-pulse", json={"city": "Edinburgh"})
     assert res1.status_code == 200
-    assert res1.json()["viral_pulse_active"] is True
+    assert res1.json()["meetups"] == [] and res1.json()["no_virality_index"]
 
+    # Live crowd density per venue, with anomaly percentages, from no sensor at all.
     res2 = client.post("/v1/seeding/live-footfall-anomalies", json={"city": "Edinburgh"})
     assert res2.status_code == 200
-    assert res2.json()["anomaly_detector_active"] is True
+    assert res2.json()["available"] is False and "sensor" in res2.json()["reason"]
 
+    # Scraping publications with no agreement to do so is somebody else's work taken
+    # without asking. Subscribing to a feed they publish is the same content, offered.
     res3 = client.post("/v1/seeding/editorial-press-scraper", json={"city": "Edinburgh"})
     assert res3.status_code == 200
-    assert res3.json()["editorial_scraper_active"] is True
+    assert res3.json()["available"] is False and "scrape" in res3.json()["reason"]
 
     # It branched on the word "munich" in the request and returned hand-written Isar
     # river-surf telemetry; everything else got Edinburgh's.
