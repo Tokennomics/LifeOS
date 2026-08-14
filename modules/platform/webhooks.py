@@ -37,10 +37,10 @@ SCOPES = {"content:read", "content:write"}
 RECORD = "webhook"
 DELIVERY = "webhook_delivery"
 
-# Deliberately not `whsec_`: that is Stripe's prefix, and the repo's secret
-# scanner flags it on sight. A credential prefix that collides with a vendor's
-# makes every future scan a judgement call, which is how a real leak gets waved
-# through.
+# Deliberately not Stripe's webhook-secret prefix. A credential prefix that collides with a
+# vendor's makes every future secret scan a judgement call, which is how a real leak gets
+# waved through — and the scanner cannot tell a comment quoting the prefix from a line
+# leaking it, so this comment does not spell it out either.
 SECRET_PREFIX = "los_wh_"
 SIGNATURE_HEADER = "X-LifeOS-Signature"
 TIMESTAMP_HEADER = "X-LifeOS-Timestamp"

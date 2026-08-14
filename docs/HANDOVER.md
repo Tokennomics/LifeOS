@@ -783,6 +783,28 @@ SQLite file, `/mesh/offline-peer-sync` over BLE from a PWA, `/ar/spatial-flares`
 `/payments/paypal/*` are buildable but move real money and need live keys and an explicit
 decision. Those are the remaining 127, minus the developer-platform group.
 
+### The suite was green for the wrong reason — 2026-08-14
+
+CI caught something local runs could not. This sandbox's network policy 403s the CONNECT to
+`api.open-meteo.com` and `overpass-api.de`, so six tests asserting "conditions unavailable"
+passed here **because the machine had no route**, not because the code was right. GitHub's
+runners have ordinary internet, Open-Meteo answered, and all six failed.
+
+`tests/conftest.py` now refuses outbound network in every test — each provider's `_fetch`
+and the webhook `_post` raise, so a test that wants a response has to inject one. A test
+whose result depends on whether the machine running it has a route to a third party is not
+a test.
+
+The other CI failure was the secret scanner flagging **this repo's own prose**: a comment
+explaining which vendor prefix to avoid contained that prefix. That is the second time in
+this session. The rule: never write a vendor credential prefix in a comment, a docstring or
+a test string — describe it. A scanner that has to be taught exceptions stops being one.
+
+Also added, found while auditing readiness: `Strict-Transport-Security` was missing
+entirely. It is sent unconditionally now — browsers ignore HSTS over plain HTTP, so the LAN
+case is unaffected — with no `includeSubDomains` and no `preload`, since both are hard to
+undo and would speak for domains this app does not own.
+
 ### Unverified from the sandbox
 
 `overpass-api.de`, `api.open-meteo.com` and `app.ticketmaster.com` all answer 403 to the

@@ -965,3 +965,19 @@ def test_a_nonsense_focus_session_is_a_400(cfg, bad):
     assert client.post("/v1/routines/mindfulness/session",
                        headers={"Authorization": f"Bearer {token}"},
                        json=bad).status_code == 400
+
+
+def test_https_is_pinned_once_a_browser_has_seen_it(cfg):
+    """HSTS was simply missing. A browser that has once loaded the app over TLS should
+    refuse to be downgraded to http on a hostile network — which is the exact situation this
+    app is for, since its users are on hotel and cafe wifi.
+
+    No `includeSubDomains` and no `preload`: both are hard to undo and would speak for
+    domains this app does not own. Browsers ignore the header over plain HTTP, so the
+    LAN/NucBox case is unaffected.
+    """
+    headers = TestClient(create_app(cfg)).get("/health").headers
+    hsts = headers.get("strict-transport-security", "")
+    assert hsts.startswith("max-age=")
+    assert int(hsts.split("=")[1].split(";")[0]) >= 15552000     # 180 days
+    assert "preload" not in hsts and "includeSubDomains" not in hsts
