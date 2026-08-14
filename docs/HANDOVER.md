@@ -775,6 +775,42 @@ approximate; a sandbox that is only *called* a sandbox is the most dangerous ver
 this. It reports what a plugin is asking for, in words — which is most of the value and none
 of the risk.
 
+### City guides, and one endpoint that should have gone in August — 2026-08-14
+
+The fourteen `/seeding/*` "curated local knowledge" endpoints all branched on the word
+"munich" in the request body: say it and you got hand-written Isar river swims, say anything
+else and you got Edinburgh's. They are one question asked fourteen ways, and
+`modules/city/guide.py` answers it from the two real sources — seeded OSM places, and what
+is on the board. The views are data, not fourteen functions, because they differ only in
+which categories and which words they match.
+
+Two of them have no source and say so: footfall needs sensors, and "editorial press" means
+scraping publications with no agreement. The second is worth keeping in mind as a general
+rule — subscribing to a feed a site publishes is the same content offered rather than taken,
+and it is the only version of that feature this repo should ever ship.
+
+**`/v1/auth/social-sso` is finally gone.** PR #19 removed the fake SSO buttons from the PWA
+and its own notes said the endpoint was "worth deleting separately" — then it stayed
+reachable for another day, still returning `authenticated: True`, a `user_id` derived from
+`hash(email)`, and "Cloud multi-device sync active", with no token and no provider involved.
+A dead caller is not a dead endpoint. If a response is auth-shaped, something will act on it.
+
+### A helper can vanish and the app still imports — 2026-08-14
+
+This happened twice in one sitting. A shared helper (`_guide`, then `_seed_city`) was a
+`def` sitting between an endpoint and the next `@router` decorator, and an edit that
+replaced the endpoint above it took the helper with it. **The app still imported cleanly**,
+because a nested function's free name is resolved at call time — so the only symptom was a
+500 the first time somebody hit one of those routes.
+
+`tests/test_city_guide.py::test_no_route_references_a_name_that_does_not_exist` walks every
+handler's bytecode for `LOAD_GLOBAL` instructions that resolve to neither a module global
+nor a builtin. Python compiles a reference to a missing enclosing local exactly that way, so
+this catches the whole class before anybody hits it.
+
+The other half of the lesson is about editing: put shared helpers immediately after `guard`
+at the top of `create_router`, not adjacent to the endpoint that first needed them.
+
 ### Still props, and why
 
 Some genuinely cannot be built here and should not be faked: `/infra/edge-replication` on one

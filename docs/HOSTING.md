@@ -108,6 +108,25 @@ service running `python -m tools.backup --dest /app/data/backups --keep 14` and,
 matters, copy those off the box — a snapshot on the same disk survives a bad deploy but not
 a lost disk.
 
+## What a seeded city looks like
+
+Once a city has places, the guide views are what people actually read:
+
+```
+GET /v1/city/guide?city=Lisbon&view=trails
+GET /v1/city/guide/views            # trails, vinyl, food, literary, culture, wellness
+```
+
+Each view draws on two things and nothing else: the OpenStreetMap places for its categories,
+and the meetups and listings whose titles genuinely mention it. A city with no trails mapped
+says so — and says *which* half is missing, because "OpenStreetMap has no trails here" and
+"nobody has proposed a walk" need different fixes.
+
+Two of these have no source at all and say so rather than approximating: **live footfall**
+needs sensors nobody has installed, and **editorial press** would mean scraping publications
+with no agreement to do so. The press endpoint instead looks for a feed a site actually
+publishes, which is the same content offered rather than taken.
+
 ## Letting other things talk to it
 
 API keys, webhooks and the plugin registry are real — see `docs/DEVELOPER.md`. Two things
