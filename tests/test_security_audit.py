@@ -531,14 +531,18 @@ def test_an_issued_credential_is_never_the_same_twice(world):
     worse than no secret at all, because callers will trust it to authenticate a webhook."""
     client, headers = world["c"], world["h"]["ana"]
     first = client.post("/v1/developers/webhooks", headers=headers,
-                        json={"target_url": "https://a.example/hook"}).json()
+                        json={"target_url": "https://a.example/hook",
+                              "events": ["meetup.created"]}).json()
     second = client.post("/v1/developers/webhooks", headers=headers,
-                         json={"target_url": "https://b.example/hook"}).json()
+                         json={"target_url": "https://b.example/hook",
+                               "events": ["meetup.created"]}).json()
     assert first["signing_secret"] != second["signing_secret"]
     assert len(first["signing_secret"]) >= 32
 
+    # `api_key` became `secret`, because the credential is now returned exactly once and the
+    # field name should say so. Uniqueness is still the property under test.
     keys = {client.post("/v1/developers/api-keys", headers=headers,
-                        json={"app_name": "x"}).json()["api_key"] for _ in range(3)}
+                        json={"app_name": f"x{i}"}).json()["secret"] for i in range(3)}
     assert len(keys) == 3
 
 

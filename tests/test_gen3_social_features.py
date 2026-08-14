@@ -95,13 +95,22 @@ def test_weather_radar_and_developer_plugins(cfg):
     assert res1.json()["needs_city"] is True
     assert "active_alerts" not in res1.json()
 
+    # Four plugins with developers and ratings out of five, on an empty database.
     res2 = client.get("/v1/developer/plugins")
     assert res2.status_code == 200
-    assert len(res2.json()["plugins"]) >= 4
+    assert res2.json()["plugins"] == []
 
-    res3 = client.post("/v1/developer/plugins/register", json={"name": "Test Plugin", "category": "Sports"})
-    assert res3.status_code == 200
-    assert res3.json()["registered"] is True
+    # Registration returned success and stored nothing, so a developer would register, see
+    # it work, and never find their plugin again. It validates a manifest now, which needs
+    # a version and scopes — a name alone is not a manifest.
+    res3 = client.post("/v1/developer/plugins/register",
+                       json={"name": "Test Plugin", "category": "Sports"})
+    assert res3.status_code == 400
+
+    res3b = client.post("/v1/developer/plugins/register",
+                        json={"name": "Test Plugin", "version": "1.0.0",
+                              "scopes": ["content:read"]})
+    assert res3b.status_code == 200 and res3b.json()["registered"] is True
 
 def test_proof_of_presence_and_social_battery(cfg):
     client = TestClient(create_app(cfg))
@@ -509,17 +518,30 @@ def test_reading_cold_plunge_and_art_crawl(cfg):
 
 def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
     client = TestClient(create_app(cfg))
+    # The key is a real credential now: the secret is returned once, hashed at rest, and
+    # presenting it authenticates the account that issued it.
     res1 = client.post("/v1/developers/api-keys", json={"app_name": "Wind Radar"})
     assert res1.status_code == 200
-    assert res1.json()["key_generated"] is True
+    assert res1.json()["secret"].startswith("los_sk_")
 
-    res2 = client.post("/v1/developers/webhooks", json={"target_url": "https://api.myapp.com/webhooks"})
-    assert res2.status_code == 200
-    assert res2.json()["webhook_registered"] is True
+    # A subscription needs events, and an event this app never emits is refused at subscribe
+    # time rather than accepted and never fired.
+    res2 = client.post("/v1/developers/webhooks",
+                       json={"target_url": "https://api.myapp.com/webhooks"})
+    assert res2.status_code == 400
 
-    res3 = client.post("/v1/developers/plugin-sandbox", json={"plugin_id": "com.windydev.radar"})
+    res2b = client.post("/v1/developers/webhooks",
+                        json={"target_url": "https://api.myapp.com/webhooks",
+                              "events": ["meetup.created"]})
+    assert res2b.status_code == 200
+    assert res2b.json()["signing_secret"].startswith("los_wh_")
+
+    # It reported a passing simulation and a store publication for any id at all.
+    res3 = client.post("/v1/developers/plugin-sandbox",
+                       json={"manifest": {"name": "Radar", "version": "1.0.0",
+                                          "scopes": ["events:read"]}})
     assert res3.status_code == 200
-    assert res3.json()["sandbox_tested"] is True
+    assert res3.json()["executed"] is False and res3.json()["published"] is False
 
 def test_sauna_plant_swap_and_wine_tasting(cfg):
     client = TestClient(create_app(cfg))

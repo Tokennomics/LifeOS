@@ -753,6 +753,28 @@ What changed, and the one sentence each that explains why it mattered:
    buttons injected by `innerHTML` that were never bound, `/venues/explore` answering 422 on
    every page load — was invisible to a fully green Python suite.
 
+### The developer platform — 2026-08-14
+
+API keys, webhooks and the plugin registry are real. `docs/DEVELOPER.md` is the integrator
+page. Two things a future reader should not have to rediscover:
+
+**A key is nothing until auth honours it.** `gateway/auth.py` resolves a presented
+`los_sk_…` to the account that issued it, shaped exactly like `accounts.resolve` so every
+ownership check downstream treats it as that account and *only* that account. Without that
+one function the keys module would be the same prop with better prose — which is what the
+old endpoint was: a well-formed `los_sk_<uuid4>` that opened nothing.
+
+**A webhook is a URL a user picks and the server fetches.** It goes through `safefetch` at
+subscribe time *and* again at delivery, because DNS can change between the two. Without
+that, `http://169.254.169.254/…` as a target is instance-credential theft wearing the
+costume of an ordinary integration.
+
+The plugin sandbox deliberately executes nothing, and says so in the response. Running
+third-party code in the process that holds every user's graph is not something to
+approximate; a sandbox that is only *called* a sandbox is the most dangerous version of
+this. It reports what a plugin is asking for, in words — which is most of the value and none
+of the risk.
+
 ### Still props, and why
 
 Some genuinely cannot be built here and should not be faked: `/infra/edge-replication` on one

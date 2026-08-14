@@ -1253,18 +1253,25 @@ def build_router(auth) -> APIRouter:
         from modules.city import meetups
         rate_limiter.enforce(request, "city:meetup", max_requests=15, window_seconds=300)
         caller = getattr(request.state, "caller", None) or {}
-        return guard(lambda: meetups.create(
+        made = guard(lambda: meetups.create(
             _graph(request), body.city, title=body.title, starts_at=body.starts_at,
             place=body.place, note=body.note, organiser_id=_actor(request, None),
             organiser_handle=caller.get("handle", "")))
+        _fire(request, "meetup.created", {"meetup_id": made.get("meetup_id", ""),
+                                          "city": made.get("city", ""),
+                                          "title": made.get("title", ""),
+                                          "starts_at": made.get("starts_at", "")})
+        return made
 
     @router.post("/city/meetups/join")
     def city_meetup_join(request: Request, body: MeetupRefIn):
         from modules.city import meetups
         caller = getattr(request.state, "caller", None) or {}
-        return guard(lambda: meetups.join(_graph(request), body.meetup_id,
-                                          account_id=_actor(request, None),
-                                          handle=caller.get("handle", "")))
+        joined = guard(lambda: meetups.join(_graph(request), body.meetup_id,
+                                            account_id=_actor(request, None),
+                                            handle=caller.get("handle", "")))
+        _fire(request, "meetup.joined", {"meetup_id": body.meetup_id})
+        return joined
 
     @router.post("/city/meetups/leave")
     def city_meetup_leave(request: Request, body: MeetupRefIn):
@@ -2319,11 +2326,14 @@ def build_router(auth) -> APIRouter:
         """
         from modules.social import signals
         account_id, handle = _signal_caller(request)
-        return guard(lambda: signals.write_review(
+        written = guard(lambda: signals.write_review(
             _graph(request), str(body.get("city", "") or ""),
             str(body.get("place", "") or ""), str(body.get("review", "") or body.get("text", "")),
             account_id=account_id, handle=handle, rating=body.get("rating"),
             place_id=str(body.get("place_id", "") or "")))
+        _fire(request, "review.written", {"review_id": written.get("review_id", ""),
+                                          "place": written.get("place", "")})
+        return written
 
     @router.get("/feed/reviews")
     def feed_reviews_read_endpoint(request: Request, city: str = "", place_id: str = ""):
@@ -2433,10 +2443,13 @@ def build_router(auth) -> APIRouter:
         caller = getattr(request.state, "caller", None) or {}
         account_id = _actor(request, None)
         city = body.city.strip() or synergy.city_for(_graph(request), account_id)
-        return guard(lambda: synergy.open_to(
+        opened = guard(lambda: synergy.open_to(
             _graph(request), city, body.activity, account_id=account_id,
             handle=caller.get("handle", ""), note=body.note, hours=body.hours,
             category=body.category, offers=body.offers, wants=body.wants))
+        _fire(request, "signal.opened", {"city": opened.get("city", ""),
+                                         "activity": opened.get("activity", "")})
+        return opened
 
     @router.delete("/synergy/open-to")
     def synergy_close_endpoint(request: Request, body: SynergyCloseIn):
@@ -2606,63 +2619,34 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.get("/developer/plugins")
-    def list_developer_plugins_endpoint(request: Request):
-        return {
-            "plugins": [
-                {
-                    "id": "kitesurf-wind-radar",
-                    "name": "🪁 KiteSurf Wind Radar",
-                    "developer": "WindyDev Labs",
-                    "category": "Ocean & Wind Sports",
-                    "trigger_condition": "Wind Speed > 18 Knots (Offshore)",
-                    "installed": True,
-                    "rating": 4.9
-                },
-                {
-                    "id": "padel-4th-player",
-                    "name": "🎾 Padel 4th Player Finder",
-                    "developer": "PadelClub EU",
-                    "category": "Racquet Sports",
-                    "trigger_condition": "Matches 3 players lacking 1 player in 30 mins",
-                    "installed": True,
-                    "rating": 4.8
-                },
-                {
-                    "id": "scuba-vis-meter",
-                    "name": "🤿 Scuba Vis & Water Temp Meter",
-                    "developer": "DiveTech Global",
-                    "category": "Water Sports",
-                    "trigger_condition": "Water Vis > 15m & Low Tide",
-                    "installed": False,
-                    "rating": 4.7
-                },
-                {
-                    "id": "chess-park-match",
-                    "name": "♟️ Park Chess Matcher",
-                    "developer": "OpenChess DAO",
-                    "category": "Board Games",
-                    "trigger_condition": "Sunny Weather & Park Bench Check-in",
-                    "installed": False,
-                    "rating": 4.9
-                }
-            ],
-            "sdk_version": "2.4.0-synergy",
-            "message": "🔌 ConnectOS Developer Synergy SDK: Build activity plugins with 7-Factor scoring!"
-        }
+    def list_developer_plugins_endpoint(request: Request, mine: bool = False):
+        """Registered plugins. There were four here, with developers and ratings out of
+        five, on an empty database."""
+        from modules.platform import plugins
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: plugins.listing(
+            _graph(request), account_id=account_id if mine else ""))
 
     @router.post("/developer/plugins/register")
     def register_developer_plugin_endpoint(request: Request, body: dict):
-        plugin_name = body.get("name", "Custom Activity Plugin").strip()
-        category = body.get("category", "Custom Sports").strip()
-        trigger = body.get("trigger_condition", "Weather & Location Trigger").strip()
-        return {
-            "registered": True,
-            "plugin_id": f"dev-{plugin_name.lower().replace(' ', '-')}",
-            "name": plugin_name,
-            "category": category,
-            "trigger_condition": trigger,
-            "message": f"🚀 Registered '{plugin_name}' on ConnectOS Developer Hub! Synergy webhook endpoint active."
-        }
+        """Validate a manifest and store the registration.
+
+        It returned `registered: True` and a slugified id and stored nothing, so a developer
+        would register, see success, and never find their plugin again. The manifest
+        validator it now calls has been in modules/platform since Sprint 1.
+        """
+        from modules.platform import plugins
+        account_id, _ = _signal_caller(request)
+        payload = body.get("manifest") or body
+        return guard(lambda: plugins.register(_graph(request), payload,
+                                              account_id=account_id))
+
+    @router.delete("/developer/plugins/{plugin_id}")
+    def remove_developer_plugin_endpoint(request: Request, plugin_id: str):
+        from modules.platform import plugins
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: plugins.remove(_graph(request), plugin_id,
+                                            account_id=account_id))
 
     @router.post("/gamification/mint-presence")
     def gamification_mint_presence_endpoint(request: Request, body: dict):
@@ -3233,12 +3217,14 @@ def build_router(auth) -> APIRouter:
         """
         from modules.social import signals
         account_id, _ = _signal_caller(request)
-        return guard(lambda: signals.check_in(
+        done = guard(lambda: signals.check_in(
             _graph(request), account_id=account_id,
             place=str(body.get("place", "") or body.get("qr_code", "") or ""),
             place_id=str(body.get("place_id", "") or ""),
             meetup_id=str(body.get("meetup_id", "") or ""),
             city=str(body.get("city", "") or "")))
+        _fire(request, "checkin.created", {"place": done.get("place", "")})
+        return done
 
     @router.get("/checkins")
     def checkins_list_endpoint(request: Request):
@@ -3481,46 +3467,70 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/developers/api-keys")
     def developer_api_keys_provisioning_endpoint(request: Request, body: dict):
-        app_name = body.get("app_name", "KiteSurf Wind Radar Plugin").strip()
-        environment = body.get("environment", "production").strip()
-        scopes = body.get("scopes", ["events:read", "match:trigger", "webhooks:write", "graph:export"])
-        return {
-            "key_generated": True,
-            "app_name": app_name,
-            "environment": environment,
-            "api_key": _issued_credential("lifeos_dk"),
-            "key_prefix": "lifeos_dk_...",
-            "scopes": scopes,
-            "rate_limit": "10,000 req / minute",
-            "docs_url": "https://connectos.app/docs/sdk/v2.4",
-            "message": f"🔌 Developer API Key Provisioned for '{app_name}'! Rate Limit: 10,000 req/min with {len(scopes)} scopes."
-        }
+        """The same key store as `/developer/keys`, reached by the other name.
+
+        It reported a "10,000 req / minute" rate limit that no limiter enforced; the real
+        limiter is per-route and applies to a key exactly as it does to a session.
+        """
+        from modules.platform import keys
+        rate_limiter.enforce(request, "dev:keys", max_requests=10, window_seconds=3600)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id, _ = _signal_caller(request)
+        name = str(body.get("name", "") or body.get("app_name", "") or "")
+        return guard(lambda: keys.issue(
+            _graph(request), name, account_id=account_id,
+            owner_id=caller.get("owner_id", "") or account_id,
+            scopes=body.get("scopes") or ["read"]))
 
     @router.post("/developers/webhooks")
     def developer_webhooks_subscription_endpoint(request: Request, body: dict):
-        target_url = body.get("target_url", "https://api.myapp.com/webhooks/connectos").strip()
-        events = body.get("events", ["outing.created", "member.checked_in", "squad.matched", "split.settled"])
-        return {
-            "webhook_registered": True,
-            "target_url": target_url,
-            "subscribed_events": events,
-            "signing_secret": _issued_credential("lifeos_whsec"),
-            "signature_header": "X-ConnectOS-Signature (HMAC-SHA256)",
-            "message": f"⚡ Webhook Active! Subscribed to {len(events)} events with HMAC-SHA256 signature verification."
-        }
+        """Register a target that will actually be posted to, signed.
+
+        It returned a signing secret and a signature header name and registered nothing, so
+        an integrator would build a receiver, verify a signature that never arrived, and
+        conclude their own code was broken.
+        """
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.subscribe(
+            _graph(request), str(body.get("target_url", "") or body.get("url", "") or ""),
+            body.get("events") or [], account_id=account_id))
+
+    @router.get("/developers/webhooks")
+    def developer_webhooks_list_endpoint(request: Request):
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.listing(_graph(request), account_id=account_id))
+
+    @router.delete("/developers/webhooks/{webhook_id}")
+    def developer_webhooks_remove_endpoint(request: Request, webhook_id: str):
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.remove(_graph(request), webhook_id,
+                                             account_id=account_id))
+
+    @router.get("/developers/webhooks/deliveries")
+    def developer_webhook_deliveries_endpoint(request: Request):
+        """What actually happened — the screen an integrator needs when nothing arrives."""
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.deliveries(_graph(request), account_id=account_id))
 
     @router.post("/developers/plugin-sandbox")
     def developer_plugin_sandbox_endpoint(request: Request, body: dict):
-        plugin_id = body.get("plugin_id", "com.windydev.kitesurf-radar").strip()
-        return {
-            "sandbox_tested": True,
-            "plugin_id": plugin_id,
-            "sdk_version": "Synergy SDK v2.4",
-            "simulation_status": "PASSED (100% telemetry accuracy)",
-            "monetization_tier": "70% Developer Rev-Share Active (€4.99/mo per user)",
-            "store_status": "PUBLISHED_TO_COMMUNITY_STORE",
-            "message": f"🛠️ Plugin Sandbox Tested & Published! '{plugin_id}' live in Store with 70% developer rev-share!"
-        }
+        """What a plugin is asking for — without running a line of it.
+
+        It reported `simulation_status: "PASSED (100% telemetry accuracy)"` and
+        `store_status: "PUBLISHED_TO_COMMUNITY_STORE"` for any id at all. Executing
+        third-party code in the process that holds every user's graph is not something to
+        approximate, and a sandbox that is only *called* a sandbox is the most dangerous
+        version of this. Knowing what a plugin wants before installing it is most of the
+        value and none of the risk.
+        """
+        from modules.platform import plugins
+        return guard(lambda: plugins.check(
+            _graph(request), plugin_id=str(body.get("plugin_id", "") or ""),
+            plugin_manifest=body.get("manifest")))
 
     @router.post("/wellness/sauna-social")
     def wellness_sauna_endpoint(request: Request, body: dict):
@@ -5139,11 +5149,14 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         """Start a watch: where you are going, when you should be there, who can see it."""
         from modules.safety import watch
         account_id, handle = _signal_caller(request)
-        return guard(lambda: watch.start(
+        started = guard(lambda: watch.start(
             _graph(request), str(body.get("destination", "") or ""),
             account_id=account_id, handle=handle,
             eta_minutes=body.get("eta_mins", body.get("eta_minutes")),
             watchers=body.get("watchers") or [], note=str(body.get("note", "") or "")))
+        _fire(request, "walk.started", {"walk_id": started.get("walk_id", ""),
+                                        "destination": started.get("destination", "")})
+        return started
 
     @router.post("/safety/escort/arrived")
     def safety_arrived_endpoint(request: Request, body: dict):
@@ -5226,6 +5239,18 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
     # four faces, in modules/social/signals.py, and who can read what is the whole design --
     # these are the first things in the app one person writes *about another*.
 
+    def _fire(request: Request, event: str, payload: dict) -> None:
+        """Emit a webhook event, never letting a subscriber's broken server break the user.
+
+        Somebody's meetup does not fail to be created because their own integration is down,
+        so every failure here is swallowed and recorded on the webhook row instead.
+        """
+        try:
+            from modules.platform import webhooks
+            webhooks.dispatch(_graph(request), event, payload)
+        except Exception:
+            pass
+
     def _signal_caller(request: Request):
         """Who is writing, in both modes.
 
@@ -5251,10 +5276,12 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         """
         from modules.social import signals
         account_id, handle = _signal_caller(request)
-        return guard(lambda: signals.send_kudos(
+        sent = guard(lambda: signals.send_kudos(
             _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
             str(body.get("note", "") or body.get("text", "")),
             account_id=account_id, handle=handle))
+        _fire(request, "kudos.sent", {"kudos_id": sent.get("kudos_id", "")})
+        return sent
 
     @router.get("/kudos")
     def kudos_list_endpoint(request: Request, direction: str = "received"):
@@ -5626,31 +5653,40 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     # ---- Developer Platform & API Keys -----------------------------------
 
+    # ---- The developer platform -------------------------------------------
+    #
+    # `POST /developer/keys` returned `los_sk_<uuid4>` and stored nothing; `/developers/api-
+    # keys` returned `lifeos_dk_...` with scopes and a "10,000 req/minute" limit and stored
+    # nothing either. Both look exactly like a credential, which makes them the worst props
+    # here after SafeWalk: somebody pastes one into a script and believes an integration is
+    # locked down by a key that never existed. Keys are real now and, crucially, are wired
+    # into gateway/auth.py — presenting one authenticates the account that issued it.
+
     @router.get("/developer/keys")
     def list_api_keys_endpoint(request: Request):
-        from substrate import now_iso
-        return {
-            "keys": [
-                {"id": "key_live_9921", "name": "Zapier Automation Key", "created_at": now_iso(), "status": "active"},
-                {"id": "key_live_4412", "name": "Python Script Runner", "created_at": now_iso(), "status": "active"}
-            ]
-        }
+        """Your keys, without secrets — because there are no secrets stored to show."""
+        from modules.platform import keys
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: keys.listing(_graph(request), account_id=account_id))
 
     @router.post("/developer/keys")
     def create_api_key_endpoint(request: Request, body: dict):
-        import uuid
-        from substrate import now_iso
-        name = body.get("name", "New API Key").strip()
-        key_secret = f"los_sk_{uuid.uuid4().hex}"
-        return {
-            "id": f"key_{uuid.uuid4().hex[:8]}",
-            "name": name,
-            "secret": key_secret,
-            "status": "active",
-            "created_at": now_iso()
-        }
+        """Mint a key. The secret is in this response and nowhere else, ever."""
+        from modules.platform import keys
+        rate_limiter.enforce(request, "dev:keys", max_requests=10, window_seconds=3600)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: keys.issue(
+            _graph(request), str(body.get("name", "") or ""),
+            account_id=account_id, owner_id=caller.get("owner_id", "") or account_id,
+            scopes=body.get("scopes") or ["read"]))
 
-    # ---- QR vCard & Habit Heatmap & Notifications ------------------------
+    @router.delete("/developer/keys/{key_id}")
+    def revoke_api_key_endpoint(request: Request, key_id: str):
+        """Immediate. A revocation that does not take effect is worse than none at all."""
+        from modules.platform import keys
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: keys.revoke(_graph(request), key_id, account_id=account_id))
 
     @router.get("/people/qr")
     def get_vcard_qr_endpoint(request: Request):

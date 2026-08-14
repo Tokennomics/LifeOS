@@ -108,6 +108,17 @@ service running `python -m tools.backup --dest /app/data/backups --keep 14` and,
 matters, copy those off the box — a snapshot on the same disk survives a bad deploy but not
 a lost disk.
 
+## Letting other things talk to it
+
+API keys, webhooks and the plugin registry are real — see `docs/DEVELOPER.md`. Two things
+worth knowing as the operator:
+
+- **An API key authenticates as the account that issued it.** It is a full credential for
+  that account, not a read-only side channel, unless the issuer scoped it to `read`.
+- **Webhook targets are fetched by your server**, so they go through the same SSRF guard as
+  venue feeds: private and link-local addresses are refused. Leave
+  `LIFEOS_ALLOW_PRIVATE_FETCH` unset on anything reachable from the internet.
+
 ## Checking everything works
 
 ```sh
