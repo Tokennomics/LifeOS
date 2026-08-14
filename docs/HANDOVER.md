@@ -805,6 +805,24 @@ entirely. It is sent unconditionally now — browsers ignore HSTS over plain HTT
 case is unaffected — with no `includeSubDomains` and no `preload`, since both are hard to
 undo and would speak for domains this app does not own.
 
+### Cities seed themselves — 2026-08-14
+
+Seeding was operator-only, which meant the first person to arrive anywhere new got an empty
+screen and the operator found out too late. `modules/city/autoseed.py` queues an unseeded
+city on arrival and drains it in a FastAPI background task, so the response is never held
+up by Overpass.
+
+**Read the guardrails before changing anything here.** This is the only path in the app
+where ordinary user input causes an outbound call to a third party, and that third party is
+volunteer-run and free. Somebody pasting five hundred city names must not become five
+hundred Overpass queries: only cities that geocode are seeded, a dead name is asked about
+once, a real city has a 30-day cooldown, there is a six-per-hour global ceiling, and a claim
+is taken before the work so two simultaneous arrivals seed once.
+
+The background task runs in-process, so a restart mid-seed loses that attempt — the queued
+row is what makes it recoverable, and `POST /v1/seeding/drain` is the cron-safe way to pick
+those up.
+
 ### Unverified from the sandbox
 
 `overpass-api.de`, `api.open-meteo.com` and `app.ticketmaster.com` all answer 403 to the

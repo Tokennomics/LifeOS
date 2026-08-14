@@ -8,7 +8,7 @@ import secrets
 import urllib.request
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import BackgroundTasks, APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from gateway import rate_limiter
@@ -1286,18 +1286,61 @@ def build_router(auth) -> APIRouter:
         from modules.city import meetups
         return {"meetups": meetups.upcoming_for(_graph(request), _actor(request, None))}
 
+    def _autoseed(request: Request, tasks: BackgroundTasks, city: str) -> None:
+        """Queue an unseeded city and seed it *after* this response has gone out.
+
+        On the arrival path deliberately: it is the one screen where somebody has just named
+        a city they are standing in, which is the strongest signal that city is worth having
+        on the map. Everything expensive happens in the background task — the person who
+        triggered it never waits for Overpass, and the second person to land there finds a
+        seeded city.
+
+        Failures are swallowed. A city that cannot be seeded is a quieter screen, not an
+        error on somebody's arrival.
+        """
+        from modules.city import autoseed
+
+        if not str(city or "").strip():
+            return
+        try:
+            queued = autoseed.request(_graph(request), city)
+        except Exception:
+            return
+        if not queued.get("queued"):
+            return
+
+        graph = _graph(request)
+
+        def run() -> None:
+            try:
+                autoseed.drain(graph, limit=1)
+            except Exception:
+                pass
+
+        tasks.add_task(run)
+
     @router.get("/city/arrival")
-    def city_arrival(request: Request, city: str):
+    def city_arrival(request: Request, tasks: BackgroundTasks, city: str):
         """I just landed in X — what is here? One request on purpose: this is the screen
         somebody sees ten seconds after signing in, and six round trips on hotel wifi is the
-        difference between a product and a spinner."""
+        difference between a product and a spinner.
+
+        Also where a city seeds itself. Seeding used to be operator-only, which meant the
+        first person to arrive anywhere new got an empty screen and the operator found out
+        too late to help. The map is the one thing a city can have before it has users, and
+        that only works if nobody has to be asked first.
+        """
         from modules.city import arrival
         caller = getattr(request.state, "caller", None) or {}
-        return guard(lambda: arrival.arrival(_graph(request), city,
-                                             viewer_id=caller.get("account_id", "")))
+        answer = guard(lambda: arrival.arrival(_graph(request), city,
+                                               viewer_id=caller.get("account_id", "")))
+        if not answer.get("places"):
+            _autoseed(request, tasks, city)
+        return answer
 
     @router.post("/city/around")
-    def city_announce(request: Request, body: CityAnnounceIn):
+    def city_announce(request: Request, tasks: BackgroundTasks,
+                      body: CityAnnounceIn):
         """Say you are in a city and open to meeting people, until a date.
 
         Announcing is always an explicit act — reading the room does not do it and posting
@@ -1307,9 +1350,11 @@ def build_router(auth) -> APIRouter:
         from modules.city import arrival
         rate_limiter.enforce(request, "city:around", max_requests=20, window_seconds=300)
         caller = getattr(request.state, "caller", None) or {}
-        return guard(lambda: arrival.announce(
+        announced = guard(lambda: arrival.announce(
             _graph(request), body.city, account_id=_actor(request, None),
             handle=caller.get("handle", ""), note=body.note, days=body.days))
+        _autoseed(request, tasks, body.city)
+        return announced
 
     @router.delete("/city/around")
     def city_withdraw(request: Request, body: CityWithdrawIn):
@@ -3631,6 +3676,29 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: assist.crew_plan(
             _graph(request), str(body.get("crew_id", "") or "").strip(),
             account_id=_ai_caller(request), claude=_claude(request)))
+
+    @router.get("/seeding/queue")
+    def seeding_queue_endpoint(request: Request):
+        """What is waiting to be seeded, and what has been tried."""
+        from modules.city import autoseed
+        _operator(request)
+        return autoseed.queue(_graph(request))
+
+    @router.post("/seeding/drain")
+    def seeding_drain_endpoint(request: Request, body: dict):
+        """Seed queued cities. Safe to run from a cron job.
+
+        The background task runs in-process, so a deploy or restart mid-seed loses that
+        attempt — the queued row it leaves behind is exactly what this picks up.
+        """
+        from modules.city import autoseed
+        _operator(request)
+        limit = body.get("limit", 3)
+        try:
+            limit = max(1, min(int(limit), autoseed.MAX_PER_HOUR))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="limit must be a number")
+        return autoseed.drain(_graph(request), limit=limit)
 
     @router.post("/seeding/city-bootstrap")
     def city_bootstrap_autoseeder_endpoint(request: Request, body: dict):
