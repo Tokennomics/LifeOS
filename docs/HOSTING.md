@@ -81,6 +81,21 @@ response so a laptop install is usable without a provider, and on a reachable ho
 anyone request a code for any address and read it — a complete bypass. It is off by default
 and should stay off anywhere friends can reach.
 
+## SafeWalk, and what it does not do
+
+`/v1/safety/escort` records where somebody said they were going and when they should have
+arrived, and shows that to the watchers they named. **It cannot message anyone.** There is no
+SMS, no push, no phone call and no background location in this app — a watcher sees an
+overdue walk when they next open it.
+
+That limit is stated in the response (`push_delivered: false`) and on the screen, and it
+needs to stay stated. The version this replaced told people "Crew notified & ETA timer set"
+while nothing left the building, which is worse than having no feature at all: somebody who
+believes their crew is watching walks home differently.
+
+If you want real delivery, that is a push provider and a decision about notification
+permissions — not a config flag that exists today.
+
 ## Being the operator
 
 Your `LIFEOS_GATEWAY_TOKEN` is also your moderator credential — abuse reports at

@@ -235,6 +235,12 @@ def _activity_days(graph: Graph, since, until) -> dict:
             # An outing counts for more than a note, because leaving the house is the thing
             # this app is actually for.
             mark(row.get("attrs", {}).get("start") or row.get("created_at", ""), weight=2)
+    # Check-ins are the other half of "you were actually there" — an RSVP is an intention,
+    # a check-in is the evening itself, so it carries the same weight as an attended event.
+    for row in session.find_entities("content", limit=1000):
+        if row.get("attrs", {}).get("type") == "checkin":
+            mark(row.get("attrs", {}).get("created_at") or row.get("created_at", ""),
+                 weight=2)
     return tally
 
 
@@ -308,6 +314,11 @@ def standing(graph: Graph, *, now: str = "") -> dict:
     events = session.find_entities("event", limit=500)
     attended = [e for e in events if e.get("attrs", {}).get("status") in STAMP_KINDS]
     accounts = session.find_entities("content", limit=1000)
+    # A check-in is the strongest evidence this app has that somebody actually went: an RSVP
+    # is an intention, a check-in is the evening. Counted here so "outings attended" is the
+    # same number the heatmap and the streak are built from.
+    attended = attended + [row for row in accounts
+                           if row.get("attrs", {}).get("type") == "checkin"]
     joined = min((row.get("created_at", "") for row in accounts if row.get("created_at")),
                  default="")
     since_days = 0

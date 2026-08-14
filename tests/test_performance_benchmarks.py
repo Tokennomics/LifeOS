@@ -18,7 +18,7 @@ def test_api_latency_benchmarks(cfg):
         # LIFEOS_DATING_ENABLED and a signing key, so on a default config it answers 503 and
         # the only thing being timed is the gate refusing. Its behaviour is covered in
         # tests/test_dating_meets.py, on a surface that is actually switched on.
-        ("POST", "/v1/safety/escort", {"destination": "Home"}),
+        ("POST", "/v1/safety/escort", {"destination": "Home", "eta_mins": 20}),
         ("POST", "/v1/ledger/quick-split", {"amount": 50}),
         ("POST", "/v1/synergy/sports-match", {"sport": "climbing"}),
         ("POST", "/v1/synergy/nomad-match", {"domain": "tech"}),
@@ -76,9 +76,10 @@ def test_edge_cases_and_null_fallbacks(cfg):
     res2 = client.post("/v1/dating/agree-meet", json={})
     assert res2.status_code == 400
 
+    # An empty body used to start an escort to "Miradouro Rooftop Bar" and report the crew
+    # notified. A walk with no destination is not a walk.
     res3 = client.post("/v1/safety/escort", json={})
-    assert res3.status_code == 200
-    assert res3.json()["active"] is True
+    assert res3.status_code == 400
 
     res4 = client.post("/v1/ledger/quick-split", json={})
     assert res4.status_code == 200

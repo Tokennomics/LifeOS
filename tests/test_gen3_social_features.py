@@ -41,11 +41,16 @@ def test_agree_dating_meet(cfg):
 
 def test_safewalk_escort(cfg):
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/safety/escort", json={"destination": "Miradouro Rooftop", "eta_mins": 15})
+    # `SAFE-8921` was the same code for every walk in the world, and "Crew notified" was a
+    # sentence with no message behind it. A walk is a real row with a real deadline now, and
+    # it says plainly that nothing was sent.
+    res = client.post("/v1/safety/escort", json={"destination": "Miradouro Rooftop",
+                                                 "eta_mins": 15})
     assert res.status_code == 200
     data = res.json()
-    assert data["active"] is True
-    assert data["escort_code"] == "SAFE-8921"
+    assert data["watching"] is True
+    assert data["push_delivered"] is False and data["can_see_it"] == 0
+    assert "SAFE-8921" not in res.text
 
 def test_quick_split_expenses(cfg):
     client = TestClient(create_app(cfg))
@@ -100,10 +105,12 @@ def test_weather_radar_and_developer_plugins(cfg):
 
 def test_proof_of_presence_and_social_battery(cfg):
     client = TestClient(create_app(cfg))
+    # It minted a "POP-" token: nobody issued it, it sits on no chain, it verifies nothing.
+    # The real idea underneath is a check-in, and that is what it records.
     res1 = client.post("/v1/gamification/mint-presence", json={"event_name": "Rooftop Meet"})
     assert res1.status_code == 200
-    assert res1.json()["minted"] is True
-    assert "POP-" in res1.json()["token_id"]
+    assert res1.json()["minted"] is False
+    assert "POP-" not in res1.text
 
     # This used to assert `battery_pct == 82` — the literal the handler returned to every
     # account on the instance, forever. A test that pins a prop in place is how the prop
@@ -171,9 +178,11 @@ def test_karma_audio_itinerary_and_sos(cfg):
     assert res3.status_code == 200
     assert res3.json()["stops"] == [] and res3.json()["empty"] is True
 
+    # `recipients_notified: 4` and an emergency PIN, with nothing sent anywhere.
     res4 = client.post("/v1/safety/emergency-sos", json={"location": "Miradouro"})
     assert res4.status_code == 200
-    assert res4.json()["sos_active"] is True
+    assert res4.json()["severity"] == "sos"
+    assert res4.json()["push_delivered"] is False
 
 def test_nomad_memory_and_vip(cfg):
     client = TestClient(create_app(cfg))
@@ -239,9 +248,10 @@ def test_transparent_algo_and_revenue_share(cfg):
                         json={"anchor_habit": "Espresso", "new_habit": "Ten pages"})
     assert res2b.status_code == 200 and res2b.json()["routine_id"]
 
+    # A grid of invented safe houses and volunteer counts. The real grid is who named you.
     res3 = client.get("/v1/safety/community-grid")
     assert res3.status_code == 200
-    assert res3.status_code == 200
+    assert res3.json()["walks"] == []
 
     res4 = client.get("/v1/economics/revenue-share")
     assert res4.status_code == 200
@@ -321,9 +331,12 @@ def test_automated_data_ingestion(cfg):
 
 def test_zero_friction_convenience_features(cfg):
     client = TestClient(create_app(cfg))
+    # Scanned any string and awarded bonus karma. A check-in is your own record now, and it
+    # is what makes "outings attended" true rather than asserted.
     res1 = client.post("/v1/events/qr-checkin", json={"qr_code": "QR-FABRICA-4"})
     assert res1.status_code == 200
     assert res1.json()["checked_in"] is True
+    assert "bonus_karma" not in res1.json()
 
     # `SPOT_PRE_RESERVED` for a Wednesday surf that did not exist. Joining is a public act
     # with somebody expecting you; nothing does it on your behalf.
@@ -439,9 +452,11 @@ def test_global_bridge_beacon_and_residency(cfg):
     assert res1.status_code == 200
     assert res1.status_code == 200
 
+    # It claimed to broadcast a live location to four trusted members. There is no
+    # background location in a PWA, so a watch carries a destination you typed.
     res2 = client.post("/v1/safety/squad-beacon", json={"location": "Cais do Sodre"})
     assert res2.status_code == 200
-    assert res2.json()["beacon_triggered"] is True
+    assert res2.json()["watching"] is True and res2.json()["push_delivered"] is False
 
     res3 = client.post("/v1/culture/creator-residency", json={"city": "Lisbon", "creator_name": "Lucas V."})
     assert res3.status_code == 200

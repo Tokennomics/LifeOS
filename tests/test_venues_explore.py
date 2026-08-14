@@ -40,9 +40,16 @@ def test_gateway_explore_endpoints(cfg):
     client = TestClient(app)
 
     # Test GET /v1/venues/explore
+    #
+    # The endpoint returned a bare list while the PWA read `res.venues`, so Explore rendered
+    # nothing even on the rare page load where the request did not 422 for a missing `city`.
+    # Two silent mismatches stacked on one feature; this test only ever saw the first half
+    # because it passed a city and indexed the list directly.
     resp_e = client.get("/v1/venues/explore?city=Lisbon&interests=coffee,hiking")
     assert resp_e.status_code == 200
-    places = resp_e.json()
+    body = resp_e.json()
+    assert body["city"] == "Lisbon"
+    places = body["venues"]
     assert len(places) >= 1
     
     # Test POST /v1/venues/explore/save

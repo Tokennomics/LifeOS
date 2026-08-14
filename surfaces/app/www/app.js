@@ -181,6 +181,8 @@ async function refresh() {
         api("/v1/people"),
         api("/v1/crews"),
         api("/v1/feed").catch(() => ({ items: [] })),
+        // Was called with no city against a handler that required one: a 422 on every
+        // page load, swallowed here, so Explore was permanently empty and never looked it.
         api("/v1/venues/explore").catch(() => ({ venues: [] })),
         api("/v1/venues/activity-heatmap").catch(() => null),
         api("/v1/synergy/overlap").catch(() => null),
@@ -524,7 +526,8 @@ function todayView() {
       ⚡ <strong>Recommendation:</strong> Ideal time for a 4-person Bouldering or Sunset Drinks Crew Outing!
     </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">Mint Proof-of-Presence Badge 🎟️</button>
+      <input class="field" id="pop-place" placeholder="Where were you?" style="margin-bottom:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">I was there ✅</button>
     </div>
     <div id="pop-mint-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1916,10 +1919,19 @@ function peopleView() {
       <h2>🛡️ SafeWalk Live Companion & Escort</h2>
       <span class="badge good" style="font-weight:bold;">Safety Radar</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Heading out for an evening date or night outing? Notify your crew & activate live ETA monitoring!</p>
-    <div class="row2"><input class="field" id="sw-dest" placeholder="Destination Spot">
-    <input class="field" id="sw-eta" type="number" placeholder="ETA (mins)" value="15"></div>
-    <button class="primary" data-act="start-safewalk-escort">Activate SafeWalk Escort 🛡️</button>
+    <p class="hint" style="margin-bottom:8px;">Say where you are going and when you should be there. The people you name see it, and see when you are overdue. <strong>This app cannot call anyone</strong> — in an emergency, call your local emergency number.</p>
+    <div class="row2"><input class="field" id="sw-dest" placeholder="Where are you going?">
+    <input class="field" id="sw-eta" type="number" placeholder="Minutes" value="30"></div>
+    <input class="field" id="sw-watchers" placeholder="Who should see it? (handles or ids, comma separated)" style="margin-top:6px;">
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" data-act="start-safewalk-escort">Start the walk 🛡️</button>
+      <button class="ghost" data-act="safewalk-arrived">I got there ✅</button>
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="ghost" data-act="safewalk-mine">My walk</button>
+      <button class="ghost" data-act="safewalk-watching">Who I'm watching</button>
+    </div>
+    <div id="safewalk-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Outing Expense Splitter & Payment Links ---- */
@@ -5708,24 +5720,68 @@ function wire(root) {
   }, "VIP Fast-Track Pass Verified! 🎟️"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
-    const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
+    const place = $("#pop-place") ? $("#pop-place").value.trim() : "";
+    if (!place) { toast("Where were you?"); return; }
+    const res = await api("/v1/gamification/mint-presence", { event_name: place });
     const out = $("#pop-mint-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🎟️ Proof-of-Presence Minted!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Token ID: <strong>${esc(res.token_id)}</strong> · ${esc(res.badge_name)}</div>
-        <div style="font-size:11px; color:var(--muted);">Tx Hash: ${esc(res.tx_hash)} (Verified on Blockchain ⛓️)</div>
-      </div>
-    `;
-  }, "Proof-of-Presence Badge Minted! 🎟️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Noted: ${esc(place)}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.note || "")}</div>
+      </div>`;
+  }, "Check-in recorded"));
+
+  /* ---- SafeWalk ----
+     The old handler posted a destination and toasted "Crew notified & ETA timer set". No
+     message left the building, and the escort code was the same eight digits for every walk
+     in the world. Somebody who believes their crew is watching walks home differently from
+     somebody who knows nobody is, so this screen says exactly who can see the walk. */
+
+  function renderWalk(res) {
+    const out = $("#safewalk-output");
+    if (!out) return;
+    const walks = res.walks || [];
+    const overdue = res.overdue || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${res.watching ? `
+          <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Walking to ${esc(res.destination)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${res.can_see_it} ${res.can_see_it === 1 ? "person" : "people"} can see this · ${esc(res.delivery_note || "")}</div>` : ""}
+        ${overdue.length ? `<div style="font-size:13px; font-weight:700; color:var(--warm); margin-bottom:6px;">${overdue.length} overdue</div>` : ""}
+        ${walks.map(w => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(w.handle)}</strong> → ${esc(w.destination)}${w.severity === "sos" ? " · SOS" : ""}</div>
+            <div style="font-size:11px; color:${w.overdue ? "var(--warm)" : "var(--muted)"};">${w.overdue ? `${w.overdue_minutes} min overdue` : `due ${esc(whenLabel(w.due_at))}`}</div>
+          </div>`).join("")}
+        ${!res.watching && !walks.length ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "Nothing active.")}</div>` : ""}
+        ${res.disclaimer ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.disclaimer)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  const walkWatchers = () => ($("#sw-watchers") ? $("#sw-watchers").value : "")
+    .split(",").map(w => w.trim()).filter(Boolean);
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
-    const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
-    const eta_mins = parseInt($("#sw-eta").value, 10) || 15;
-    const res = await api("/v1/safety/escort", { destination, eta_mins });
-    $("#sw-dest").value = "";
-    toast(res.message || "SafeWalk Live Escort active! 🛡️");
+    const destination = $("#sw-dest").value.trim();
+    if (!destination) { toast("Where are you going?"); return; }
+    const eta_mins = parseInt($("#sw-eta").value, 10) || 30;
+    renderWalk(await api("/v1/safety/escort",
+                         { destination, eta_mins, watchers: walkWatchers() }));
+  }));
+
+  on("[data-act=safewalk-arrived]", () => act(async () => {
+    await api("/v1/safety/escort/arrived", {});
+    renderWalk(await api("/v1/safety/escort"));
+  }, "Good. Watch cleared ✅"));
+
+  on("[data-act=safewalk-mine]", () => act(async () => {
+    renderWalk(await api("/v1/safety/escort"));
+  }));
+
+  on("[data-act=safewalk-watching]", () => act(async () => {
+    renderWalk(await api("/v1/safety/watching"));
   }));
 
   on("[data-act=quick-split-expense]", () => act(async () => {

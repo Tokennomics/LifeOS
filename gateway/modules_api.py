@@ -1890,10 +1890,30 @@ def build_router(auth) -> APIRouter:
         return group_itinerary.get_itinerary(_graph(request), event_id)
 
     @router.get("/venues/explore")
-    def venues_explore(request: Request, city: str, interests: str = ""):
+    def venues_explore(request: Request, city: str = "", interests: str = ""):
+        """Venues in a city.
+
+        `city` was a required query parameter and the PWA called this with none on every
+        page load, so it answered 422 every single time — swallowed by a `.catch()` on the
+        client, which is why the Explore list has been permanently, silently empty rather
+        than visibly broken. It now falls back to wherever the caller said they are, and
+        says which city it used.
+        """
         from modules.venues import explore
+        caller = getattr(request.state, "caller", None) or {}
+        if not city and caller.get("account_id"):
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), caller["account_id"])
+        if not city:
+            return {"city": "", "venues": [], "needs_city": True,
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
         wants = [i.strip() for i in interests.split(",") if i.strip()] or None
-        return guard(lambda: explore.explore_city_venues(_graph(request), city, wants, claude=_claude(request)))
+        # The module returns a bare list and the PWA reads `res.venues`, so even with the
+        # 422 fixed the Explore section would still have rendered nothing. Two silent
+        # mismatches stacked on one feature, neither of which any test could see.
+        found = guard(lambda: explore.explore_city_venues(
+            _graph(request), city, wants, claude=_claude(request)))
+        return {"city": city, "venues": found, "empty": not found}
 
     @router.post("/venues/explore/save")
     def venues_explore_save(request: Request, body: ExploreSaveIn):
@@ -2290,38 +2310,26 @@ def build_router(auth) -> APIRouter:
         return {**guard(lambda: reflect.log(graph, text, kind="win")), "sun": sun}
 
     @router.post("/feed/reviews")
-    def post_venue_review_endpoint(request: Request, body: dict):
-        place = body.get("place", "Monsanto Outdoor Crag").strip()
-        review = body.get("review", "Dry and perfect conditions today!").strip()
-        rating = body.get("rating", 5)
-        return {
-            "published": True,
-            "place": place,
-            "review": review,
-            "rating": rating,
-            "message": f"Community Review published for '{place}'! 📝"
-        }
+    def feed_reviews_write_endpoint(request: Request, body: dict):
+        """Review a place. Never a person.
+
+        Returned three reviews of Lisbon venues signed by people who do not exist. A rating
+        attached to a human being is the karma score under another name, and that was
+        removed on its merits -- so this takes a place and refuses anything else.
+        """
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: signals.write_review(
+            _graph(request), str(body.get("city", "") or ""),
+            str(body.get("place", "") or ""), str(body.get("review", "") or body.get("text", "")),
+            account_id=account_id, handle=handle, rating=body.get("rating"),
+            place_id=str(body.get("place_id", "") or "")))
 
     @router.get("/feed/reviews")
-    def list_venue_reviews_endpoint(request: Request):
-        return {
-            "reviews": [
-                {
-                    "place": "Monsanto Outdoor Crag",
-                    "author": "Alex M.",
-                    "review": "Crag is dry and friction is top tier today! Sunset climbing session starting at 18:30.",
-                    "rating": 5,
-                    "time": "10m ago"
-                },
-                {
-                    "place": "Fabrica Coffee Roasters",
-                    "author": "Elena R.",
-                    "review": "Fresh Ethiopian Anaerobic batch on pour-over today. Great vibe for deep work!",
-                    "rating": 5,
-                    "time": "1h ago"
-                }
-            ]
-        }
+    def feed_reviews_read_endpoint(request: Request, city: str = "", place_id: str = ""):
+        from modules.social import signals
+        return guard(lambda: signals.reviews(_graph(request), city=city,
+                                             place_id=place_id))
 
     @router.post("/ledger/tip")
     def send_micro_tip_endpoint(request: Request, body: dict):
@@ -2347,15 +2355,14 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/social/kindness")
-    def send_kindness_note_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex").strip()
-        note = body.get("note", "Thanks for organizing the bouldering meet yesterday!").strip()
-        return {
-            "sent": True,
-            "recipient": recipient,
-            "note": note,
-            "message": f"Anonymous Kindness Note delivered to {recipient}! 💌"
-        }
+    def social_kindness_endpoint(request: Request, body: dict):
+        """The same object, sent for a different reason. It reported a kindness streak."""
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: signals.send_kudos(
+            _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
+            str(body.get("note", "") or ""), account_id=account_id, handle=handle,
+            kind="kindness"))
 
     @router.post("/crews/beacon")
     def broadcast_squad_beacon_endpoint(request: Request, body: dict):
@@ -2658,18 +2665,19 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/gamification/mint-presence")
-    def mint_proof_of_presence_endpoint(request: Request, body: dict):
-        event_name = body.get("event_name", "Lisbon Rooftop Sunset Meet").strip()
-        location = body.get("location", "Miradouro Rooftop").strip()
-        token_id = "POP-" + "".join(__import__("random").choices("0123456789ABCDEF", k=8))
-        return {
-            "minted": True,
-            "token_id": token_id,
-            "badge_name": f"Verified Attendee: {event_name}",
-            "location": location,
-            "tx_hash": f"0x{token_id.lower()}9941a82f3d",
-            "message": f"🎟️ Proof-of-Presence Badge Minted! ID: {token_id} ({event_name} @ {location}). Verified on blockchain! ⛓️"
-        }
+    def gamification_mint_presence_endpoint(request: Request, body: dict):
+        """Proof you were somewhere -- which is a check-in, not a token.
+
+        It minted a "POP-" token as proof of presence: a token nobody issued, on no chain,
+        signed by nothing, verifying nothing. The underlying idea is real and is now the
+        same record as a QR check-in.
+        """
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.check_in(
+            _graph(request), account_id=account_id,
+            place=str(body.get("event_name", "") or body.get("location", "") or ""),
+            city=str(body.get("city", "") or "")))
 
     @router.get("/vitals/social-battery")
     def social_battery_optimizer_endpoint(request: Request):
@@ -2835,16 +2843,22 @@ def build_router(auth) -> APIRouter:
             account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/safety/emergency-sos")
-    def trigger_emergency_sos_endpoint(request: Request, body: dict):
-        location = body.get("location", "Miradouro Rooftop, Lisbon").strip()
-        return {
-            "sos_active": True,
-            "location": location,
-            "broadcast_status": "SENT_TO_TRUSTED_CREW",
-            "recipients_notified": 4,
-            "emergency_pin": "SOS-9911-GPS",
-            "message": f"⚡ EMERGENCY SOS ACTIVATED! Location broadcasted to 4 trusted crew members."
-        }
+    def safety_emergency_sos_endpoint(request: Request, body: dict):
+        """The same watch at a higher severity, and the same honesty about delivery.
+
+        It returned `recipients_notified: 4` and an emergency PIN. This app cannot call
+        anyone, so it does not say it did: `push_delivered` is false and the disclaimer
+        points at the local emergency number.
+        """
+        from modules.safety import watch
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: watch.start(
+            _graph(request),
+            str(body.get("location", "") or body.get("destination", "") or "here"),
+            account_id=account_id, handle=handle, severity="sos",
+            eta_minutes=body.get("eta_mins", 15),
+            watchers=body.get("watchers") or [],
+            note=str(body.get("note", "") or "")))
 
     @router.post("/nomad/city-switch")
     def nomad_city_switch_endpoint(request: Request, body: dict):
@@ -3013,13 +3027,15 @@ def build_router(auth) -> APIRouter:
                                        "was a constant.")}
 
     @router.get("/safety/community-grid")
-    def get_community_relief_grid_endpoint(request: Request):
-        return {
-            "grid_status": "NORMAL_OPERATION",
-            "volunteer_squads_active": 12,
-            "nearby_shelters": ["Miradouro Community Hub", "Chiado Emergency Station"],
-            "message": "🌍 Community Safety Relief Grid Active: 12 volunteer squads ready for local support."
-        }
+    def safety_community_grid_endpoint(request: Request):
+        """Who you are currently watching over, and who is overdue.
+
+        Was a grid of invented safe houses and volunteer counts. The real grid is the list
+        of people who named you.
+        """
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.watching(_graph(request), account_id=account_id))
 
     @router.get("/economics/revenue-share")
     def get_creator_revenue_share_endpoint(request: Request):
@@ -3208,15 +3224,26 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/events/qr-checkin")
-    def magic_qr_venue_checkin_endpoint(request: Request, body: dict):
-        qr_code = body.get("qr_code", "QR-FABRICA-TABLE-4").strip()
-        return {
-            "checked_in": True,
-            "venue": "Fabrica Coffee Roasters",
-            "active_squad_joined": "Lisbon Coffee & Tech Crew",
-            "pop_badge_minted": "POP-89F12A04",
-            "message": "⚡ 1-Tap QR Check-In Complete! Checked into Fabrica Coffee Roasters, joined active squad & PoP badge minted!"
-        }
+    def events_qr_checkin_endpoint(request: Request, body: dict):
+        """Record that you were there.
+
+        Scanned any string and returned `checked_in: True` with a bonus karma award. A
+        check-in is your own record now, owner-scoped, and it is what personal.recap counts
+        -- so "outings attended" becomes true rather than asserted.
+        """
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.check_in(
+            _graph(request), account_id=account_id,
+            place=str(body.get("place", "") or body.get("qr_code", "") or ""),
+            place_id=str(body.get("place_id", "") or ""),
+            meetup_id=str(body.get("meetup_id", "") or ""),
+            city=str(body.get("city", "") or "")))
+
+    @router.get("/checkins")
+    def checkins_list_endpoint(request: Request):
+        from modules.social import signals
+        return guard(lambda: signals.check_ins(_graph(request)))
 
     @router.post("/routing/group-nav")
     def live_group_routing_nav_endpoint(request: Request, body: dict):
@@ -3309,16 +3336,17 @@ def build_router(auth) -> APIRouter:
                 "note": "Two real rooms. Nothing is bridged between them automatically."}
 
     @router.post("/safety/squad-beacon")
-    def squad_emergency_beacon_endpoint(request: Request, body: dict):
-        location = body.get("location", "Cais do Sodre @ 2:30 AM").strip()
-        return {
-            "beacon_triggered": True,
-            "location": location,
-            "battery_level": "88%",
-            "trusted_crew_notified": 4,
-            "safe_uber_link": "https://uber.com/ride?safe_token=CREW-8921",
-            "message": f"⚡ Squad Safety Beacon Active! 4 trusted crew members alerted with live GPS & safe ride route."
-        }
+    def safety_squad_beacon_endpoint(request: Request, body: dict):
+        """Same object again -- it claimed to broadcast a live location to four trusted
+        members. There is no background location in a PWA, so a watch carries a destination
+        you typed and says so."""
+        from modules.safety import watch
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: watch.start(
+            _graph(request), str(body.get("location", "") or "here"),
+            account_id=account_id, handle=handle,
+            eta_minutes=body.get("eta_mins", 60),
+            watchers=body.get("watchers") or []))
 
     @router.post("/culture/creator-residency")
     def culture_residency_endpoint(request: Request, body: dict):
@@ -5097,17 +5125,53 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         return dating_guard(lambda: meets.agree(
             _graph(request), target, activity, account_id=_dating_id(request) or ""))
 
+    # ---- SafeWalk ---------------------------------------------------------
+    #
+    # The most dangerous props in the repo. /safety/escort returned escort_code "SAFE-8921"
+    # -- the same code for every walk in the world -- and said the crew had been notified.
+    # /safety/squad-beacon broadcast a location to four trusted members. /safety/emergency-sos
+    # returned recipients_notified: 4 and emergency_pin "SOS-9911-GPS". Nothing was sent
+    # anywhere. Every other prop wasted somebody's time; a person who believes their crew is
+    # watching behaves differently from one who knows nobody is.
+
     @router.post("/safety/escort")
-    def start_safewalk_escort_endpoint(request: Request, body: dict):
-        destination = body.get("destination", "Miradouro Rooftop Bar").strip()
-        eta_mins = body.get("eta_mins", 15)
-        return {
-            "active": True,
-            "destination": destination,
-            "eta_mins": eta_mins,
-            "escort_code": "SAFE-8921",
-            "message": f"🛡️ SafeWalk Live Escort active for '{destination}'! Crew notified & ETA timer set ({eta_mins} mins)."
-        }
+    def safety_escort_endpoint(request: Request, body: dict):
+        """Start a watch: where you are going, when you should be there, who can see it."""
+        from modules.safety import watch
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: watch.start(
+            _graph(request), str(body.get("destination", "") or ""),
+            account_id=account_id, handle=handle,
+            eta_minutes=body.get("eta_mins", body.get("eta_minutes")),
+            watchers=body.get("watchers") or [], note=str(body.get("note", "") or "")))
+
+    @router.post("/safety/escort/arrived")
+    def safety_arrived_endpoint(request: Request, body: dict):
+        """One tap, and the watch clears. A safety feature nobody cancels is one everybody
+        ignores."""
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.arrive(_graph(request), account_id=account_id,
+                                          walk_id=str(body.get("walk_id", "") or "")))
+
+    @router.delete("/safety/escort")
+    def safety_cancel_endpoint(request: Request):
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.cancel(_graph(request), account_id=account_id))
+
+    @router.get("/safety/escort")
+    def safety_my_walks_endpoint(request: Request):
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.mine(_graph(request), account_id=account_id))
+
+    @router.get("/safety/watching")
+    def safety_watching_endpoint(request: Request):
+        """Walks you were named on, overdue first. The read that makes this real."""
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.watching(_graph(request), account_id=account_id))
 
     @router.post("/ledger/quick-split")
     def quick_split_expenses_endpoint(request: Request, body: dict):
@@ -5154,15 +5218,69 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         from substrate import centrality
         return centrality.calculate_centrality(_graph(request))
 
+    # ---- The small things people send each other --------------------------
+    #
+    # Kudos, reviews, moments and check-ins were four endpoints that stored nothing and
+    # reported constants: a "kudos karma" total, a kindness streak, three reviews signed by
+    # people who do not exist, a photo moment with a view count. They are one object with
+    # four faces, in modules/social/signals.py, and who can read what is the whole design --
+    # these are the first things in the app one person writes *about another*.
+
+    def _signal_caller(request: Request):
+        """Who is writing, in both modes.
+
+        In account mode this is the session's account. In single-user owner-key mode — the
+        NucBox case — there is no account at all, and returning "" there turned every one of
+        these endpoints into a 400 for the one deployment shape the repo started with. The
+        config owner is the actor there, exactly as `_graph` already scopes to it.
+        """
+        caller = getattr(request.state, "caller", None) or {}
+        account = caller.get("account_id", "") or ""
+        if account:
+            return account, caller.get("handle", "")
+        owner = _graph(request).default_owner or ""
+        return owner, ""
+
     @router.post("/kudos/send")
-    def send_kudos_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex")
-        return {"sent": True, "recipient": recipient, "message": f"Kudos & +50 XP sent to {recipient}! 👏"}
+    def kudos_send_endpoint(request: Request, body: dict):
+        """Thank somebody, where they can read it.
+
+        Returned a running "kudos karma" that was the same number for everyone. A kudos is
+        now a real row addressed to a real account -- system-owned rather than private,
+        because a note the recipient cannot see is not a kudos, it is a file on a person.
+        """
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: signals.send_kudos(
+            _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
+            str(body.get("note", "") or body.get("text", "")),
+            account_id=account_id, handle=handle))
+
+    @router.get("/kudos")
+    def kudos_list_endpoint(request: Request, direction: str = "received"):
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.kudos_for(_graph(request), account_id,
+                                               direction=direction))
 
     @router.post("/moments/flash")
-    def post_flash_moment_endpoint(request: Request, body: dict):
-        caption = body.get("caption", "Great session!")
-        return {"posted": True, "expires_in": "24h", "caption": caption, "message": "24h Flash Moment posted to crew feed! 📸"}
+    def moments_flash_endpoint(request: Request, body: dict):
+        """A short public note about tonight, in a city, that expires in a day.
+
+        Was an ephemeral *photo* moment with a view count. There is no image pipeline in
+        this app, and nothing counts views -- a caption is the honest subset.
+        """
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: signals.post_moment(
+            _graph(request), str(body.get("city", "") or ""),
+            str(body.get("caption", "") or ""), account_id=account_id, handle=handle))
+
+    @router.get("/moments")
+    def moments_list_endpoint(request: Request, city: str):
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.moments(_graph(request), city, viewer_id=account_id))
 
     @router.post("/comms/messages")
     def send_message_endpoint(request: Request, body: ChatMessageIn):

@@ -719,3 +719,51 @@ Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre
 Google OAuth · Postgres migration (until measured, see above) · native store builds · SDK opening ·
 billing · licence/entity/ToS content · a swipe-style dating surface · sub-city location anywhere in
 the social layer.
+
+
+## The prop sweep — 2026-08-14
+
+`tools/audit_props.py` counts handlers that return a dict literal instead of touching the
+graph. It was **184 of 445 (40%)**. It is now **127 of 460 (28%)**, and the ones that moved
+were not deleted — they were built.
+
+What changed, and the one sentence each that explains why it mattered:
+
+| group | was | is |
+|---|---|---|
+| personal stats | karma 98, a leaderboard ranking you above three people who do not exist, a heatmap that was `(i % 3) + 1` | `modules/personal/recap.py`, computed, with no score |
+| ZK attribute check | `verified: true` for any attribute from any caller, including `AGE_OVER_18` | removed |
+| synergy (11) | Elena R. at 96%, in every city | `modules/city/synergy.py` — real published signals, no percentage, the shared terms instead |
+| dating (2) | a "7-Factor" score over seven constants; `agreed: True` for a name typed by hand; PIN 4892 for every pair on earth | `modules/dating/meets.py` — reciprocal visibility, a real handshake, a per-pair code |
+| `/ai/*` (20) | prose. None of them called a model | `modules/ai/assist.py` + `reflect.py` — grounded in the graph, works with no key |
+| seeding (21) | "160 Verified Third Places", 284 events, for every city | OpenStreetMap + Open-Meteo, **neither needs a key** |
+| activities (40) | invented people, and several claimed bookings | one matcher, forty vocabularies |
+| kudos/reviews/moments/check-ins | constants; nothing stored | `modules/social/signals.py` |
+| SafeWalk (3) | `SAFE-8921` for every walk, "crew notified" with nothing sent | `modules/safety/watch.py` — real deadlines, `push_delivered: false` |
+
+**Three rules came out of it, and they are worth keeping.**
+
+1. *A missing reading is missing, not zero.* "Wind: 0 km/h" is a specific claim about a
+   still day, and a plausible default is what made the old version believable.
+2. *A test that pins a prop is how the prop survives review.* Roughly 120 assertions in this
+   repo asserted the invented values back. Every one had to be rewritten, and several were
+   the only reason a prop lasted as long as it did.
+3. *Walk it in a browser.* Every UI bug in this sweep — the week-long SyntaxError, the
+   missing sign-in screen, the mobile dock calling `render()` instead of `refresh()`,
+   buttons injected by `innerHTML` that were never bound, `/venues/explore` answering 422 on
+   every page load — was invisible to a fully green Python suite.
+
+### Still props, and why
+
+Some genuinely cannot be built here and should not be faked: `/infra/edge-replication` on one
+SQLite file, `/mesh/offline-peer-sync` over BLE from a PWA, `/ar/spatial-flares`,
+`/dao/community-treasury`, `/wearables/sync-telemetry`. `/payments/stripe/*` and
+`/payments/paypal/*` are buildable but move real money and need live keys and an explicit
+decision. Those are the remaining 127, minus the developer-platform group.
+
+### Unverified from the sandbox
+
+`overpass-api.de`, `api.open-meteo.com` and `app.ticketmaster.com` all answer 403 to the
+CONNECT through this environment's proxy. The parsing is written against documented response
+shapes and tested on fixtures; **the first real call on a deployed box is the actual test.**
+Failure is a recorded status, never a crash and never an invented number.
