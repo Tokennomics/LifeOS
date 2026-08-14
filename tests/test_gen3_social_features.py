@@ -179,7 +179,7 @@ def test_nomad_memory_and_vip(cfg):
     client = TestClient(create_app(cfg))
     res1 = client.post("/v1/nomad/city-switch", json={"target_city": "Tokyo"})
     assert res1.status_code == 200
-    assert res1.json()["teleported"] is True
+    assert res1.status_code == 200
 
     res2 = client.post("/v1/memories/highlight-reel", json={"title": "Rooftop Party"})
     assert res2.status_code == 200
@@ -218,9 +218,12 @@ def test_settle_photo_wall_and_quests(cfg):
     assert res2.status_code == 200
     assert len(res2.json()["active_photos"]) >= 2
 
+    # It minted a quest id and three invented landmarks with point values. It draws on the
+    # two things a city really holds now: places seeded from OSM, and plans people proposed.
     res3 = client.post("/v1/quests/city-discovery", json={"city": "Lisbon"})
     assert res3.status_code == 200
-    assert "QST-" in res3.json()["quest_id"]
+    assert res3.json()["places"] == [] and res3.json()["happening"] == []
+    assert "QST-" not in res3.text
 
 def test_transparent_algo_and_revenue_share(cfg):
     client = TestClient(create_app(cfg))
@@ -228,13 +231,17 @@ def test_transparent_algo_and_revenue_share(cfg):
     assert res1.status_code == 200
     assert res1.json()["applied"] is True
 
+    # Reported an 89% adherence rate for a stack it had just invented. It creates a real
+    # routine now — with the anchor as the trigger — and needs both halves to do it.
     res2 = client.post("/v1/growth/habit-stacking", json={"anchor_habit": "Espresso"})
-    assert res2.status_code == 200
-    assert res2.json()["stacked"] is True
+    assert res2.status_code == 400
+    res2b = client.post("/v1/growth/habit-stacking",
+                        json={"anchor_habit": "Espresso", "new_habit": "Ten pages"})
+    assert res2b.status_code == 200 and res2b.json()["routine_id"]
 
     res3 = client.get("/v1/safety/community-grid")
     assert res3.status_code == 200
-    assert res3.json()["grid_status"] == "NORMAL_OPERATION"
+    assert res3.status_code == 200
 
     res4 = client.get("/v1/economics/revenue-share")
     assert res4.status_code == 200
@@ -266,7 +273,7 @@ def test_voice_brief_gifting_and_wellness(cfg):
 
     res3 = client.get("/v1/vitals/social-wellness")
     assert res3.status_code == 200
-    assert res3.json()["flourishing_score"] == 92
+    assert res3.status_code == 200
 
 def test_sustainable_multi_revenue_monetization(cfg):
     client = TestClient(create_app(cfg))
@@ -281,7 +288,7 @@ def test_sustainable_multi_revenue_monetization(cfg):
 
     res3 = client.get("/v1/monetization/plugin-revshare")
     assert res3.status_code == 200
-    assert res3.json()["platform_fee_eur"] == 150.00
+    assert res3.status_code == 200
 
 def test_viral_growth_and_traction(cfg):
     client = TestClient(create_app(cfg))
@@ -331,17 +338,17 @@ def test_zero_friction_convenience_features(cfg):
 
 def test_solo_festival_and_camping_features(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/festivals/solo-camp-crew", json={"festival_name": "Boom Festival 🎪"})
+    res1 = client.post("/v1/festivals/solo-camp-crew", json={"city": "Lisbon", "festival_name": "Boom Festival 🎪"})
     assert res1.status_code == 200
-    assert res1.json()["matched"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/festivals/carpool-split", json={"festival_name": "Primavera Sound"})
+    res2 = client.post("/v1/festivals/carpool-split", json={"city": "Lisbon", "festival_name": "Primavera Sound"})
     assert res2.status_code == 200
-    assert res2.json()["matched"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/festivals/stage-flare", json={"set_name": "Bicep Live Set 🎵"})
+    res3 = client.post("/v1/festivals/stage-flare", json={"city": "Lisbon", "set_name": "Bicep Live Set 🎵"})
     assert res3.status_code == 200
-    assert res3.json()["flare_dropped"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_layover_gym_and_pet_verticals(cfg):
     client = TestClient(create_app(cfg))
@@ -357,9 +364,9 @@ def test_layover_gym_and_pet_verticals(cfg):
     assert res2.json()["matched"] is False
     assert "spotter_name" not in res2.json()
 
-    res3 = client.post("/v1/pets/dog-walk-crew", json={"park": "Estrela Park"})
+    res3 = client.post("/v1/pets/dog-walk-crew", json={"city": "Lisbon", "park": "Estrela Park"})
     assert res3.status_code == 200
-    assert res3.json()["matched"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_language_swap(cfg):
     """Inês M. was matched to everyone who asked, at 98%, forever."""
@@ -374,29 +381,29 @@ def test_human_deep_needs_features(cfg):
     client = TestClient(create_app(cfg))
     res1 = client.post("/v1/housing/co-living-match", json={"city": "Lisbon"})
     assert res1.status_code == 200
-    assert res1.json()["matched"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/dining/supper-club", json={"cuisine": "Tapas"})
+    res2 = client.post("/v1/dining/supper-club", json={"city": "Lisbon", "cuisine": "Tapas"})
     assert res2.status_code == 200
-    assert res2.json()["rsvp_confirmed"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/wellness/digital-detox", json={"duration": "2 Hours"})
+    res3 = client.post("/v1/wellness/digital-detox", json={"city": "Lisbon", "duration": "2 Hours"})
     assert res3.status_code == 200
-    assert res3.json()["session_joined"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_circular_economy_features(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/economy/barter-swap", json={"offering": "Surf Lesson", "seeking": "Portuguese"})
+    res1 = client.post("/v1/economy/barter-swap", json={"city": "Lisbon", "offering": "Surf Lesson", "seeking": "Portuguese"})
     assert res1.status_code == 200
-    assert res1.json()["swapped"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/economy/community-borrow", json={"item": "Camping Tent"})
+    res2 = client.post("/v1/economy/community-borrow", json={"city": "Lisbon", "item": "Camping Tent"})
     assert res2.status_code == 200
-    assert res2.json()["borrowed"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/economy/time-bank", json={"service": "Bicycle repair", "hours": 1})
+    res3 = client.post("/v1/economy/time-bank", json={"city": "Lisbon", "service": "Bicycle repair", "hours": 1})
     assert res3.status_code == 200
-    assert res3.json()["tokens_earned"] == 1
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_group_collab_and_micro_grants(cfg):
     client = TestClient(create_app(cfg))
@@ -404,9 +411,9 @@ def test_group_collab_and_micro_grants(cfg):
     assert res1.status_code == 200
     assert res1.json()["navigation_active"] is True
 
-    res2 = client.post("/v1/music/squad-jukebox", json={"venue": "Fabrica Coffee"})
+    res2 = client.post("/v1/music/squad-jukebox", json={"city": "Lisbon", "venue": "Fabrica Coffee"})
     assert res2.status_code == 200
-    assert res2.json()["jukebox_synced"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
     res3 = client.post("/v1/community/micro-grants", json={"project": "Rescue Stand"})
     assert res3.status_code == 200
@@ -414,31 +421,31 @@ def test_group_collab_and_micro_grants(cfg):
 
 def test_popup_jam_film_and_eco_clean(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/creatives/pop-up-jam", json={"instrument": "Guitar"})
+    res1 = client.post("/v1/creatives/pop-up-jam", json={"city": "Lisbon", "instrument": "Guitar"})
     assert res1.status_code == 200
-    assert res1.json()["jam_matched"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
     res2 = client.post("/v1/memories/analog-film-swap", json={"outing_id": "OUTING-8821"})
     assert res2.status_code == 200
     assert res2.json()["film_roll_synced"] is True
 
-    res3 = client.post("/v1/impact/eco-clean-crew", json={"beach": "Carcavelos"})
+    res3 = client.post("/v1/impact/eco-clean-crew", json={"city": "Lisbon", "beach": "Carcavelos"})
     assert res3.status_code == 200
-    assert res3.json()["eco_session_joined"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_global_bridge_beacon_and_residency(cfg):
     client = TestClient(create_app(cfg))
     res1 = client.post("/v1/culture/global-bridge", json={"city_a": "Lisbon", "city_b": "Tokyo"})
     assert res1.status_code == 200
-    assert res1.json()["bridge_active"] is True
+    assert res1.status_code == 200
 
     res2 = client.post("/v1/safety/squad-beacon", json={"location": "Cais do Sodre"})
     assert res2.status_code == 200
     assert res2.json()["beacon_triggered"] is True
 
-    res3 = client.post("/v1/culture/creator-residency", json={"creator_name": "Lucas V."})
+    res3 = client.post("/v1/culture/creator-residency", json={"city": "Lisbon", "creator_name": "Lucas V."})
     assert res3.status_code == 200
-    assert res3.json()["grant_awarded"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_ai_butler_magic_split_and_house_swap(cfg):
     client = TestClient(create_app(cfg))
@@ -453,37 +460,37 @@ def test_ai_butler_magic_split_and_house_swap(cfg):
     assert res2.status_code == 200
     assert res2.json()["split_settled"] is True
 
-    res3 = client.post("/v1/housing/nomad-house-swap", json={"home_city": "Lisbon", "destination_city": "Tokyo"})
+    res3 = client.post("/v1/housing/nomad-house-swap", json={"city": "Lisbon", "home_city": "Lisbon", "destination_city": "Tokyo"})
     assert res3.status_code == 200
-    assert res3.json()["swap_confirmed"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_comedy_market_and_sunset_sailing(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/culture/secret-comedy", json={"venue": "Alfama Cellar"})
+    res1 = client.post("/v1/culture/secret-comedy", json={"city": "Lisbon", "venue": "Alfama Cellar"})
     assert res1.status_code == 200
-    assert res1.json()["comedy_booked"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/dining/market-cookoff", json={"market": "Mercado da Ribeira"})
+    res2 = client.post("/v1/dining/market-cookoff", json={"city": "Lisbon", "market": "Mercado da Ribeira"})
     assert res2.status_code == 200
-    assert res2.json()["cookoff_crew_joined"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/outdoors/sunset-sailing", json={"harbor": "Belem"})
+    res3 = client.post("/v1/outdoors/sunset-sailing", json={"city": "Lisbon", "harbor": "Belem"})
     assert res3.status_code == 200
-    assert res3.json()["sailing_charter_confirmed"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_reading_cold_plunge_and_art_crawl(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/culture/silent-reading", json={"loft": "Alfama Loft"})
+    res1 = client.post("/v1/culture/silent-reading", json={"city": "Lisbon", "loft": "Alfama Loft"})
     assert res1.status_code == 200
-    assert res1.json()["reading_session_booked"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/wellness/cold-plunge", json={"beach": "Cais do Ginjal"})
+    res2 = client.post("/v1/wellness/cold-plunge", json={"city": "Lisbon", "beach": "Cais do Ginjal"})
     assert res2.status_code == 200
-    assert res2.json()["plunge_crew_joined"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/creatives/art-crawl", json={"district": "Santos"})
+    res3 = client.post("/v1/creatives/art-crawl", json={"city": "Lisbon", "district": "Santos"})
     assert res3.status_code == 200
-    assert res3.json()["crawl_confirmed"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
     client = TestClient(create_app(cfg))
@@ -501,17 +508,17 @@ def test_developer_platform_apikeys_webhooks_and_sandbox(cfg):
 
 def test_sauna_plant_swap_and_wine_tasting(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/wellness/sauna-social", json={"venue": "Alfama Nordic Sauna"})
+    res1 = client.post("/v1/wellness/sauna-social", json={"city": "Lisbon", "venue": "Alfama Nordic Sauna"})
     assert res1.status_code == 200
-    assert res1.json()["sauna_session_confirmed"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/economy/plant-swap", json={"park": "Jardim da Estrela"})
+    res2 = client.post("/v1/economy/plant-swap", json={"city": "Lisbon", "park": "Jardim da Estrela"})
     assert res2.status_code == 200
-    assert res2.json()["plant_swap_joined"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/dining/wine-tasting", json={"rooftop": "Miradouro"})
+    res3 = client.post("/v1/dining/wine-tasting", json={"city": "Lisbon", "rooftop": "Miradouro"})
     assert res3.status_code == 200
-    assert res3.json()["tasting_confirmed"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_frontier_stack_all_four_engines(cfg):
     client = TestClient(create_app(cfg))
@@ -599,21 +606,21 @@ def test_automated_city_content_pipeline_and_weather_triggers(cfg):
 
 def test_multi_hobby_passion_content_hubs(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/hobbies/sports-outdoors", json={})
+    res1 = client.post("/v1/hobbies/sports-outdoors", json={"city": "Lisbon"})
     assert res1.status_code == 200
-    assert res1.json()["hobby_feed_synced"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/hobbies/creative-making", json={})
+    res2 = client.post("/v1/hobbies/creative-making", json={"city": "Lisbon"})
     assert res2.status_code == 200
-    assert res2.json()["hobby_feed_synced"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/hobbies/gaming-strategy", json={})
+    res3 = client.post("/v1/hobbies/gaming-strategy", json={"city": "Lisbon"})
     assert res3.status_code == 200
-    assert res3.json()["hobby_feed_synced"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res4 = client.post("/v1/hobbies/culinary-craft", json={})
+    res4 = client.post("/v1/hobbies/culinary-craft", json={"city": "Lisbon"})
     assert res4.status_code == 200
-    assert res4.json()["hobby_feed_synced"] is True
+    assert res4.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_landmark_mega_festival_radar(cfg):
     client = TestClient(create_app(cfg))
@@ -786,19 +793,19 @@ def test_global_flourishing_and_regenerative_earth(cfg):
     client = TestClient(create_app(cfg))
     res1 = client.post("/v1/impact/regenerative-earth", json={"city": "Edinburgh"})
     assert res1.status_code == 200
-    assert res1.json()["eco_quests_active"] is True
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
     res2 = client.post("/v1/impact/zero-waste-pantry", json={"city": "Edinburgh"})
     assert res2.status_code == 200
-    assert res2.json()["pantry_synced"] is True
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/impact/compassion-listener-network", json={})
+    res3 = client.post("/v1/impact/compassion-listener-network", json={"city": "Lisbon"})
     assert res3.status_code == 200
-    assert res3.json()["listener_network_ready"] is True
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
     res4 = client.post("/v1/impact/intergenerational-guild", json={"city": "Edinburgh"})
     assert res4.status_code == 200
-    assert res4.json()["guild_synced"] is True
+    assert res4.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_universal_master_controller(cfg):
     client = TestClient(create_app(cfg))
@@ -861,22 +868,22 @@ def test_nightlife_party_and_speakeasy_engine(cfg):
     client = TestClient(create_app(cfg))
     res1 = client.post("/v1/nightlife/party-radar", json={"city": "Munich"})
     assert res1.status_code == 200
-    assert res1.json()["nightlife_radar_active"] is True
-    assert len(res1.json()["curated_clubs_and_parties"]) >= 3
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
+    assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
     res2 = client.post("/v1/nightlife/secret-speakeasies", json={"city": "Munich"})
     assert res2.status_code == 200
-    assert res2.json()["speakeasies_active"] is True
-    assert len(res2.json()["secret_cocktail_dens"]) >= 3
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
+    assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res3 = client.post("/v1/nightlife/guestlist-vip", json={"venue": "Blitz Club", "crew_size": 2})
+    res3 = client.post("/v1/nightlife/guestlist-vip", json={"city": "Lisbon", "venue": "Blitz Club", "crew_size": 2})
     assert res3.status_code == 200
-    assert res3.json()["guestlist_confirmed"] is True
-    assert res3.json()["fastpass_code"] == "CONNECT-VIP-882"
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
+    assert res3.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
     res4 = client.post("/v1/nightlife/crew-pregame", json={"destination": "Blitz Club", "city": "Munich"})
     assert res4.status_code == 200
-    assert res4.json()["pregame_squad_matched"] is True
+    assert res4.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_daily_reflection_synthesis(cfg):
     client = TestClient(create_app(cfg))
@@ -908,11 +915,13 @@ def test_universal_markdown_export(cfg):
 
 def test_micro_masterclasses_and_neighborhood_guilds(cfg):
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/workshops/micro-masterclasses", json={"city": "Munich"})
+    # Three masterclasses with named tutors, for any city.
+    res = client.post("/v1/workshops/micro-masterclasses",
+                      json={"city": "Munich", "skill": "welding"})
     assert res.status_code == 200
     data = res.json()
-    assert data["workshops_active"] is True
-    assert len(data["micro_masterclasses"]) >= 3
+    assert data["matched"] is False and data["people"] == []
+    assert "micro_masterclasses" not in data
 
 def test_smart_layover_and_stopover_navigator(cfg):
     client = TestClient(create_app(cfg))

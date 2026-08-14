@@ -1423,23 +1423,25 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: reconcile.reconcile(_graph(request), data))
 
     @router.post("/travel/curated-brief")
-    def generate_curated_travel_brief_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        start_date = body.get("start_date", "2026-08-15")
-        end_date = body.get("end_date", "2026-08-22")
+    def travel_curated_brief_endpoint(request: Request, body: dict):
+        """What is on where you are going, and what it will be like outside.
+
+        Was a hand-written multi-day itinerary. This composes the two real sources: the
+        listings and meetups actually on the board, and the forecast.
+        """
+        from modules.ai import assist
+        from modules.city import conditions
+        caller = getattr(request.state, "caller", None) or {}
+        city = str(body.get("city", "") or "").strip()
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
         return {
             "city": city,
-            "dates": f"{start_date} to {end_date}",
-            "curated_spots": [
-                {"name": "Monsanto Bouldering Crag", "category": "climbing", "reason": "Your #1 rated outdoor crag"},
-                {"name": "Fabrica Coffee Roasters", "category": "specialty_coffee", "reason": "Matches your coffee preference"},
-                {"name": "Miradouro de Santa Catarina", "category": "viewpoint", "reason": "Top rated sunset spot"}
-            ],
-            "upcoming_events": [
-                {"title": f"{city} Tech & Outdoor Fest", "date": "August 17", "going_count": 28},
-                {"title": "Sunset Bouldering & Pizza Meet", "date": "August 19", "going_count": 14}
-            ],
-            "share_text": f"✈️ My Curated Travel Brief for {city} ({start_date} to {end_date}):\n🧗 Monsanto Bouldering Crag\n☕ Fabrica Coffee Roasters\n🎟️ {city} Tech & Outdoor Fest (Aug 17)"
+            "whats_on": guard(lambda: assist.itinerary(
+                graph, city, account_id=caller.get("account_id", ""),
+                claude=_claude(request))),
+            "conditions": guard(lambda: conditions.triggers(graph, city)),
         }
 
     @router.post("/calendar/add-travel-activities")
@@ -2265,14 +2267,27 @@ def build_router(auth) -> APIRouter:
         return {"voted": True, "option": option, "message": f"Voted for '{option}'! 📊"}
 
     @router.post("/rituals/sunset")
-    def post_sunset_win_endpoint(request: Request, body: dict):
-        win_text = body.get("win_text", "Shipped ConnectOS v2!").strip()
-        return {"logged": True, "win": win_text, "message": f"Evening Sunset Win logged: '{win_text}' 🌅"}
+    def rituals_sunset_endpoint(request: Request, body: dict):
+        """Write down the day's win, and see when the sun actually sets.
 
-    # A second @router.get("/wrapped/monthly") used to sit here returning 48.5 focus hours
-    # and 12 outings to every account on the instance. FastAPI matches the first route
-    # registered, so it shadowed the graph-backed implementation further down — somebody
-    # wrote the real one and it had never run. See modules/personal/recap.py.
+        Reported a "ritual streak" and a group of named people who had also logged theirs.
+        The win is now a real private reflection, and the sunset is a real reading.
+        """
+        from modules.ai import reflect
+        from modules.city import conditions
+        text = str(body.get("win_text", "") or body.get("note", "") or "").strip()
+        graph = _graph(request)
+        city = str(body.get("city", "") or "").strip()
+        sun = {}
+        if city:
+            state = guard(lambda: conditions.read(graph, city))
+            sun = {"sunset": (state.get("weather") or {}).get("sunset", ""),
+                   "available": state.get("available", False)}
+        if not text:
+            return {"logged": False, "recent": reflect.entries(graph, kind="win", limit=5),
+                    "total": reflect.count(graph, kind="win"), "sun": sun,
+                    "privacy": "yours only — never shared, never scored"}
+        return {**guard(lambda: reflect.log(graph, text, kind="win")), "sun": sun}
 
     @router.post("/feed/reviews")
     def post_venue_review_endpoint(request: Request, body: dict):
@@ -2833,15 +2848,19 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/nomad/city-switch")
     def nomad_city_switch_endpoint(request: Request, body: dict):
-        target_city = body.get("target_city", "Tokyo").strip()
-        return {
-            "teleported": True,
-            "current_city": target_city,
-            "active_nomads_count": 48,
-            "recommended_hub": "Shibuya Roastery & Co-Working Hub",
-            "local_events": ["Tokyo Tech Founders Coffee", "Shinjuku Underground Beats"],
-            "message": f"🌐 Nomad Passport Active: Teleported to {target_city}! 48 active nomads nearby."
-        }
+        """Look at another city before you go.
+
+        Said "Teleported to Tokyo! 48 active nomads nearby" and named a hub, for any city.
+        It shows the real arrival screen for that city instead, which on an unseeded city is
+        honestly empty.
+        """
+        from modules.city import arrival
+        caller = getattr(request.state, "caller", None) or {}
+        target = str(body.get("target_city", "") or body.get("city", "") or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: arrival.arrival(_graph(request), target,
+                                             viewer_id=caller.get("account_id", "")))
 
     @router.post("/memories/highlight-reel")
     def generate_memory_capsule_endpoint(request: Request, body: dict):
@@ -2930,17 +2949,31 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/quests/city-discovery")
-    def generate_city_discovery_quest_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        return {
-            "quest_id": "QST-9021",
-            "city": city,
-            "title": "☕ Alfama Hidden Pour-Over Secret",
-            "description": "Discover the hidden specialty roastery in Alfama & check in with a fellow coffee enthusiast!",
-            "reward_karma": 50,
-            "reward_badge": "Alfama Explorer Badge 🎖️",
-            "message": f"🗺️ Micro-Quest Generated for {city}: 'Alfama Hidden Pour-Over Secret' (+50 Karma Points)!"
-        }
+    def quests_city_discovery_endpoint(request: Request, body: dict):
+        """Things to go and see here.
+
+        Generated a quest id and three invented landmarks with point values. It now draws on
+        the two things the city really holds: places seeded from OpenStreetMap, and plans
+        people have proposed.
+        """
+        from modules.ai import assist
+        from modules.city import places
+        caller = getattr(request.state, "caller", None) or {}
+        city = str(body.get("city", "") or "").strip()
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
+        found = guard(lambda: places.listing(graph, city, limit=12))
+        soon = guard(lambda: assist.quests(graph, city,
+                                           account_id=caller.get("account_id", ""),
+                                           claude=_claude(request)))
+        return {"city": found["city"], "places": found["places"],
+                "happening": soon["quests"],
+                "empty": found["empty"] and soon["empty"],
+                "attribution": found["attribution"],
+                # No points, no badges: nobody is scoring this.
+                "no_score": "Places to go, not a leaderboard.",
+                "suggestion": found["suggestion"] or soon["suggestion"]}
 
     @router.post("/feed/transparent-rules")
     def set_algorithmic_transparency_rules_endpoint(request: Request, body: dict):
@@ -2956,17 +2989,28 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/growth/habit-stacking")
-    def habit_stacking_compounding_endpoint(request: Request, body: dict):
-        anchor_habit = body.get("anchor_habit", "Morning Espresso").strip()
-        new_habit = body.get("new_habit", "20-Min Deep Reading").strip()
-        return {
-            "stacked": True,
-            "anchor_habit": anchor_habit,
-            "new_habit": new_habit,
-            "streak_days": 14,
-            "compounding_score": "94%",
-            "message": f"🌱 Habit Stacked! '{new_habit}' anchored to '{anchor_habit}' (14-Day Streak)!"
-        }
+    def growth_habit_stacking_endpoint(request: Request, body: dict):
+        """Attach a new habit to one you already have.
+
+        Reported an 89% adherence rate for a stack it had just invented. A habit is a real
+        recurring routine here, so this creates one and says plainly that nothing is
+        measuring adherence.
+        """
+        from modules.routines import tracker
+        anchor = str(body.get("anchor_habit", "") or "").strip()
+        new = str(body.get("new_habit", "") or "").strip()
+        if not (anchor and new):
+            raise HTTPException(status_code=400,
+                                detail="an existing habit to anchor to, and the new one")
+        # The anchor is literally the routine's trigger — which is what habit stacking is,
+        # and what the tracker module has modelled since Sprint 1 without this endpoint ever
+        # calling it.
+        made = guard(lambda: tracker.create_routine(
+            _graph(request), new, anchor,
+            time_of_day=str(body.get("time_of_day", "morning") or "morning")))
+        return {**made, "anchor": anchor, "habit": new,
+                "no_adherence_score": ("Nothing measures whether you keep it. The old 89% "
+                                       "was a constant.")}
 
     @router.get("/safety/community-grid")
     def get_community_relief_grid_endpoint(request: Request):
@@ -3188,16 +3232,15 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/music/squad-jukebox")
-    def crowdsourced_squad_jukebox_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Fabrica Coffee Baixa").strip()
-        return {
-            "jukebox_synced": True,
-            "venue": venue,
-            "blended_playlist": "Lisbon Chill Tech & Deep House Blend",
-            "tracks_queued": 18,
-            "now_playing": "Bicep - Glue (Ambient Mix)",
-            "message": f"🎶 Squad Jukebox Synced! Blended music profile active for {venue}."
-        }
+    def music_jukebox_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it queued tracks on a jukebox with no jukebox behind it. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "music"
+        return {**_synergy_match(request, body, activity, "Music"), "activity": activity}
 
     @router.post("/community/micro-grants")
     def community_micro_grants_endpoint(request: Request, body: dict):
@@ -3212,17 +3255,15 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/creatives/pop-up-jam")
-    def spontaneous_pop_up_jam_endpoint(request: Request, body: dict):
-        instrument = body.get("instrument", "Acoustic Guitar").strip()
-        location = body.get("location", "Miradouro de Santa Catarina").strip()
-        return {
-            "jam_matched": True,
-            "instrument": instrument,
-            "location": location,
-            "session_time": "Today @ 7:30 PM (Sunset)",
-            "jam_members": ["Elena (Vocals)", "Marcus (Saxophone)", "You (Acoustic Guitar)"],
-            "message": f"⚡ Sunset Pop-Up Jam Matched! 3 musicians jamming at {location} today @ 7:30 PM!"
-        }
+    def creatives_jam_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it assembled a band. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("instrument", "") or "").strip() or "jam"
+        return {**_synergy_match(request, body, activity, "Creative"), "activity": activity}
 
     @router.post("/memories/analog-film-swap")
     def analog_film_photo_swap_endpoint(request: Request, body: dict):
@@ -3237,30 +3278,35 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/impact/eco-clean-crew")
-    def eco_clean_ocean_mountain_endpoint(request: Request, body: dict):
-        beach = body.get("beach", "Carcavelos Surf Beach").strip()
-        return {
-            "eco_session_joined": True,
-            "location": beach,
-            "crew_size": 14,
-            "duration": "20-Min Pre-Surf Beach Clean",
-            "karma_awarded": "+100 Social Impact Karma",
-            "reward_coffee_voucher": "Free Specialty Batch Brew @ Fabrica",
-            "message": f"🌊 Eco-Clean Squad Confirmed! Joined 14 legends at {beach} (+100 Karma & Free Coffee voucher)!"
-        }
+    def impact_clean_crew_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reported kilos of litter nobody collected. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("beach", "") or "").strip() or "beach clean"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/culture/global-bridge")
-    def global_city_bridge_endpoint(request: Request, body: dict):
-        city_a = body.get("city_a", "Lisbon").strip()
-        city_b = body.get("city_b", "Tokyo").strip()
-        return {
-            "bridge_active": True,
-            "cities": f"{city_a} ⟷ {city_b}",
-            "live_portal_venue": "Miradouro Rooftop (Lisbon) ➔ Shibuya Sky Lounge (Tokyo)",
-            "participants_count": 84,
-            "interactive_features": ["Live Sunset DJ Stream", "Real-Time Chat Portal", "Shared Digital Guestbook"],
-            "message": f"🌐 Global Bridge Live! Twin linkup active between {city_a} and {city_b} (84 participants)!"
-        }
+    def culture_global_bridge_endpoint(request: Request, body: dict):
+        """Two cities' rooms, side by side.
+
+        Claimed to have "bridged" Lisbon and Tokyo with a live cultural exchange and a
+        named host. What the app really has is a room per city, so this shows both: who is
+        around, what is on, and what has been said lately in each.
+        """
+        from modules.city import arrival
+        caller = getattr(request.state, "caller", None) or {}
+        viewer = caller.get("account_id", "") or ""
+        a = str(body.get("city_a", "") or "").strip()
+        b = str(body.get("city_b", "") or "").strip()
+        if not (a and b):
+            raise HTTPException(status_code=400, detail="two cities, please")
+        graph = _graph(request)
+        return {"cities": [guard(lambda: arrival.arrival(graph, a, viewer_id=viewer)),
+                           guard(lambda: arrival.arrival(graph, b, viewer_id=viewer))],
+                "note": "Two real rooms. Nothing is bridged between them automatically."}
 
     @router.post("/safety/squad-beacon")
     def squad_emergency_beacon_endpoint(request: Request, body: dict):
@@ -3275,17 +3321,15 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/culture/creator-residency")
-    def creator_residency_grant_endpoint(request: Request, body: dict):
-        creator = body.get("creator_name", "Lucas V. (Acoustic Ambient Composer)").strip()
-        return {
-            "grant_awarded": True,
-            "creator_name": creator,
-            "residency_villa": "Santos Nomad Creative Villa",
-            "duration": "1-Month Funded Residency",
-            "stipend": "€1,200/mo + Studio Space",
-            "community_votes": 62,
-            "message": f"💎 Creator Residency Awarded! {creator} funded for 1 month at Santos Nomad Villa (€1,200 stipend)."
-        }
+    def culture_residency_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it granted a residency to a creator who does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("craft", "") or "").strip() or str(body.get("creator_name", "") or "").strip() or "residency"
+        return {**_synergy_match(request, body, activity, "Culture"), "activity": activity}
 
     @router.post("/ai/outing-butler")
     def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
@@ -3317,96 +3361,95 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/housing/nomad-house-swap")
-    def nomad_house_swap_exchange_endpoint(request: Request, body: dict):
-        home_city = body.get("home_city", "Lisbon (Alfama Flat)").strip()
-        destination_city = body.get("destination_city", "Tokyo (Shibuya Loft)").strip()
-        return {
-            "swap_confirmed": True,
-            "home_city": home_city,
-            "destination_city": destination_city,
-            "duration": "14 Days (Oct 1 - Oct 15)",
-            "trust_verification": "KYC Verified + €50,000 Host Shield",
-            "cost_saved": "€1,850.00 Saved!",
-            "message": f"🌍 House Swap Confirmed! Swapped {home_city} for {destination_city} (€1,850 saved at €0 cost)!"
-        }
+    def housing_house_swap_endpoint(request: Request, body: dict):
+        """A swap is a mirror: what you offer against what they want, both ways.
+
+        Used to return `swap_confirmed: True` between two cities, with no counterpart. Matching on the words two people share would pair two people
+        who need the same thing and can give each other nothing.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        offering = str(body.get("home_city", "") or "").strip()
+        seeking = str(body.get("destination_city", "") or "").strip()
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "House Swap",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (offering and seeking):
+            return {"matched": False, "people": [], "people_count": 0,
+                    "category": "House Swap",
+                    "suggestion": "What are you offering, and what are you after?"}
+        return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                             learn=seeking, viewer_id=viewer_id)),
+                "category": "House Swap"}
 
     @router.post("/culture/secret-comedy")
-    def secret_comedy_speakeasy_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Alfama Cellar Speakeasy").strip()
-        return {
-            "comedy_booked": True,
-            "venue": venue,
-            "show_time": "Tonight @ 9:00 PM",
-            "capacity": "Intimate 25-Seat Cellar",
-            "lineup": ["Sammy R. (Stand-Up)", "Claire T. (Improv)", "Lucas M. (Host)"],
-            "secret_passcode": "SPEAKEASY-7741",
-            "message": f"🎭 Secret Comedy Speakeasy Confirmed! Secret Passcode 'SPEAKEASY-7741' unlocked for {venue} tonight @ 9 PM."
-        }
+    def culture_comedy_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it sold you a seat at a secret show. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "comedy"
+        return {**_synergy_match(request, body, activity, "Culture"), "activity": activity}
 
     @router.post("/dining/market-cookoff")
-    def farmers_market_cookoff_endpoint(request: Request, body: dict):
-        market = body.get("market", "Mercado da Ribeira Organic Farmers Market").strip()
-        return {
-            "cookoff_crew_joined": True,
-            "market_name": market,
-            "crew_size": 8,
-            "meeting_time": "Sunday @ 10:00 AM",
-            "menu_vibe": "Communal Shakshuka & Fresh Sourdough Brunch",
-            "split_cost": "€6.50 / person",
-            "message": f"🍳 Market & Cook-Off Crew Confirmed! 8 food lovers meeting {market} Sunday @ 10 AM (€6.50 split)!"
-        }
+    def dining_cookoff_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it confirmed a cook-off with invented teams. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("market", "") or "").strip() or "cook-off"
+        return {**_synergy_match(request, body, activity, "Food & Drink"), "activity": activity}
 
     @router.post("/outdoors/sunset-sailing")
-    def sunset_sailing_catamaran_endpoint(request: Request, body: dict):
-        harbor = body.get("harbor", "Belém Marina (Lisbon)").strip()
-        return {
-            "sailing_charter_confirmed": True,
-            "harbor": harbor,
-            "vessel": "40ft Lagoon Catamaran",
-            "departure": "Today @ 6:30 PM (Golden Hour)",
-            "passengers": 6,
-            "skipper_split": "€30.00 / person (€180 total)",
-            "message": f"⛵ Sunset Catamaran Co-Share Confirmed! 6 spots booked from {harbor} today @ 6:30 PM (€30 split)."
-        }
+    def outdoors_sailing_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it chartered a boat. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("harbor", "") or "").strip() or "sailing"
+        return {**_synergy_match(request, body, activity, "Outdoors"), "activity": activity}
 
     @router.post("/culture/silent-reading")
-    def silent_reading_vinyl_lounge_endpoint(request: Request, body: dict):
-        loft = body.get("loft", "Alfama Loft Vinyl & Book Lounge").strip()
-        return {
-            "reading_session_booked": True,
-            "loft": loft,
-            "session_time": "Today @ 4:00 PM (2 Hours)",
-            "vinyl_record_playing": "Bill Evans Trio - Sunday at the Village Vanguard (Original Vinyl)",
-            "attendees_count": 12,
-            "complimentary_tea": "Herbal Japanese Genmaicha",
-            "message": f"📚 Silent Reading Lounge Confirmed! 12 readers & vinyl records active at {loft} today @ 4 PM."
-        }
+    def culture_reading_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it confirmed a reading party at a named loft. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("loft", "") or "").strip() or "silent reading"
+        return {**_synergy_match(request, body, activity, "Culture"), "activity": activity}
 
     @router.post("/wellness/cold-plunge")
-    def sunrise_cold_plunge_squad_endpoint(request: Request, body: dict):
-        beach = body.get("beach", "Cais do Ginjal / Carcavelos").strip()
-        return {
-            "plunge_crew_joined": True,
-            "location": beach,
-            "meeting_time": "Tomorrow @ 7:00 AM (Sunrise)",
-            "water_temp": "15°C (Invigorating)",
-            "crew_size": 16,
-            "post_plunge_reward": "Hot Chocolate & Batch Brew @ Fabrica Coffee",
-            "message": f"☕ Sunrise Cold Plunge Squad Confirmed! 16 legends meeting at {beach} tomorrow @ 7 AM!"
-        }
+    def wellness_cold_plunge_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it scheduled a plunge with a named group at a named beach. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("beach", "") or "").strip() or "cold plunge"
+        return {**_synergy_match(request, body, activity, "Wellness"), "activity": activity}
 
     @router.post("/creatives/art-crawl")
-    def art_gallery_crawl_hop_endpoint(request: Request, body: dict):
-        district = body.get("district", "Santos Art & Design District").strip()
-        return {
-            "crawl_confirmed": True,
-            "district": district,
-            "stops_count": 4,
-            "tour_time": "Today @ 6:00 PM",
-            "featured_artists": ["Marta B. (Ceramics)", "Tomas P. (Oil Canvas)", "Inês C. (Sculpture)"],
-            "wine_pairing": "Complimentary Douro Natural Wine",
-            "message": f"🎨 Art Gallery Crawl Confirmed! 4 curated studios with wine tasting in {district} today @ 6 PM."
-        }
+    def creatives_art_crawl_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it routed a crawl through galleries it named itself. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("district", "") or "").strip() or "art crawl"
+        return {**_synergy_match(request, body, activity, "Creative"), "activity": activity}
 
     @router.post("/developers/api-keys")
     def developer_api_keys_provisioning_endpoint(request: Request, body: dict):
@@ -3452,44 +3495,37 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/wellness/sauna-social")
-    def sauna_cold_plunge_social_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Alfama Nordic Sauna & Bathhouse").strip()
-        return {
-            "sauna_session_confirmed": True,
-            "venue": venue,
-            "session_time": "Today @ 6:00 PM (90 Mins)",
-            "temperature_profile": "90°C Finnish Dry Sauna + 4°C Ice Bath",
-            "participants_count": 8,
-            "breathwork_guide": "Guided Box Breathing by Elena S.",
-            "message": f"🧖 Nordic Sauna Social Confirmed! 8 members booked for contrast therapy at {venue} today @ 6 PM."
-        }
+    def wellness_sauna_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it booked a sauna nobody booked. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "sauna"
+        return {**_synergy_match(request, body, activity, "Wellness"), "activity": activity}
 
     @router.post("/economy/plant-swap")
-    def neighborhood_plant_seed_swap_endpoint(request: Request, body: dict):
-        park = body.get("park", "Jardim da Estrela Community Greenhouse").strip()
-        return {
-            "plant_swap_joined": True,
-            "location": park,
-            "meeting_time": "Saturday @ 11:00 AM",
-            "items_to_trade": ["Variegated Monstera Cuttings", "Heirloom Tomato Seeds", "Terracotta Planters"],
-            "attendees_count": 14,
-            "cost": "€0.00 (Zero-Waste Barter)",
-            "message": f"🪴 Neighborhood Plant Swap Joined! 14 green thumbs meeting at {park} Saturday @ 11 AM (€0 barter)!"
-        }
+    def economy_plant_swap_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it counted cuttings nobody swapped. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("park", "") or "").strip() or "plant swap"
+        return {**_synergy_match(request, body, activity, "Swaps & Sharing"), "activity": activity}
 
     @router.post("/dining/wine-tasting")
-    def rooftop_natural_wine_tasting_endpoint(request: Request, body: dict):
-        rooftop = body.get("rooftop", "Miradouro Rooftop Terrace").strip()
-        return {
-            "tasting_confirmed": True,
-            "rooftop": rooftop,
-            "session_time": "Tonight @ 8:00 PM",
-            "wine_selection": "4 Portuguese Pet-Nats & Orange Biodynamics",
-            "pairing": "Artisanal Sheep & Goat Cheeses with Sourdough",
-            "group_size": 8,
-            "split_cost": "€18.00 / person",
-            "message": f"🍷 Natural Wine Tasting Confirmed! 8 members tasting 4 orange pet-nats at {rooftop} tonight @ 8 PM (€18 split)."
-        }
+    def dining_wine_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reserved a rooftop tasting with a named sommelier. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("rooftop", "") or "").strip() or "wine tasting"
+        return {**_synergy_match(request, body, activity, "Food & Drink"), "activity": activity}
 
     @router.post("/native/app-store-manifest")
     def native_app_store_manifest_endpoint(request: Request, body: dict):
@@ -3766,61 +3802,48 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.post("/hobbies/sports-outdoors")
-    def sports_outdoors_hobby_hub_endpoint(request: Request, body: dict):
-        category = body.get("category", "Bouldering & Padel").strip()
-        return {
-            "hobby_feed_synced": True,
-            "category": "Sports & Outdoor Adventures",
-            "active_activities": [
-                {"title": "🧗 V4-V7 Boulder Problem Solving Session", "venue": "Escala25 Lisboa", "time": "Today @ 6:30 PM", "crew": 6},
-                {"title": "🎾 Padel 4th Player Matcher (Intermediate 3.5)", "venue": "Padel Campo Grande", "time": "Tomorrow @ 7:00 PM", "crew": 4},
-                {"title": "🚴 45km Gravel Peloton Coastal Ride", "venue": "Cascais Bike Path", "time": "Saturday @ 8:00 AM", "crew": 12},
-                {"title": "🤿 Ocean Scuba & Free-Dive Buddy Match", "venue": "Sesimbra Marine Reserve", "time": "Sunday @ 9:00 AM", "crew": 4}
-            ],
-            "message": f"🧗 Sports & Outdoors Hub Synced! 4 active sessions live across climbing, padel, cycling & diving."
-        }
+    def hobbies_sports_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("category", "") or "").strip() or str(body.get("sport", "") or "").strip() or "sport"
+        return {**_synergy_match(request, body, activity, "Sports & Outdoors"), "activity": activity}
 
     @router.post("/hobbies/creative-making")
-    def creative_making_hobby_hub_endpoint(request: Request, body: dict):
-        return {
-            "hobby_feed_synced": True,
-            "category": "Creative Arts, Crafts & Making",
-            "active_activities": [
-                {"title": "🏺 Pottery Wheel Throwing & Glazing Open Studio", "venue": "Santos Ceramic Loft", "time": "Tonight @ 6:00 PM", "materials_included": True},
-                {"title": "📸 35mm B&W Darkroom Film Developing Lab", "venue": "Alfama Analog Collective", "time": "Thursday @ 7:00 PM", "materials_included": True},
-                {"title": "✏️ Life Drawing & Sourdough Sketch Session", "venue": "Bica Art Atelier", "time": "Friday @ 6:30 PM", "materials_included": True},
-                {"title": "🪵 Japanese Woodworking & Joinery Intro", "venue": "Mouraria Maker Space", "time": "Saturday @ 11:00 AM", "materials_included": True}
-            ],
-            "message": f"🎨 Creative Arts & Making Hub Synced! 4 studio sessions live across ceramics, darkroom, drawing & woodcraft."
-        }
+    def hobbies_creative_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("craft", "") or "").strip() or "making"
+        return {**_synergy_match(request, body, activity, "Creative & Making"), "activity": activity}
 
     @router.post("/hobbies/gaming-strategy")
-    def gaming_strategy_hobby_hub_endpoint(request: Request, body: dict):
-        return {
-            "hobby_feed_synced": True,
-            "category": "Board Games, Chess & Strategy",
-            "active_activities": [
-                {"title": "♟️ Sunny Park Blitz & Rapid Chess Meetup", "venue": "Jardim da Estrela Kiosk", "time": "Today @ 4:30 PM", "boards_provided": 10},
-                {"title": "🎲 Settlers of Catan & Dune Strategy Night", "venue": "GameCraft Board Game Lounge", "time": "Tomorrow @ 7:30 PM", "tables_active": 6},
-                {"title": "🐉 Dungeons & Dragons (D&D 5e) 1-Shot Quest", "venue": "The Guildhall Tavern", "time": "Friday @ 7:00 PM", "dm_lead": "Marcus (Level 12 DM)"},
-                {"title": "⌨️ Custom Mechanical Keyboard Switch Modding", "venue": "Lisbon Tech Hacker Loft", "time": "Saturday @ 2:00 PM", "tools_provided": True}
-            ],
-            "message": f"♟️ Strategy & Gaming Hub Synced! 4 meetups active across park chess, Catan, D&D & keyboard modding."
-        }
+    def hobbies_gaming_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("game", "") or "").strip() or "gaming"
+        return {**_synergy_match(request, body, activity, "Gaming & Strategy"), "activity": activity}
 
     @router.post("/hobbies/culinary-craft")
-    def culinary_craft_hobby_hub_endpoint(request: Request, body: dict):
-        return {
-            "hobby_feed_synced": True,
-            "category": "Culinary, Fermentation & Specialty Brews",
-            "active_activities": [
-                {"title": "🍞 Wild Sourdough Starter & Loaf Swap", "venue": "Ribeira Baker Collective", "time": "Sunday @ 10:30 AM", "starters_to_trade": 8},
-                {"title": "☕ Geisha & Natural Ethiopian Cupping Flight", "venue": "Fabrica Specialty Roastery", "time": "Saturday @ 10:00 AM", "coffees_tasted": 6},
-                {"title": "🥬 Kimchi & Kombucha Fermentation Circle", "venue": "Santos Community Kitchen", "time": "Wednesday @ 6:30 PM", "jars_provided": True},
-                {"title": "🍕 Wood-Fired Neapolitan Pizza Making Jam", "venue": "Graça Rooftop Oven", "time": "Friday @ 7:30 PM", "dough_included": True}
-            ],
-            "message": f"🍳 Culinary & Craft Brewing Hub Synced! 4 workshops active across sourdough, coffee cupping, kimchi & pizza."
-        }
+    def hobbies_culinary_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("dish", "") or "").strip() or "cooking"
+        return {**_synergy_match(request, body, activity, "Culinary Craft"), "activity": activity}
 
     @router.post("/events/landmark-radar")
     def landmark_mega_festival_radar_endpoint(request: Request, body: dict):
@@ -4368,68 +4391,48 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/impact/regenerative-earth")
-    def regenerative_earth_eco_quests_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "eco_quests_active": True,
-            "city": city,
-            "collective_city_impact": {
-                "plastic_removed_kg": 4820,
-                "trees_and_pollinators_planted": 1240,
-                "active_clean_crews": 18
-            },
-            "spontaneous_eco_quests": [
-                {"title": "Arthur's Seat 2-Minute Trail Sweep", "reward": "Eco-Karma +50", "crew": "Sunday Trail Runners (14 people)"},
-                {"title": "Portobello Coastal Microplastic Sift", "reward": "Free Hot Filter Coffee @ Beach Shack", "crew": "Morning Swimmers"},
-                {"title": "Meadows Community Wildflower Seed Bombing", "reward": "Pollinator Steward Badge", "crew": "Neighborhood Gardeners"}
-            ],
-            "message": f"🌱 Regenerative Earth Hub Synced for {city}! 4,820 kg plastic cleaned & 1,240 native trees planted collectively."
-        }
+    def impact_regenerative_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reported trees nobody planted. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or "rewilding"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/impact/zero-waste-pantry")
-    def zero_waste_communal_pantry_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "pantry_synced": True,
-            "city": city,
-            "meals_rescued_this_month": 340,
-            "available_rescued_delicacies": [
-                {"item": "Freshly Baked Organic Sourdough Boules (4x)", "donor": "Stockbridge Artisan Bakery", "availability": "Free pickup in next 45 mins"},
-                {"item": "Farm-Fresh Organic Heirloom Greens & Veg", "donor": "Saturday Market Stall", "availability": "Open Community Box @ Custom House"},
-                {"item": "Warm Homemade Veggie Curry (6 Portions)", "donor": "Chef Marcus (Supper Club Surplus)", "availability": "Bring your own container"}
-            ],
-            "message": f"🍲 Zero-Waste Food Sharing Synced for {city}! 340 meals rescued this month & shared with neighbors."
-        }
+    def impact_pantry_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reported meals nobody rescued. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or "food rescue"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/impact/compassion-listener-network")
-    def compassion_peer_listener_network_endpoint(request: Request, body: dict):
-        vibe = body.get("vibe", "Feeling Overwhelmed & Seeking a Gentle Ear").strip()
-        return {
-            "listener_network_ready": True,
-            "matched_peer_listener": {
-                "name": "Sarah (Certified Compassionate Listener)",
-                "experience": "4 years active listening & empathetic counseling",
-                "format": "Warm Voice Call or Quiet Botanical Garden Tea Walk",
-                "wait_time": "Under 3 minutes",
-                "cost": "100% Free & Stigma-Free Community Support"
-            },
-            "message": "🧠 Mental Health Sanctuary & Peer Listener Network Active! Immediate empathetic human presence with zero stigma."
-        }
+    def impact_listener_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it matched you with a trained listener; there is no training or vetting here. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("vibe", "") or "").strip() or "listening"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/impact/intergenerational-guild")
-    def intergenerational_mentorship_guild_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "guild_synced": True,
-            "city": city,
-            "active_exchanges": [
-                {"elder": "Arthur (74, Master Carpenter)", "young_learner": "Liam (22, Student)", "exchange": "Japanese Dovetail Joinery ⇄ iPad Digital Illustration"},
-                {"elder": "Margaret (68, Sourdough & Fermenter)", "young_learner": "Chloe (26, Designer)", "exchange": "Traditional Fermentation ⇄ Smart Home & Music Setup"},
-                {"elder": "Hamish (71, Chess Master)", "young_learner": "Noor (19, Coder)", "exchange": "Endgame Tactics ⇄ Python Game Coding"}
-            ],
-            "community_impact": "Dissolving age-based isolation and weaving intergenerational lifelong friendships.",
-            "message": f"🕊️ Intergenerational Mentorship Guild Synced for {city}! 3 active elder-youth wisdom exchanges creating deep community bonds."
-        }
+    def impact_guild_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it paired you with an elder who does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or str(body.get("skill", "") or "").strip() or "guild"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/os/master-controller")
     def universal_master_controller_endpoint(request: Request, body: dict):
@@ -4661,215 +4664,48 @@ def build_router(auth) -> APIRouter:
                                              refresh=bool(body.get("refresh"))))
 
     @router.post("/nightlife/party-radar")
-    def nightlife_party_and_club_radar_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            clubs = [
-                {
-                    "name": "🔥 Blitz Club (VOID Sound System)",
-                    "genre": "Deep Techno, House & Open-Air River Terrace",
-                    "timing": "Tonight 23:00 – 08:00",
-                    "location": "Museumsinsel / Isar Riverbank",
-                    "insider_tip": "World's most advanced acoustic sound treatment; open-air terrace overlooking Isar rapids",
-                    "door_policy": "Relaxed vibe, no photos on dancefloor",
-                    "queue_status": "Fast-Pass Lane Available"
-                },
-                {
-                    "name": "🚂 Bahnwärter Thiel (Alternative Wonderland)",
-                    "genre": "Electronic, Live Modular, Global Grooves & Bonfires",
-                    "timing": "Tonight 20:00 – Late",
-                    "location": "Viehhof / Schlachthofviertel",
-                    "insider_tip": "Stacked shipping containers, vintage subway cars, open-air fire pits & hidden DJ booths",
-                    "door_policy": "Eclectic, creative & open to all",
-                    "queue_status": "Express Entry Open"
-                },
-                {
-                    "name": "⚡ Rote Sonne (Basement Underground)",
-                    "genre": "Hypnotic Techno, Electro & Acid",
-                    "timing": "Tonight 23:30 – 07:00",
-                    "location": "Maximiliansplatz Basement",
-                    "insider_tip": "Intimate dark basement room with analog strobe array",
-                    "door_policy": "Dance-first atmosphere",
-                    "queue_status": "Guestlist Pre-Check In"
-                }
-            ]
-        elif "edinburgh" in city_lower:
-            clubs = [
-                {
-                    "name": "🔥 Sneaky Pete's (Legendary 100-Cap Sweatbox)",
-                    "genre": "Underground House, Techno & Indie Electro",
-                    "timing": "Tonight 23:00 – 03:00",
-                    "location": "Cowgate Old Town",
-                    "insider_tip": "Resident Advisor top-rated intimate sweatbox with unmatched energy",
-                    "door_policy": "Intimate & high energy",
-                    "queue_status": "Fast-Pass Active"
-                },
-                {
-                    "name": "⚡ Cabaret Voltaire (Subterranean Stone Caverns)",
-                    "genre": "Tech-House & Deep Underground Bass",
-                    "timing": "Tonight 22:30 – 03:00",
-                    "location": "Blair Street Vaults",
-                    "insider_tip": "Ancient 18th-century vaulted stone chambers with two sound zones",
-                    "door_policy": "Casual, friendly & vibrant",
-                    "queue_status": "Express Vault Entry"
-                },
-                {
-                    "name": "🎪 The Bongo Club (Midnight Bass & Soul)",
-                    "genre": "Afrobeat, UK Bass, Funk & Drum & Bass",
-                    "timing": "Tonight 23:00 – 03:00",
-                    "location": "Cowgate Central",
-                    "insider_tip": "Non-profit arts & sound venue run by creative community",
-                    "door_policy": "Welcoming & diverse",
-                    "queue_status": "Pre-Reserved Table"
-                }
-            ]
-        else:
-            clubs = [
-                {
-                    "name": "🔥 Lux Frágil (Waterfront River Giant)",
-                    "genre": "World-Class House, Disco & Minimal",
-                    "timing": "Tonight 23:30 – 06:00",
-                    "location": "Santa Apolónia Waterfront",
-                    "insider_tip": "Iconic rooftop terrace facing sunrise over Tagus river",
-                    "door_policy": "Dress creative & confident",
-                    "queue_status": "VIP Terrace Sync"
-                },
-                {
-                    "name": "⚡ Ministerium Club",
-                    "genre": "Raw Industrial Techno",
-                    "timing": "Tonight 00:00 – 07:00",
-                    "location": "Praça do Comércio Arches",
-                    "insider_tip": "Historical arched warehouse with bone-shaking sound system",
-                    "door_policy": "Underground focus",
-                    "queue_status": "Fast-Track Guestlist"
-                }
-            ]
-        return {
-            "nightlife_radar_active": True,
-            "city": city,
-            "curated_clubs_and_parties": clubs,
-            "message": f"🔥 Nightlife & Party Radar Synced for {city}! {len(clubs)} top verified underground clubs & warehouse sessions ready."
-        }
+    def nightlife_party_radar_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed four parties with invented headliners and door times. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or "nightlife"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/nightlife/secret-speakeasies")
-    def secret_speakeasy_bars_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            bars = [
-                {
-                    "name": "🍸 Bar Salon Pauli (Telephone Booth Entrance)",
-                    "entrance": "Step inside vintage red phone booth in Maxvorstadt and dial 4-digit code",
-                    "vibe": "Velvet banquettes, low candlelight, bespoke Japanese highballs & bourbon",
-                    "address": "Maxvorstadt Secret Alley",
-                    "code_of_conduct": "Discreet, no flash photography"
-                },
-                {
-                    "name": "🧪 Zephyr Bar (Avant-Garde Molecular Mixology)",
-                    "entrance": "Unmarked wooden door next to art bookstore",
-                    "vibe": "Infused spirits, botanical smoke bubbles, world-class cocktail artistry",
-                    "address": "Müllerstraße (Glockenbachviertel)",
-                    "code_of_conduct": "Intimate seating only"
-                },
-                {
-                    "name": "🏛️ Goldene Bar Terrace (Colonnade Sunset Cocktails)",
-                    "entrance": "Rear colonnade terrace of Haus der Kunst overlooking the park",
-                    "vibe": "1930s gilded murals, live bossa nova vinyl, fresh mint juleps in sunset breeze",
-                    "address": "Prinzregentenstraße 1",
-                    "code_of_conduct": "Open-air sunset chic"
-                }
-            ]
-        elif "edinburgh" in city_lower:
-            bars = [
-                {
-                    "name": "🍸 Panda & Sons (Barbershop Bookcase Entrance)",
-                    "entrance": "Walk into vintage barbershop, pull the secret false bookcase to descend",
-                    "vibe": "1920s Prohibition speakeasy, sub-zero freeze distilled cocktail alchemy",
-                    "address": "79 Queen Street",
-                    "code_of_conduct": "Cocktail enthusiasts"
-                },
-                {
-                    "name": "🧪 Bramble Bar (Unmarked Basement Brass Plaque)",
-                    "entrance": "Descend stone steps beneath dry cleaners; look for tiny brass 82A plaque",
-                    "vibe": "Low stone ceilings, hip-hop vinyl, world-renowned gin & botanical cocktails",
-                    "address": "16A Queen Street Basement",
-                    "code_of_conduct": "Cozy and buzzin"
-                },
-                {
-                    "name": "🔮 Hoot The Redeemer (Fortune Teller Coin Entrance)",
-                    "entrance": "Insert arcade token into vintage mechanical fortune teller to open heavy door",
-                    "vibe": "Victorian funfair underworld, alcoholic boozy ice cream & bourbon slushies",
-                    "address": "7 Hanover Street Sub-Basement",
-                    "code_of_conduct": "Playful and spirited"
-                }
-            ]
-        else:
-            bars = [
-                {
-                    "name": "🍸 Red Frog Speakeasy (Hidden Frog Buzzer)",
-                    "entrance": "Press secret buzzer on antique gold frog statue beside heavy wooden door",
-                    "vibe": "Dimly lit speakeasy with clandestine cellar room",
-                    "address": "Praça da Alegria",
-                    "code_of_conduct": "Ring and whisper password"
-                },
-                {
-                    "name": "🕯️ Foxtrot (Art Deco Doorbell Den)",
-                    "entrance": "Ring vintage brass doorbell; peephole opens to inspect guest",
-                    "vibe": "Stained glass, grandfather clocks, roaring fireplace & craft beer",
-                    "address": "Rua Nova da Piedade",
-                    "code_of_conduct": "Classic bohemian"
-                }
-            ]
-        return {
-            "speakeasies_active": True,
-            "city": city,
-            "secret_cocktail_dens": bars,
-            "message": f"🍸 Secret Speakeasy & Cocktail Bar Radar Synced for {city}! {len(bars)} hidden doors & entrance passcodes unlocked."
-        }
+    def nightlife_speakeasies_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it handed out a door password for a bar that does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("password", "") or "").strip() or "speakeasy"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/nightlife/guestlist-vip")
-    def nightlife_fastpass_guestlist_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Blitz Club").strip()
-        crew_size = int(body.get("crew_size", 2))
-        return {
-            "guestlist_confirmed": True,
-            "venue": venue,
-            "crew_size": crew_size,
-            "fastpass_code": "CONNECT-VIP-882",
-            "entry_curfew": "Before 01:00 AM for guaranteed queue bypass",
-            "perks_included": [
-                "Queue-Bypass Fast Lane Entrance",
-                "Complimentary Welcome Highball / Club-Mate",
-                "Auto-Split Tab across Squad Ledger"
-            ],
-            "message": f"🎟️ Fast-Pass Guestlist & Queue Bypass Confirmed for {venue} ({crew_size} guests)! Show badge at VIP door."
-        }
+    def nightlife_guestlist_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it confirmed a guestlist spot; there is no venue integration to confirm one with. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "guestlist"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/nightlife/crew-pregame")
-    def pregame_crew_and_safe_walk_endpoint(request: Request, body: dict):
-        destination = body.get("destination", "Blitz Club").strip()
-        city = body.get("city", "Munich").strip()
-        return {
-            "pregame_squad_matched": True,
-            "destination": destination,
-            "city": city,
-            "pregame_gathering": {
-                "venue": "Gärtnerplatz Terrace & Spriz Pop-Up",
-                "time": "Tonight 21:15",
-                "squad": [
-                    {"name": "Lukas (Techno Enthusiast)", "vibe": "Going to Blitz · Trust 98"},
-                    {"name": "Sophie (Sound Designer)", "vibe": "Loves VOID sound system · Trust 96"},
-                    {"name": "Jan (Photographer)", "vibe": "Local guide · Trust 95"}
-                ]
-            },
-            "safewalk_home_escort": {
-                "status": "ARMED_FOR_0400_AM",
-                "buddy": "Lukas (Lives 3 blocks from your place)",
-                "live_gps_radar": "Active in background with 1-tap SOS"
-            },
-            "message": f"🍻 Pre-Game Squad & SafeWalk Home Escort Synced for {destination}! Meeting at 21:15 before heading to the club."
-        }
+    def nightlife_pregame_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it assembled a pregame crew out of names. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("destination", "") or "").strip() or "pregame"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/journal/daily-reflection-synthesis")
     def daily_reflection_synthesis_endpoint(request: Request, body: dict):
@@ -4991,61 +4827,15 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         }
 
     @router.post("/workshops/micro-masterclasses")
-    def micro_masterclasses_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            classes = [
-                {
-                    "title": "📷 35mm Analog Street Photography Walk",
-                    "mentor": "Hanna (Leica Master & Street Photographer)",
-                    "schedule": "Saturday 14:00 (60 mins)",
-                    "location": "Maxvorstadt Architecture Quarter",
-                    "capacity": "6 spots (2 remaining)",
-                    "vibe": "Manual exposure, framing light & shadow on stone colonnades"
-                },
-                {
-                    "title": "🍞 Wild Sourdough Fermentation Science",
-                    "mentor": "Florian (Artisan Baker)",
-                    "schedule": "Sunday 10:30 (75 mins)",
-                    "location": "Schwabing Artisan Hearth",
-                    "capacity": "8 spots (Sold Out / Waitlist Open)",
-                    "vibe": "Hydration percentages, wild starter microbiology & scoring techniques"
-                },
-                {
-                    "title": "❄️ Isar Alpine Cold Plunge & Wim Hof Breathwork",
-                    "mentor": "Dr. Markus (Sports Physiologist)",
-                    "schedule": "Wednesday 07:00 (45 mins)",
-                    "location": "Flaucher River Pebble Bank",
-                    "capacity": "12 spots (Open drop-in)",
-                    "vibe": "Vagus nerve activation, box breathing & ice-cold river immersion"
-                }
-            ]
-        else:
-            classes = [
-                {
-                    "title": "📷 35mm Analog Photography & Darkroom Print",
-                    "mentor": "Catriona (Edinburgh Darkroom Guild)",
-                    "schedule": "Saturday 14:00 (60 mins)",
-                    "location": "Leith Shore Loft",
-                    "capacity": "6 spots (1 remaining)",
-                    "vibe": "Silver halide exposure & black & white chemistry"
-                },
-                {
-                    "title": "☕ Single-Origin Cupping & Sensory Chemistry",
-                    "mentor": "Alasdair (Head Roaster)",
-                    "schedule": "Sunday 11:00 (60 mins)",
-                    "location": "Stockbridge Roastery",
-                    "capacity": "8 spots (3 remaining)",
-                    "vibe": "Altitude, washed vs anaerobic fermentation cupping flight"
-                }
-            ]
-        return {
-            "workshops_active": True,
-            "city": city,
-            "micro_masterclasses": classes,
-            "message": f"🤝 {len(classes)} Verified Neighborhood Micro-Masterclasses Synced for {city}! 60-min high-impact craft sessions."
-        }
+    def workshops_masterclass_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it scheduled a masterclass with a named tutor. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("skill", "") or "").strip() or str(body.get("city", "") or "").strip() or "masterclass"
+        return {**_synergy_match(request, body, activity, "Workshops"), "activity": activity}
 
     @router.post("/travel/layover-discovery")
     def travel_layover_discovery_endpoint(request: Request, body: dict):
@@ -5096,43 +4886,37 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         }
 
     @router.post("/festivals/solo-camp-crew")
-    def match_solo_festival_camp_crew_endpoint(request: Request, body: dict):
-        festival_name = body.get("festival_name", "Boom Festival 🎪").strip()
-        return {
-            "matched": True,
-            "festival_name": festival_name,
-            "camp_village": "Solo Adventurers Camp Village #4",
-            "crew_size": 12,
-            "village_lead": "Alex M. (3rd Time Fest Host)",
-            "amenities": ["Shared Shade Canopy", "Group Kitchen & Chill Hammocks", "Daily Sunset Pre-Rave"],
-            "message": f"⛺ Solo Camp Village Matched! Joined '{festival_name}' Solo Camp Village #4 with 12 solo legends!"
-        }
+    def festivals_camp_crew_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it placed you in a camp with four named people. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("festival_name", "") or "").strip() or "camping"
+        return {**_synergy_match(request, body, activity, "Festivals"), "activity": activity}
 
     @router.post("/festivals/carpool-split")
-    def festival_carpool_split_endpoint(request: Request, body: dict):
-        festival_name = body.get("festival_name", "Primavera Sound").strip()
-        return {
-            "matched": True,
-            "festival_name": festival_name,
-            "driver": "Marcus T.",
-            "seats_available": 2,
-            "departure_time": "Friday @ 10:00 AM from Lisbon",
-            "fuel_cost_per_person": "€12.50",
-            "message": f"🚗 Festival Carpool Matched! Ride set with Marcus T. to '{festival_name}' (€12.50 split fuel)."
-        }
+    def festivals_carpool_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it filled a car with passengers and split a fuel cost between them. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("festival_name", "") or "").strip() or "carpool"
+        return {**_synergy_match(request, body, activity, "Festivals"), "activity": activity}
 
     @router.post("/festivals/stage-flare")
-    def drop_festival_stage_flare_endpoint(request: Request, body: dict):
-        stage_name = body.get("stage_name", "Main Stage (Left Speaker Stack)").strip()
-        set_name = body.get("set_name", "Bicep Live Set 🎵").strip()
-        return {
-            "flare_dropped": True,
-            "stage_name": stage_name,
-            "set_name": set_name,
-            "live_pin": "GPS-STAGE-FLARE-99",
-            "active_crew_notified": 8,
-            "message": f"🚩 Festival Stage Flare Dropped! Active crew notified: '{set_name}' at {stage_name} 📍"
-        }
+    def festivals_stage_flare_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it flared your position to a crew that was not there. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("stage_name", "") or "").strip() or str(body.get("set_name", "") or "").strip() or "festival"
+        return {**_synergy_match(request, body, activity, "Festivals"), "activity": activity}
 
     @router.post("/travel/layover-buddy")
     def airport_layover_buddy_endpoint(request: Request, body: dict):
@@ -5162,15 +4946,15 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
                 "gym_name": gym}
 
     @router.post("/pets/dog-walk-crew")
-    def dog_park_walk_crew_endpoint(request: Request, body: dict):
-        park_name = body.get("park", "Jardim da Estrela Dog Park").strip()
-        return {
-            "matched": True,
-            "park": park_name,
-            "crew_dogs_count": 6,
-            "meeting_time": "Today @ 5:30 PM",
-            "message": f"🐶 Dog Pack Walk Matched! 6 local dogs & owners meeting at {park_name} today @ 5:30 PM!"
-        }
+    def pets_dog_walk_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it assembled a walking group out of dog names. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("park", "") or "").strip() or "dog walk"
+        return {**_synergy_match(request, body, activity, "Pets"), "activity": activity}
 
     @router.post("/synergy/language-swap")
     def peer_language_swap_endpoint(request: Request, body: dict):
@@ -5196,82 +4980,98 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
                                           learn=learn_lang, viewer_id=viewer_id))
 
     @router.post("/housing/co-living-match")
-    def coliving_housemate_matcher_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        budget = body.get("budget", "€900/mo").strip()
-        return {
-            "matched": True,
-            "city": city,
-            "villa_name": "Santos Nomad Creative Villa",
-            "housemates_count": 4,
-            "compatibility_score": 96,
-            "amenities": ["Rooftop Terrace", "High-Speed Fiber", "Weekly Family Dinners"],
-            "message": f"🏡 Co-Living Match Found in {city}! Joined Santos Nomad Villa with 4 verified housemates (96% Vibe Match)!"
-        }
+    def housing_coliving_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it moved you into Santos Nomad Villa with four verified housemates. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or str(body.get("budget", "") or "").strip() or "co-living"
+        return {**_synergy_match(request, body, activity, "Housing"), "activity": activity}
 
     @router.post("/dining/supper-club")
-    def neighborhood_supper_club_endpoint(request: Request, body: dict):
-        cuisine = body.get("cuisine", "Mediterranean Tapas & Natural Wine").strip()
-        return {
-            "rsvp_confirmed": True,
-            "cuisine": cuisine,
-            "host_name": "Chef Lucas V.",
-            "guests_count": 6,
-            "location": "Alfama Secret Terrace",
-            "price_per_person": "€22.00",
-            "message": f"🍲 Neighborhood Supper Club RSVP Confirmed! 6-guest dinner hosted by Chef Lucas V. in Alfama (€22 split)."
-        }
+    def dining_supper_club_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it RSVP'd you to a supper club hosted by Chef Lucas V.. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("cuisine", "") or "").strip() or "supper club"
+        return {**_synergy_match(request, body, activity, "Food & Drink"), "activity": activity}
 
     @router.post("/wellness/digital-detox")
-    def digital_detox_lounge_endpoint(request: Request, body: dict):
-        duration = body.get("duration", "2-Hour Phone-Free Deep Reading").strip()
-        return {
-            "session_joined": True,
-            "duration": duration,
-            "venue": "Chiado Silent Botanical Garden",
-            "attendees_count": 8,
-            "phone_lockbox_code": "DETOX-4892",
-            "message": f"🧘 Digital Detox Lounge Reserved! 2-Hour Phone-Free Silent Reading Session at Chiado Botanical Garden."
-        }
+    def wellness_detox_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it joined a detox session that did not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("duration", "") or "").strip() or "digital detox"
+        return {**_synergy_match(request, body, activity, "Wellness"), "activity": activity}
 
     @router.post("/economy/barter-swap")
-    def circular_barter_swap_endpoint(request: Request, body: dict):
-        offering = body.get("offering", "1-Hour Surf Lesson").strip()
-        seeking = body.get("seeking", "Portuguese Conversation Practice").strip()
-        return {
-            "swapped": True,
-            "offering": offering,
-            "seeking": seeking,
-            "match_partner": "Tiago K.",
-            "swap_id": "BARTER-8821",
-            "cash_saved": "€45.00",
-            "message": f"🔄 Barter Swap Agreed! Trading '{offering}' for '{seeking}' with Tiago K. (€45 cash saved!)."
-        }
+    def economy_barter_endpoint(request: Request, body: dict):
+        """A swap is a mirror: what you offer against what they want, both ways.
+
+        Used to return `swapped: True` for any pair of strings, with nobody on the other side. Matching on the words two people share would pair two people
+        who need the same thing and can give each other nothing.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        offering = str(body.get("offering", "") or "").strip()
+        seeking = str(body.get("seeking", "") or "").strip()
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "Barter",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (offering and seeking):
+            return {"matched": False, "people": [], "people_count": 0,
+                    "category": "Barter",
+                    "suggestion": "What are you offering, and what are you after?"}
+        return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                             learn=seeking, viewer_id=viewer_id)),
+                "category": "Barter"}
 
     @router.post("/economy/community-borrow")
-    def community_borrow_library_endpoint(request: Request, body: dict):
-        item_name = body.get("item", "2-Person Camping Tent & Sleeping Bags").strip()
-        return {
-            "borrowed": True,
-            "item_name": item_name,
-            "owner_name": "Sarah L.",
-            "pickup_location": "Santos Neighborhood Hub",
-            "return_by": "Sunday @ 8:00 PM",
-            "fee": "€0.00 (Zero-Waste Community Borrow)",
-            "message": f"♻️ Borrow Request Approved! Borrowing '{item_name}' from Sarah L. (Zero cost zero waste!)."
-        }
+    def economy_borrow_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it lent you a tent from a library of things that does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("item", "") or "").strip() or "borrow"
+        return {**_synergy_match(request, body, activity, "Swaps & Sharing"), "activity": activity}
 
     @router.post("/economy/time-bank")
-    def time_bank_tokens_endpoint(request: Request, body: dict):
-        service = body.get("service", "Helped neighbor fix bicycle chain").strip()
-        hours = body.get("hours", 1)
-        return {
-            "tokens_earned": hours,
-            "service": service,
-            "current_time_token_balance": 5,
-            "community_karma_bonus": "+25 Karma",
-            "message": f"🌱 Time Bank Credit! Earned {hours} Time Token for '{service}'. Total balance: 5 Tokens."
-        }
+    def economy_time_bank_endpoint(request: Request, body: dict):
+        """A swap is a mirror: what you offer against what they want, both ways.
+
+        Used to return credited you hours in a bank with no other members. Matching on the words two people share would pair two people
+        who need the same thing and can give each other nothing.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        offering = str(body.get("offering", "") or "").strip()
+        seeking = str(body.get("service", "") or "").strip()
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "Time Bank",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (offering and seeking):
+            return {"matched": False, "people": [], "people_count": 0,
+                    "category": "Time Bank",
+                    "suggestion": "What are you offering, and what are you after?"}
+        return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                             learn=seeking, viewer_id=viewer_id)),
+                "category": "Time Bank"}
 
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
