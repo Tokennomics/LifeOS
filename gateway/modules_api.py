@@ -3361,15 +3361,18 @@ def build_router(auth) -> APIRouter:
             item=body.get("item", "") or "coffee", note=body.get("note", ""))))
 
     @router.get("/vitals/social-wellness")
-    def get_social_wellness_analytics_endpoint(request: Request):
-        return {
-            "flourishing_score": 92,
-            "deep_connection_index": "95%",
-            "real_world_ratio": "85% Outings / 15% Screen Time",
-            "active_crew_size": 18,
-            "diversity_index": "High (5 activity verticals)",
-            "message": "📊 Social Wellness Index: 92/100 (Peak Real-World Connection & Flourishing)!"
-        }
+    def get_social_wellness_analytics_endpoint(request: Request, days: int = 30):
+        """What your last month contained. Counts, not indices.
+
+        Reported a `flourishing_score` of 92, a `deep_connection_index` of 95%, a
+        `real_world_ratio` of "85% Outings / 15% Screen Time" and an `active_crew_size` of
+        18 — every one a constant, on any account, including one created a second earlier.
+        This app measures no screen time and computes no flourishing.
+        """
+        from modules.personal import atlas
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: atlas.wellness(_graph(request), account_id=account_id,
+                                            days=days))
 
     @router.get("/monetization/venue-commissions")
     def get_venue_commission_breakdown_endpoint(request: Request):
@@ -4658,34 +4661,78 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/trust/web-of-trust")
     def web_of_trust_verification_endpoint(request: Request, body: dict):
-        target_user = body.get("target_user", "Elena Rostova").strip()
-        return {
-            "trust_verified": True,
-            "user": target_user,
-            "trust_score": "98/100 (Tier-1 Community Vouched)",
-            "vouching_chain": [
-                "Vouched by Marco (Co-Living Host, 14 verified dinners)",
-                "Vouched by Catriona (Ceramic Studio Master, 22 workshops)",
-                "3 Mutual Friends in ConnectOS Web of Trust"
-            ],
-            "privacy_standard": "Zero-Knowledge Proof (No phone number or government ID exposed)",
-            "community_status": "COMMUNITY_VERIFIED_BADGE",
-            "message": f"🤝 Cryptographic Web of Trust Verified for {target_user}! 3 mutual vouches confirm safety and respect without invasive KYC."
-        }
+        """Who has vouched for somebody, by name. Never a score, and never verification.
+
+        Returned `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community
+        Vouched)"` for any name you sent, with a vouching chain naming people who do not
+        exist, a `COMMUNITY_VERIFIED_BADGE`, and a `privacy_standard` of "Zero-Knowledge
+        Proof" describing a scheme implemented nowhere in this repo.
+
+        This was the most dangerous prop left, for the same reason SafeWalk was: somebody
+        who reads "98/100, community verified, three mutual vouches" meets a stranger
+        differently from somebody who knows nothing about them. It said that about everyone.
+
+        A vouch is one named person saying they know another — readable by both, withdrawable,
+        and counted rather than scored.
+        """
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        subject = body.get("subject", "") or body.get("target_user", "")
+        resolved = _named_account(request, subject) if subject else account_id
+        return guard(lambda: trust.about(_graph(request), account_id=account_id,
+                                         subject=resolved))
+
+    @router.post("/trust/vouch")
+    def trust_vouch(request: Request, body: dict):
+        """Say on the record that you know somebody."""
+        from modules.social import trust
+        account_id, handle = _signal_caller(request)
+        for_account = _named_account(request, body.get("for_account", "")
+                                     or body.get("subject", ""))
+        return guard(lambda: trust.vouch(_graph(request), account_id=account_id,
+                                         for_account=for_account, handle=handle,
+                                         note=body.get("note", "")))
+
+    @router.post("/trust/vouch/withdraw")
+    def trust_vouch_withdraw(request: Request, body: dict):
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        for_account = _named_account(request, body.get("for_account", ""))
+        return guard(lambda: trust.withdraw(_graph(request), account_id=account_id,
+                                            for_account=for_account))
+
+    @router.get("/trust/vouches")
+    def trust_vouches_given(request: Request):
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: trust.given(_graph(request), account_id=account_id))
+
+    @router.post("/trust/in-common")
+    def trust_in_common(request: Request, body: dict):
+        """Who has vouched for both of you. Often nobody, which is the useful part."""
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        subject = _named_account(request, body.get("subject", ""))
+        return guard(lambda: trust.in_common(_graph(request), account_id=account_id,
+                                             subject=subject))
 
     @router.post("/atlas/living-memory-map")
     def living_memory_atlas_endpoint(request: Request, body: dict):
-        return {
-            "atlas_active": True,
-            "memory_pins_count": 48,
-            "recent_geo_memories": [
-                {"location": "Calton Hill (Edinburgh)", "memory": "Sunset sketch circle & acoustic jam with Catriona", "date": "Yesterday"},
-                {"location": "Eisbachwelle (Munich)", "memory": "River surfing cheer & Man Versus Machine espresso", "date": "Last Week"},
-                {"location": "Miradouro de Santa Catarina (Lisbon)", "memory": "Sunset Bossa Nova & natural Pet-Nat toast", "date": "Last Month"}
-            ],
-            "time_capsule_status": "1 Time-Capsule Locked @ Arthur's Seat (Unlocks in 342 days when you revisit with Alex)",
-            "message": "🗺️ Living Real-World Memory Atlas Synced! 48 physical moments pinned to Earth with 1 locked time-capsule."
-        }
+        """Places you have actually been, from your own rows.
+
+        Reported 48 pins and three geo memories — a sketch circle on Calton Hill with
+        Catriona, river surfing at the Eisbachwelle — for every account, on an empty
+        database, plus a "Time-Capsule Locked @ Arthur's Seat (Unlocks in 342 days when you
+        revisit with Alex)": a countdown to a place you had never been, with somebody who
+        does not exist, implemented nowhere.
+
+        Check-ins record a place name, not a position — there is no background location in
+        this app — so this is a list of places rather than a map of points.
+        """
+        from modules.personal import atlas
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: atlas.pins(_graph(request), account_id=account_id,
+                                        city=body.get("city", "")))
 
     @router.post("/impact/regenerative-earth")
     def impact_regenerative_endpoint(request: Request, body: dict):

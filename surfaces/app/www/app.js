@@ -1070,11 +1070,12 @@ function todayView() {
       <h2>🌐 Ultimate Frontier Capabilities</h2>
       <span class="badge good" style="font-weight:bold;">Final Frontier</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Offline P2P BLE mesh network, smart glasses ambient audio whispers, cryptographic Web of Trust, and 3D living memory atlas!</p>
+    <p class="hint" style="margin-bottom:8px;">Who has vouched for somebody — by name, never a score — and the places you have actually been. This app verifies no identity.</p>
+    <input class="field" id="tw-who" placeholder="Their handle (empty shows your own vouches)" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="sync-offline-mesh">Offline BLE Mesh Sync 📴</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="listen-wearable-whispers">Wearable Audio Whispers 🦻</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="verify-web-of-trust">Web of Trust (ZK) 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="verify-web-of-trust">Who vouches for them 🤝</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #10b981);" data-act="view-memory-atlas">Living Memory Atlas 🗺️</button>
     </div>
     <div id="ultimate-frontier-output" style="margin-top:10px;"></div>
@@ -5235,36 +5236,51 @@ function wire(root) {
     `;
   }, "Wearable Audio Whispers Active! 🦻"));
 
-  on("[data-act=verify-web-of-trust]", () => act(async () => {
-    const res = await api("/v1/trust/web-of-trust", { target_user: "Elena Rostova" });
+  /* The web of trust.
+
+     It read `res.trust_score` ("98/100 (Tier-1 Community Vouched)"), a `vouching_chain`
+     naming people who do not exist, and a `privacy_standard` of "Zero-Knowledge Proof" for
+     a scheme implemented nowhere — about "Elena Rostova", hardcoded. Somebody who reads
+     that about a stranger meets them differently, which is why none of those fields exist
+     any more. What is here is who vouched, by name, and the fact that this app verifies
+     nobody. */
+  on("[data-act=verify-web-of-trust]", (el) => act(async () => {
+    const subject = $("#tw-who") ? $("#tw-who").value.trim() : "";
+    const res = await api("/v1/trust/web-of-trust", subject ? { subject } : {});
     const out = $("#ultimate-frontier-output");
     if (!out) return;
-    const chain = res.vouching_chain || [];
-    const items = chain.map(c => `<div style="margin-top:2px;">• ${esc(c)}</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤝 Cryptographic Web of Trust (${esc(res.user)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Trust Score: <strong>${esc(res.trust_score)}</strong> <span class="badge good" style="font-size:10px;">${esc(res.community_status)}</span></div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Privacy: ${esc(res.privacy_standard)}</div>
-      </div>
-    `;
-  }, "Web of Trust Verified! 🤝"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${res.count} vouch${res.count === 1 ? "" : "es"}${res.you_vouched ? " · including yours" : ""}</div>
+        ${res.vouchers.map(v => `<div style="font-size:12px;">· <strong>${esc(v.handle)}</strong>${v.note ? ` — ${esc(v.note)}` : ""}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+        ${subject ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:6px;" data-act="trust-vouch" data-who="${esc(subject)}">I know them</button>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.disclaimer)}</div>
+      </div>`;
+    bindLater(out);
+  }));
+
+  on("[data-act=trust-vouch]", (el) => act(async () => {
+    await api("/v1/trust/vouch", { for_account: el.dataset.who });
+    if ($("#tw-who")) $("#tw-who").value = el.dataset.who;
+    document.querySelector("[data-act=verify-web-of-trust]").click();
+  }));
 
   on("[data-act=view-memory-atlas]", () => act(async () => {
+    /* Reported 48 pins, three memories in three cities nobody had been to, and a time
+       capsule counting down 342 days. Pins are your own check-ins, reviews and moments;
+       there is no capsule, because nothing implements one. */
     const res = await api("/v1/atlas/living-memory-map", {});
     const out = $("#ultimate-frontier-output");
     if (!out) return;
-    const mems = res.recent_geo_memories || [];
-    const items = mems.map(m => `<div style="margin-top:3px;">• <strong>${esc(m.location)}</strong>: "${esc(m.memory)}" (<em>${esc(m.date)}</em>)</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Living Real-World Memory Atlas (${res.memory_pins_count} Pinned Moments):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.time_capsule_status)}</div>
-      </div>
-    `;
-  }, "Living Memory Atlas Loaded! 🗺️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${res.count} place${res.count === 1 ? "" : "s"}${res.cities.length ? ` · ${res.cities.map(esc).join(", ")}` : ""}</div>
+        ${res.pins.map(p => `<div style="font-size:12px;">· <strong>${esc(p.place)}</strong> — ${p.times} time${p.times === 1 ? "" : "s"}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.note)}</div>
+      </div>`;
+  }));
 
   on("[data-act=view-eco-quests]", () => act(async () => {
     const res = await api("/v1/impact/regenerative-earth", { city: "Edinburgh" });

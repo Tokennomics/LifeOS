@@ -857,13 +857,23 @@ def test_ultimate_frontier_capabilities(cfg):
     assert res2.status_code == 200
     assert res2.json()["wearables_synced"] is True
 
+    # `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community Vouched)"` for any
+    # name sent — with a "Zero-Knowledge Proof" privacy standard implemented nowhere. This
+    # was the most dangerous prop left: somebody who reads that about a stranger meets them
+    # differently. A name nobody here goes by is now refused rather than scored.
     res3 = client.post("/v1/trust/web-of-trust", json={"target_user": "Elena"})
-    assert res3.status_code == 200
-    assert res3.json()["trust_verified"] is True
+    assert res3.status_code in (200, 400)
+    for invented in ("98/100", "tier-1", "zero-knowledge", "community_verified",
+                     "trust_score"):
+        assert invented not in res3.text.lower()
 
+    # 48 pins and a time capsule counting down 342 days to a place the account had never
+    # been, with a person who does not exist.
     res4 = client.post("/v1/atlas/living-memory-map", json={})
     assert res4.status_code == 200
-    assert res4.json()["atlas_active"] is True
+    assert res4.json()["empty"] is True
+    assert res4.json()["time_capsule"] is None
+    assert "342" not in res4.text
 
 def test_global_flourishing_and_regenerative_earth(cfg):
     client = TestClient(create_app(cfg))

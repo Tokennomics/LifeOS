@@ -400,6 +400,27 @@ file and still touches a trust boundary.
     presented as a whole one. It now includes system-owned rows that *name* you, and
     nothing else; there is a test that a second account's rows never appear.
 
+- **Vouches, places, and what a month contained** (`modules/social/trust.py`,
+  `modules/personal/atlas.py`, 19 tests).
+  - `/trust/web-of-trust` was **the most dangerous prop left**, for the same reason SafeWalk
+    was: it changes how somebody behaves toward a stranger. It returned `trust_verified:
+    True` and `trust_score: "98/100 (Tier-1 Community Vouched)"` for any name sent, with a
+    vouching chain naming people who do not exist, a `COMMUNITY_VERIFIED_BADGE`, and a
+    `privacy_standard` of "Zero-Knowledge Proof" describing a scheme implemented nowhere in
+    this repo. A vouch is now one named account saying it knows another — readable by both,
+    withdrawable, **counted rather than scored**, and every response says the app verifies
+    no identity, checks no document and runs no background check. Somebody with no vouches
+    is explicitly "not a red flag and not a green one".
+  - `/atlas/living-memory-map` reported 48 pins, three memories in cities the account had
+    never visited, and a time capsule counting down 342 days to a place it had never been
+    with a person who does not exist. Pins are check-ins, reviews and moments; there is no
+    capsule, and no coordinates — a check-in is a place *name*, since nothing in this app
+    tracks position.
+  - `/vitals/social-wellness` reported a `flourishing_score` of 92, a
+    `deep_connection_index` of 95% and a `real_world_ratio` of "85% Outings / 15% Screen
+    Time" — constants, on any account, for a thing that measures no screens. It reports
+    counts over a named window now, and no score at all.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning
