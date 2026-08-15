@@ -179,7 +179,9 @@ async function refresh() {
     } else if (state.tab === "people") {
       const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms, communityReviews, cityPassport] = await Promise.all([
         api("/v1/people"),
-        api("/v1/crews"),
+        // `/v1/crews` browses your OWN graph, so a crew you joined in somebody else's
+        // account was missing from "Your crews" and every per-crew button with it.
+        api("/v1/crews/mine"),
         api("/v1/feed").catch(() => ({ items: [] })),
         // Was called with no city against a handler that required one: a 422 on every
         // page load, swallowed here, so Explore was permanently empty and never looked it.
@@ -412,9 +414,9 @@ function todayView() {
     <div class="row2"><input class="field" id="bc-act" placeholder="Activity (e.g. Specialty Coffee)">
     <input class="field" id="bc-time" placeholder="Timeframe (e.g. 30 mins)" value="30 mins"></div>
     <div class="row2">
-      <button class="primary" data-act="send-squad-beacon">Broadcast Outing Beacon ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, var(--spark), var(--growth));" data-act="instant-synergy-match">AI Instant Match (30 Mins) ☕</button>
+      <button class="primary" style="background:linear-gradient(135deg, var(--spark), var(--growth));" data-act="instant-synergy-match">Who else is up for this? ☕</button>
     </div>
+    <p class="hint" style="margin-top:8px;">Looking for your crew instead? A beacon needs a crew to reach, so it lives on the crew itself — People → your crew → ⚡ Up for it.</p>
     <div id="instant-match-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -1861,19 +1863,11 @@ function peopleView() {
     <button class="primary" data-act="feed-publish">Publish Public Activity</button>
   </div>`;
 
-  /* ---- Weekly Crew Outing Poll ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(234,179,8,0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>📊 Weekly Crew Outing Poll</h2>
-      <span class="badge good" style="font-weight:bold;">Active Poll</span>
-    </div>
-    <p class="hint" style="margin-bottom:10px;">Where should the crew go this Friday night?</p>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Outdoor Bouldering & Craft Beer">🧗 Outdoor Bouldering & Craft Beer <small style="color:var(--muted);">(4 votes)</small></button>
-      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Specialty Coffee Tasting & Walk">☕ Specialty Coffee Tasting & Walk <small style="color:var(--muted);">(2 votes)</small></button>
-      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Miradouro Sunset Drinks & Pizza">🌅 Miradouro Sunset Drinks & Pizza <small style="color:var(--muted);">(6 votes)</small></button>
-    </div>
-  </div>`;
+  /* The "Weekly Crew Outing Poll" card lived here: three hardcoded options with invented
+     vote counts (4, 2 and 6) that were the same for every account, and a vote button that
+     posted a string to an endpoint which stored nothing. Polls are per-crew and real now —
+     they are opened and read from the crew's own row, where there is a crew id to attach
+     them to. A poll with no crew is what made the old one fictional. */
 
   /* ---- Live Field Reports & Spot Reviews ---- */
   if (state.communityReviews && state.communityReviews.reviews) {
@@ -2075,9 +2069,12 @@ function crewsView() {
         <button class="pill calm" data-act="chat-crew" data-id="${c.id}" data-name="${esc(c.name)}">Chat</button>
         <button class="pill" data-act="crew-link" data-id="${c.id}">🔗 Invite</button>
         <button class="pill good" data-act="crew-pass" data-id="${c.id}">🎟️ Plus-One Pass</button>
+        <button class="pill" data-act="crew-polls" data-id="${c.id}" data-name="${esc(c.name)}">📊 Polls</button>
+        <button class="pill" data-act="crew-beacons" data-id="${c.id}" data-name="${esc(c.name)}">⚡ Up for it</button>
         <button class="pill" data-act="crew-ics" data-id="${c.id}">📅 .ics</button>
       </div></div>`).join("");
   }
+  html += `<div id="crew-activity-output" style="margin-top:10px;"></div>`;
 
   html += `<div class="subhead" style="margin-top:12px;">Instant Crew Starters (1-Tap)</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
@@ -3374,10 +3371,13 @@ function wire(root) {
   }, "Event URL imported to discovery feed! 🎟️"));
 
   on("[data-act=crew-pass]", (el) => act(async () => {
-    const res = await api(`/v1/crews/${el.dataset.id}/guest-pass`);
-    const shareText = res.share_text || "🎟️ Plus-One Pass to our Crew Outing!";
-    await navigator.clipboard.writeText(shareText).catch(() => {});
-    toast("Plus-One Guest Pass link copied to clipboard! 🎟️ Send to a friend.");
+    // Copied a link to lifeos.app carrying `token=plus_one_<crew id>` — a token this
+    // deployment never issued, on a host it does not serve. It is a real single-use invite
+    // now, and the link points at wherever this app is actually running.
+    const res = await api(`/v1/crews/${el.dataset.id}/guest-pass`, {});
+    const link = location.origin + res.invite_path;
+    await navigator.clipboard.writeText(link).catch(() => {});
+    toast("Plus-one link copied — one person, expires in a day. 🎟️");
   }));
 
   on("[data-act=mindfulness-start]", () => act(async () => {
@@ -3573,10 +3573,101 @@ function wire(root) {
     `;
   }, "Matched New Local Friends! 🤝"));
 
+  /* Crew polls and beacons.
+
+     The poll card was three hardcoded options with invented vote counts; the beacon
+     endpoint returned "broadcasted" and reached nobody. Both are per-crew objects now, so
+     both render from the crew's own row where a crew id exists. */
+  const crewPanel = () => $("#crew-activity-output");
+
+  function renderPolls(res, crewId, crewName) {
+    const out = crewPanel();
+    if (!out) return;
+    const polls = res.polls || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:8px;">📊 ${esc(crewName || "Polls")}</div>
+        ${polls.map(p => `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:13px; font-weight:600;">${esc(p.question)}</div>
+            <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">${esc(p.opened_by_handle)} asked · ${p.total_votes} vote${p.total_votes === 1 ? "" : "s"}${p.you_voted ? " · you voted" : ""}</div>
+            ${p.options.map((o, i) => `<button class="ghost" style="text-align:left; padding:6px 10px; font-size:12px; margin:2px 2px 0 0;" data-act="crew-poll-vote" data-poll="${esc(p.poll_id)}" data-index="${i}" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">${esc(o)}</button>`).join("")}
+          </div>`).join("")}
+        ${polls.length ? "" : `<div style="font-size:13px; color:var(--muted); margin-bottom:8px;">No open polls.</div>`}
+        <input class="field" id="poll-q" placeholder="Ask the crew something" style="margin-top:6px;">
+        <input class="field" id="poll-opts" placeholder="Options, comma separated" style="margin-top:6px;">
+        <button class="primary" style="margin-top:6px;" data-act="crew-poll-open" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">Open the poll</button>
+      </div>`;
+    bindLater(out);
+  }
+
+  function renderBeacons(res, crewId, crewName) {
+    const out = crewPanel();
+    if (!out) return;
+    const live = res.beacons || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:8px;">⚡ ${esc(crewName || "Up for it")}</div>
+        ${live.map(b => `
+          <div style="margin-bottom:8px;">
+            <div style="font-size:13px;"><strong>${esc(b.handle)}</strong> — ${esc(b.activity)}${b.place ? ` at ${esc(b.place)}` : ""}</div>
+            <div style="font-size:11px; color:var(--muted);">${b.minutes_left} min left${b.coming_count ? ` · ${b.coming.map(esc).join(", ")} coming` : ""}</div>
+            ${b.mine ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="crew-beacon-down" data-beacon="${esc(b.beacon_id)}" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">Cancel</button>`
+                     : `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="crew-beacon-join" data-beacon="${esc(b.beacon_id)}" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">${b.you_are_in ? "You are in" : "I'm in"}</button>`}
+          </div>`).join("")}
+        ${live.length ? "" : `<div style="font-size:13px; color:var(--muted); margin-bottom:8px;">${esc(res.suggestion || "Nothing live.")}</div>`}
+        <input class="field" id="bcn-act" placeholder="Up for what, right now?" style="margin-top:6px;">
+        <input class="field" id="bcn-mins" type="number" placeholder="For how many minutes" value="60" style="margin-top:6px;">
+        <button class="primary" style="margin-top:6px;" data-act="crew-beacon-raise" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">Raise it</button>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.delivery_note || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
+
+  const showPolls = (id, name) => api(`/v1/crews/${id}/polls`).then(r => renderPolls(r, id, name));
+  const showBeacons = (id, name) => api(`/v1/crews/${id}/beacons`).then(r => renderBeacons(r, id, name));
+
+  on("[data-act=crew-polls]", (el) => act(async () => {
+    await showPolls(el.dataset.id, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacons]", (el) => act(async () => {
+    await showBeacons(el.dataset.id, el.dataset.name);
+  }));
+
+  on("[data-act=crew-poll-open]", (el) => act(async () => {
+    const question = $("#poll-q").value.trim();
+    const options = $("#poll-opts").value.split(",").map(o => o.trim()).filter(Boolean);
+    if (!question) { toast("What are you asking?"); return; }
+    if (options.length < 2) { toast("A poll needs at least two options."); return; }
+    await api("/v1/crews/polls", { crew_id: el.dataset.crew, question, options });
+    await showPolls(el.dataset.crew, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacon-raise]", (el) => act(async () => {
+    const activity = $("#bcn-act").value.trim();
+    if (!activity) { toast("Up for what?"); return; }
+    const minutes = parseInt($("#bcn-mins").value, 10) || 60;
+    await api("/v1/crews/beacon", { crew_id: el.dataset.crew, activity, minutes });
+    await showBeacons(el.dataset.crew, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacon-join]", (el) => act(async () => {
+    await api("/v1/crews/beacon/join", { beacon_id: el.dataset.beacon });
+    await showBeacons(el.dataset.crew, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacon-down]", (el) => act(async () => {
+    await api("/v1/crews/beacon/stand-down", { beacon_id: el.dataset.beacon });
+    await showBeacons(el.dataset.crew, el.dataset.name);
+  }));
+
   on("[data-act=crew-poll-vote]", (el) => act(async () => {
-    const option = el.dataset.opt || "Outing";
-    const res = await api("/v1/crews/polls/vote", { option });
-    toast(res.message || `Voted for '${option}'! 📊`);
+    // Voted by posting a display string with no poll attached, and defaulted it to
+    // "Outing" when the button had none. It votes by index into a real poll now.
+    await api("/v1/crews/polls/vote", { poll_id: el.dataset.poll,
+                                        option: Number(el.dataset.index) });
+    await showPolls(el.dataset.crew, el.dataset.name);
   }));
 
   on("[data-act=post-venue-review]", () => act(async () => {
@@ -3598,14 +3689,6 @@ function wire(root) {
     const res = await api("/v1/ledger/tip", { recipient, amount, currency: "EUR" });
     $("#tp-name").value = "";
     toast(`Recorded: you owe ${recipient} €${Number(res.amount).toFixed(2)}. Nothing was sent.`);
-  }));
-
-  on("[data-act=send-squad-beacon]", () => act(async () => {
-    const activity = $("#bc-act").value.trim() || "Coffee & Quick Bouldering";
-    const timeframe = $("#bc-time").value.trim() || "30 mins";
-    const res = await api("/v1/crews/beacon", { activity, timeframe });
-    $("#bc-act").value = "";
-    toast(res.message || `⚡ Outing Squad Beacon broadcasted!`);
   }));
 
   on("[data-act=instant-synergy-match]", () => act(async () => {

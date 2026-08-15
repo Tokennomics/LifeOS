@@ -306,6 +306,29 @@ file and still touches a trust boundary.
   - A headcount with nobody named still answers the arithmetic and says plainly that it recorded
     nothing. Verified in a browser: two accounts, one dinner, settle, and a rejected €500 claim.
 
+- **Crew polls and beacons** (`modules/crews/polls.py`, `modules/crews/beacons.py`, 34 tests).
+  `/crews/polls/vote` took any string as an option, defaulted it to "Bouldering & Drinks",
+  and stored nothing — there was no poll, and the PWA card showed three hardcoded options
+  with invented vote counts (4, 2 and 6) identical for every account. `/crews/beacon`
+  returned `broadcasted: True` for an activity it made up when the form was empty.
+  - **You vote by index into the poll's own options**, one each, changeable until it closes.
+    A tie is reported as a tie rather than resolved into a winner.
+  - **Who voted for what is visible** — deliberately not a secret ballot, because a crew
+    choosing between bouldering and dinner needs to know who is coming to each.
+  - **A beacon is answerable and expires in minutes.** `push_delivered` is false and
+    `can_see_it` counts members who *could* read it, the same honesty rule as SafeWalk.
+  - **The plus-one pass is a real invite.** It returned `token=plus_one_<the crew id>` — a
+    token derived from public information, stored nowhere, on a domain this deployment does
+    not serve. It now mints a genuine single-use 24-hour invite through the hardened
+    `crews/invites` path, and it is a POST, because minting a capability on a GET is
+    CSRF-able from any page a member visits.
+  - **Two pre-existing bugs found on the way.** `GET /crews/{crew_id}` was declared above
+    `GET /crews/polls`, so the literal route was unreachable — a static guard now checks all
+    ~480 routes for that shadowing and immediately found a second one,
+    `GET /venues/programs`. And `crews.my_crews` was wired to no endpoint, so a member who
+    joined somebody else's crew never saw it in "Your crews" — with it, every per-crew
+    surface (chat, plans, polls, beacons) was unreachable for anyone but the creator.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

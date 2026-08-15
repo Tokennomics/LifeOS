@@ -1036,6 +1036,19 @@ def build_router(auth) -> APIRouter:
             _graph(request), body.crew_id, body.visibility, body.admission,
             _actor_opt(request, body.by)))
 
+    @router.get("/crews/mine")
+    def crews_mine(request: Request, person_id: str = ""):
+        """Every crew you are actually in — including ones that live in somebody else's graph.
+
+        `GET /crews` browses your own graph, so a crew you *joined* was invisible to you: it
+        belongs to whoever created it, membership lives in the ACL, and nothing in your own
+        slice indexes it. `crews.my_crews` was written for exactly this and was never wired
+        to an endpoint, so the whole per-crew surface — chat, plans, polls, beacons — was
+        unreachable for every member who was not the crew's creator.
+        """
+        subject = _subject(request, person_id or None)
+        return {"crews": guard(lambda: crews.my_crews(_graph(request), subject))}
+
     @router.get("/crews/directory")
     def crews_directory(request: Request, topic: str = "", city: str = ""):
         """The cross-account public directory — every published crew, whoever owns it.
@@ -1114,6 +1127,148 @@ def build_router(auth) -> APIRouter:
     def crews_invite_revoke(request: Request, body: InviteRevokeIn):
         return guard(lambda: invites.revoke(
             _graph(request), body.invite_id, _subject(request, body.by)))
+
+    # ---- Crew polls and beacons -------------------------------------------
+    #
+    # `/crews/polls/vote` took any string as an option, defaulted it to "Bouldering &
+    # Drinks", returned `voted: True` and stored nothing — there was no poll to vote in.
+    # `/crews/beacon` returned `broadcasted: True` for an activity it made up when the form
+    # was empty, and broadcast it to nobody.
+
+    def _crew_caller(request: Request, body: dict):
+        """Who is acting, and what to call them on screen. Crew membership is keyed on the
+        same subject `_subject` pins, so the two must not drift apart."""
+        subject = _subject(request, body.get("person_id"))
+        _, handle = _signal_caller(request)
+        return subject, handle
+
+    @router.post("/crews/polls")
+    def crews_poll_open(request: Request, body: dict):
+        """Ask your crew something. Any member can — a poll is not a privilege."""
+        from modules.crews import polls
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: polls.open_poll(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            question=body.get("question", ""), options=body.get("options", []),
+            account_id=subject, handle=handle, hours=body.get("hours", polls.DEFAULT_HOURS)))
+
+    @router.post("/crews/polls/vote")
+    def vote_crew_poll_endpoint(request: Request, body: dict):
+        """Vote by index into the poll's own options — one each, changeable until it closes.
+
+        It used to accept any string, so two people picking the same thing spelled
+        differently would have been two answers, and a vote for an option nobody offered
+        would have counted. Neither mattered, because nothing was stored.
+        """
+        from modules.crews import polls
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: polls.vote(
+            _graph(request), poll_id=body.get("poll_id", ""),
+            option=body.get("option", body.get("option_index")),
+            account_id=subject, handle=handle))
+
+    # Nested under the crew rather than `/crews/polls`: `GET /crews/{crew_id}` is declared
+    # above, and a two-segment literal after it is simply swallowed — "polls" arrives as a
+    # crew id and the caller gets "unknown crew". Three segments cannot be shadowed by it.
+    @router.get("/crews/{crew_id}/polls")
+    def crews_polls_list(request: Request, crew_id: str = "", include_closed: bool = False):
+        from modules.crews import polls
+        subject = _subject(request, None)
+        return guard(lambda: polls.for_crew(_graph(request), crew_id=crew_id,
+                                            account_id=subject,
+                                            include_closed=include_closed))
+
+    @router.get("/crews/polls/{poll_id}")
+    def crews_poll_results(request: Request, poll_id: str):
+        from modules.crews import polls
+        subject = _subject(request, None)
+        return guard(lambda: polls.results(_graph(request), poll_id=poll_id,
+                                           account_id=subject))
+
+    @router.post("/crews/polls/close")
+    def crews_poll_close(request: Request, body: dict):
+        from modules.crews import polls
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: polls.close_poll(_graph(request),
+                                              poll_id=body.get("poll_id", ""),
+                                              account_id=subject))
+
+    @router.post("/crews/beacon")
+    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
+        """"I am going now, who is coming?" — a row your crew can see, not a broadcast.
+
+        Returned `broadcasted: True` and told you your crew had been rallied. This app sends
+        nothing: `push_delivered` is false and `can_see_it` counts the members who could
+        read it, never the ones who were told.
+        """
+        from modules.crews import beacons
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: beacons.raise_beacon(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            activity=body.get("activity", ""), account_id=subject, handle=handle,
+            minutes=body.get("minutes", body.get("timeframe_minutes",
+                                                 beacons.DEFAULT_MINUTES)),
+            note=body.get("note", ""), place=body.get("place", "")))
+
+    @router.get("/crews/{crew_id}/beacons")
+    def crews_beacons_live(request: Request, crew_id: str = ""):
+        """What your crew is up for right now."""
+        from modules.crews import beacons
+        subject = _subject(request, None)
+        return guard(lambda: beacons.live(_graph(request), crew_id=crew_id,
+                                          account_id=subject))
+
+    @router.post("/crews/beacon/join")
+    def crews_beacon_join(request: Request, body: dict):
+        """Say you are in. A beacon nobody can answer is a broadcast into the void."""
+        from modules.crews import beacons
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: beacons.join(_graph(request),
+                                          beacon_id=body.get("beacon_id", ""),
+                                          account_id=subject, handle=handle))
+
+    @router.post("/crews/beacon/leave")
+    def crews_beacon_leave(request: Request, body: dict):
+        from modules.crews import beacons
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: beacons.leave(_graph(request),
+                                           beacon_id=body.get("beacon_id", ""),
+                                           account_id=subject))
+
+    @router.post("/crews/beacon/stand-down")
+    def crews_beacon_stand_down(request: Request, body: dict):
+        from modules.crews import beacons
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: beacons.stand_down(_graph(request),
+                                                beacon_id=body.get("beacon_id", ""),
+                                                account_id=subject))
+
+    @router.post("/crews/{crew_id}/guest-pass")
+    def create_guest_pass_endpoint(request: Request, crew_id: str, body: dict | None = None):
+        """A plus-one: a real single-use invite link that expires in a day.
+
+        This was a GET returning `https://lifeos.app/#join-crew?crew_id=…&token=plus_one_<the
+        crew id>` — a token derived from the crew id, stored nowhere, granting nothing, on a
+        domain this deployment does not serve. Anybody who saw one crew id could write a
+        "pass" for it themselves.
+
+        It mints a genuine invite now, through the same hardened path as `/crews/invite-link`
+        — 256 random bits, only the SHA-256 stored, shown exactly once — capped at one use so
+        a plus-one is one person, and expiring in a day so a forwarded pass goes cold.
+
+        It is a POST because it creates a capability. Minting one on a GET is CSRF-able from
+        any page a member visits, and caches.
+        """
+        from modules.crews import invites
+        subject = _subject(request, (body or {}).get("by"))
+        pass_ = guard(lambda: invites.create(_graph(request), crew_id, subject,
+                                             ttl_hours=24, max_uses=1))
+        # A path, not an absolute URL: the client knows its own origin, and the old handler's
+        # hardcoded domain pointed the invitee at a host that serves none of this.
+        return {**pass_, "invite_path": f"/invite/{pass_['token']}",
+                "plus_one": True, "expires_in_hours": 24,
+                "share_note": ("One person, one day. Send it to the friend you meant it "
+                               "for — whoever opens it first is the plus-one.")}
 
     @router.post("/crews/request/approve")
     def crews_approve(request: Request, body: CrewActIn):
@@ -1971,6 +2126,33 @@ def build_router(auth) -> APIRouter:
         from modules.venues import explore
         return guard(lambda: explore.save_explored_place(_graph(request), body.place_info))
 
+    # Declared above `/venues/{place_id}`, which would otherwise swallow it: routes match
+    # in declaration order, so this handler was unreachable and every call to it was
+    # served by the venue-details route with place_id="programs". Still a literal — the
+    # venue programme surface is its own ticket — but at least it is the handler that runs.
+    @router.get("/venues/programs")
+    def list_venue_programs_endpoint(request: Request):
+        return {
+            "programs": [
+                {
+                    "venue_name": "Vertical Wall Climbing Gym",
+                    "category": "bouldering_gym",
+                    "city": "Lisbon",
+                    "title": "Weekly Bouldering League & Sunset Social",
+                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
+                    "perks": "15% off for ConnectOS Crew Members 🎟️"
+                },
+                {
+                    "venue_name": "Fabrica Coffee Roasters",
+                    "category": "specialty_coffee",
+                    "city": "Lisbon",
+                    "title": "Specialty Cupping & Founder Morning",
+                    "schedule": "Wednesdays 08:30 AM",
+                    "perks": "Free Espresso Tasting ☕"
+                }
+            ]
+        }
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -2309,34 +2491,6 @@ def build_router(auth) -> APIRouter:
             "message": f"Official Venue Program published for {venue_name}! 🏛️"
         }
 
-    @router.get("/venues/programs")
-    def list_venue_programs_endpoint(request: Request):
-        return {
-            "programs": [
-                {
-                    "venue_name": "Vertical Wall Climbing Gym",
-                    "category": "bouldering_gym",
-                    "city": "Lisbon",
-                    "title": "Weekly Bouldering League & Sunset Social",
-                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
-                    "perks": "15% off for ConnectOS Crew Members 🎟️"
-                },
-                {
-                    "venue_name": "Fabrica Coffee Roasters",
-                    "category": "specialty_coffee",
-                    "city": "Lisbon",
-                    "title": "Specialty Cupping & Founder Morning",
-                    "schedule": "Wednesdays 08:30 AM",
-                    "perks": "Free Espresso Tasting ☕"
-                }
-            ]
-        }
-
-    @router.post("/crews/polls/vote")
-    def vote_crew_poll_endpoint(request: Request, body: dict):
-        option = body.get("option", "Bouldering & Drinks")
-        return {"voted": True, "option": option, "message": f"Voted for '{option}'! 📊"}
-
     @router.post("/rituals/sunset")
     def rituals_sunset_endpoint(request: Request, body: dict):
         """Write down the day's win, and see when the sun actually sets.
@@ -2421,17 +2575,6 @@ def build_router(auth) -> APIRouter:
             _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
             str(body.get("note", "") or ""), account_id=account_id, handle=handle,
             kind="kindness"))
-
-    @router.post("/crews/beacon")
-    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
-        activity = body.get("activity", "Coffee & Quick Bouldering").strip()
-        timeframe = body.get("timeframe", "30 mins").strip()
-        return {
-            "broadcasted": True,
-            "activity": activity,
-            "timeframe": timeframe,
-            "message": f"⚡ Outing Squad Beacon broadcasted! '{activity}' in next {timeframe}."
-        }
 
     @router.get("/gamification/passport")
     def get_city_passport_endpoint(request: Request, city: str = ""):
@@ -5457,17 +5600,6 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
     def create_crew_goal_endpoint(request: Request, body: CrewGoalIn):
         from modules.horizon import crew_goals
         return guard(lambda: crew_goals.create_crew_goal(_graph(request), body.crew_id, body.title, body.target_date))
-
-    @router.get("/crews/{crew_id}/guest-pass")
-    def create_guest_pass_endpoint(request: Request, crew_id: str):
-        from substrate import now_iso
-        link = f"https://lifeos.app/#join-crew?crew_id={crew_id}&token=plus_one_{crew_id}"
-        return {
-            "crew_id": crew_id,
-            "guest_pass_url": link,
-            "share_text": f"🎟️ You are invited as a Plus-One to our Crew Outing! 1-Tap RSVP: {link}",
-            "generated_at": now_iso()
-        }
 
     @router.post("/ledger/sync-queue")
     def enqueue_sync_item_endpoint(request: Request, body: LedgerSyncIn):
