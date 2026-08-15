@@ -53,12 +53,18 @@ def test_safewalk_escort(cfg):
     assert "SAFE-8921" not in res.text
 
 def test_quick_split_expenses(cfg):
+    # This used to assert the payment link — `"revolut.me" in data["payment_link"]` — which
+    # pinned the defect in place: a link to somebody else's payment service, carrying the
+    # amount in a query string, for an account nobody had connected. Splitting stores a real
+    # tab now, and a headcount with nobody named is the calculator, which says so.
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/ledger/quick-split", json={"title": "Sunset Drinks", "amount": 60.00, "people_count": 4})
+    res = client.post("/v1/ledger/quick-split",
+                      json={"title": "Sunset Drinks", "amount": 60.00, "people_count": 4})
     assert res.status_code == 200
     data = res.json()
-    assert data["per_person"] == 15.00
-    assert "revolut.me" in data["payment_link"]
+    assert data["each"] == 15.00
+    assert data["recorded"] is False
+    assert "revolut" not in res.text.lower()
 
 def test_sports_and_nomad_match(cfg):
     client = TestClient(create_app(cfg))
@@ -228,9 +234,12 @@ def test_leaderboard_mentor_and_squad_routine(cfg):
 
 def test_settle_photo_wall_and_quests(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/ledger/settle-up", json={"amount": 22.50})
-    assert res1.status_code == 200
-    assert res1.json()["settled"] is True
+    # It reported €22.50 settled with "Elena R." and "Alex M." on an account that had split
+    # nothing with anybody, and offered a revolut.me link for an unconnected account.
+    # Settling needs a real balance owed to a real person.
+    res1 = client.post("/v1/ledger/settle-up", json={"counterparty": "nobody"})
+    assert res1.status_code == 400
+    assert "revolut" not in res1.text.lower()
 
     res2 = client.get("/v1/gallery/live-event-wall")
     assert res2.status_code == 200
@@ -286,9 +295,14 @@ def test_voice_brief_gifting_and_wellness(cfg):
     assert res1.json()["speech_to_text"] is False
     assert res1.json()["available"] is False        # no ANTHROPIC_API_KEY in tests
 
-    res2 = client.post("/v1/ledger/gift-coffee", json={"recipient": "Elena R.", "amount": 3.80})
+    # It returned `voucher_code: "GIFT-FLATWHITE-99"` — the same code for every gift, good
+    # at no counter anywhere. The promise is the real part, and it goes on the tab as owed.
+    res2 = client.post("/v1/ledger/gift-coffee",
+                       json={"recipient": "elena", "amount": 3.80})
     assert res2.status_code == 200
-    assert res2.json()["gifted"] is True
+    assert res2.json()["recorded"] is True
+    assert res2.json()["money_moved"] is False
+    assert "voucher" not in res2.text.lower()
 
     res3 = client.get("/v1/vitals/social-wellness")
     assert res3.status_code == 200

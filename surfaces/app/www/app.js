@@ -617,12 +617,12 @@ function todayView() {
   /* ---- Outing Ledger Settle-Up & Live Event Photo Wall ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>💸 Crew Ledger Settle-Up & Micro-Quests</h2>
-      <span class="badge good" style="font-weight:bold;">1-Tap Settlement</span>
+      <h2>💸 Crew tab &amp; micro-quests</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">no money moves</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Settle crew outing tab via Revolut/Crypto or generate city discovery micro-quests!</p>
+    <p class="hint" style="margin-bottom:8px;">What you owe and what you are owed, per person. Settling marks it paid between you — the money still changes hands wherever it already does.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="settle-crew-tab">Settle Crew Outing Tab (€22.50) 💸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="settle-crew-tab">Show the tab 💸</button>
       <button class="primary" style="background:linear-gradient(135deg, #eab308, #ec4899);" data-act="gen-city-quest">Generate Micro-Quest (+50 Karma) 🗺️</button>
     </div>
     <div id="ledger-quest-output" style="margin-top:10px;"></div>
@@ -671,9 +671,13 @@ function todayView() {
     </div>
     <p class="hint" style="margin-bottom:8px;">Paste a note you already have in text. There is no speech-to-text here — this reads words, it does not hear them.</p>
     <input class="field" id="vb-note" placeholder="Coffee at four, then the viewpoint" style="margin-bottom:6px;">
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="gf-name" placeholder="Owe someone a coffee? (handle)">
+      <input class="field" id="gf-item" placeholder="What — coffee, a beer…">
+    </div>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="convert-voice-brief">Convert Voice Brief 🎙️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Gift Coffee to Elena (€3.80) 🎁</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Put it on the tab 🎁</button>
     </div>
     <div id="voice-gift-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1937,14 +1941,19 @@ function peopleView() {
   /* ---- Outing Expense Splitter & Payment Links ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>💸 Outing Expense Splitter & Payment Link</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">1-Tap Payment Link</span>
+      <h2>💸 The tab</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">no money moves</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Split drinks, dinners, or venue fees across outing members & generate 1-tap payment links!</p>
-    <div class="row2"><input class="field" id="qs-title" placeholder="Expense Title (e.g. Sunset Drinks)">
-    <input class="field" id="qs-amount" type="number" step="0.01" placeholder="Total € (e.g. 60.00)">
+    <p class="hint" style="margin-bottom:8px;">You paid, everybody owes you their share. Name people and it goes on a tab you can both see and settle. Leave the names empty and it is just the arithmetic.</p>
+    <div class="row2"><input class="field" id="qs-title" placeholder="What was it? (tapas)">
+    <input class="field" id="qs-amount" type="number" step="0.01" placeholder="Total (60.00)">
     <input class="field" id="qs-people" type="number" placeholder="People" value="4"></div>
-    <button class="primary" data-act="quick-split-expense">Split & Generate Payment Links 💸</button>
+    <input class="field" id="qs-who" placeholder="Who else? (handles, comma separated)" style="margin-top:6px;">
+    <div class="row2" style="margin-top:8px;">
+      <button class="primary" data-act="quick-split-expense">Split it</button>
+      <button class="ghost" data-act="show-tab">Show my tab</button>
+      <button class="ghost" data-act="tab-history">History</button>
+    </div>
     <div id="quick-split-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -1962,12 +1971,13 @@ function peopleView() {
   /* ---- Buy a Coffee / Micro-Tip Host ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>☕ Buy a Coffee / Micro-Tip Host</h2>
-      <span class="badge good" style="font-weight:bold;">Direct Support</span>
+      <h2>☕ Tip a host</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">recorded, not sent</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Send a 1-tap €3.50 coffee tip to crew organizers and route builders!</p>
-    <div class="row2"><input class="field" id="tp-name" placeholder="Host Name (e.g. Alex)">
-    <button class="primary" data-act="send-micro-tip">Send Coffee Tip (€3.50) ☕</button></div>
+    <p class="hint" style="margin-bottom:8px;">This app moves no money. A tip goes on your tab as owed, where they can see it and either of you can mark it settled.</p>
+    <div class="row2"><input class="field" id="tp-name" placeholder="Their handle">
+    <input class="field" id="tp-amount" type="number" step="0.01" placeholder="3.50"></div>
+    <button class="primary" data-act="send-micro-tip" style="margin-top:6px;">Put it on my tab ☕</button>
   </div>`;
 
   /* ---- Live Audio Crew Space ---- */
@@ -3580,10 +3590,14 @@ function wire(root) {
   }));
 
   on("[data-act=send-micro-tip]", () => act(async () => {
-    const recipient = $("#tp-name").value.trim() || "Alex";
-    const res = await api("/v1/ledger/tip", { recipient, amount: 3.50, currency: "EUR" });
+    /* Toasted "Sent €3.50 to Alex" for a recipient it invented when the field was empty,
+       and no money went anywhere. It is an IOU now, and it needs a real handle. */
+    const recipient = $("#tp-name").value.trim();
+    if (!recipient) { toast("Who is it for?"); return; }
+    const amount = parseFloat($("#tp-amount") ? $("#tp-amount").value : "") || 3.50;
+    const res = await api("/v1/ledger/tip", { recipient, amount, currency: "EUR" });
     $("#tp-name").value = "";
-    toast(res.message || `Sent €3.50 Coffee Tip to ${recipient}! ☕`);
+    toast(`Recorded: you owe ${recipient} €${Number(res.amount).toFixed(2)}. Nothing was sent.`);
   }));
 
   on("[data-act=send-squad-beacon]", () => act(async () => {
@@ -3895,17 +3909,11 @@ function wire(root) {
   }, "Squad Calendar Routine Synced! 📅"));
 
   on("[data-act=settle-crew-tab]", () => act(async () => {
-    const res = await api("/v1/ledger/settle-up", { amount: 22.50 });
-    const out = $("#ledger-quest-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">💸 Crew Outing Tab Settled:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${esc(c.name)} (€${Number(c.amount).toFixed(2)})`).join(", ")}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Revolut Link: ${esc(res.settlement_link)}</div>
-      </div>
-    `;
-  }, "Outing Tab Settled via Revolut! 💸"));
+    /* Reported €22.50 owed to Elena R. and Alex M. on an account that had split nothing,
+       and offered a Revolut link nobody had connected. Shows the real tab instead, with a
+       Settle button against each balance you actually owe. */
+    renderTab(await api("/v1/ledger/tab"), "#ledger-quest-output");
+  }));
 
   on("[data-act=gen-city-quest]", () => act(async () => {
     const res = await api("/v1/quests/city-discovery", { city: "Lisbon" });
@@ -3968,17 +3976,15 @@ function wire(root) {
     renderAI(await api("/v1/ai/voice-brief", { transcript }), "#voice-gift-output", "Stops in that note");
   }));
   on("[data-act=gift-friend-coffee]", () => act(async () => {
-    const res = await api("/v1/ledger/gift-coffee", { recipient: "Elena R.", item: "Specialty Flat White", amount: 3.80 });
-    const out = $("#voice-gift-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎁 Gift Voucher Sent to ${esc(res.recipient)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Item: <strong>${esc(res.item)}</strong> (€${res.amount_eur.toFixed(2)})</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Voucher Code: ${esc(res.voucher_code)}</div>
-      </div>
-    `;
-  }, "Specialty Coffee Gifted to Elena! 🎁"));
+    /* Sent a voucher code — the same one every time, `GIFT-FLATWHITE-99`, redeemable
+       nowhere — to a hardcoded "Elena R.". The promise is the real part: an IOU for a
+       coffee, which needs no amount and clears when you actually buy it. */
+    const recipient = $("#gf-name") ? $("#gf-name").value.trim() : "";
+    if (!recipient) { toast("Who are you buying one for?"); return; }
+    const item = ($("#gf-item") ? $("#gf-item").value.trim() : "") || "coffee";
+    renderTab(await api("/v1/ledger/gift-coffee", { recipient, item }),
+              "#voice-gift-output");
+  }));
 
   on("[data-act=b2b-team-signup]", () => act(async () => {
     const res = await api("/v1/monetization/b2b-team-tier", { company_name: "Acme AI Corp", seats: 25 });
@@ -5784,21 +5790,87 @@ function wire(root) {
     renderWalk(await api("/v1/safety/watching"));
   }));
 
-  on("[data-act=quick-split-expense]", () => act(async () => {
-    const title = $("#qs-title").value.trim() || "Sunset Drinks & Tapas";
-    const amount = parseFloat($("#qs-amount").value) || 60.00;
-    const people_count = parseInt($("#qs-people").value, 10) || 4;
-    const res = await api("/v1/ledger/quick-split", { title, amount, people_count });
-    const out = $("#quick-split-output");
+  /* The tab — who owes whom.
+
+     The old handler read `res.per_person`, `res.total_amount` and `res.payment_link`, none
+     of which exist any more: the payment link went to a revolut.me page for an account
+     nobody had connected, and the split was never written down. Both renderers below take
+     the shapes the server actually returns now. */
+  function renderTab(res, selector) {
+    const out = $(selector || "#quick-split-output");
     if (!out) return;
+    const money = (n, c) => `${Number(n).toFixed(2)}${c ? " " + esc(c) : ""}`;
+    // The server addresses people by account id and resolves the handle for display; an id
+    // on screen is not a sentence anybody can act on.
+    const who = (row) => row.handle || row.counterparty || row.person || "someone";
+    let body = "";
+    if (res.entries && res.split) {
+      body = `<div style="font-size:13px; margin-bottom:6px;">Split ${money(res.total, res.currency)} ${res.people} ways · <strong>your share ${money(res.your_share, res.currency)}</strong></div>`
+        + res.entries.map(e => `<div style="font-size:13px;">${esc(who(e))} owes you ${money(e.owes_you, e.currency)}</div>`).join("");
+    } else if (res.entries && res.total !== undefined) {
+      body = res.entries.length
+        ? res.entries.map(e => `<div style="font-size:13px; margin-bottom:4px; ${e.disputed ? "opacity:0.55; text-decoration:line-through;" : ""}">
+             ${esc(who(e))} · ${e.you_owe ? "you owe" : "owes you"} ${e.amount ? money(e.amount, e.currency) : esc(e.item || "")}${e.note ? ` — ${esc(e.note)}` : ""}
+             ${e.yours_to_dispute ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="tab-dispute" data-entry="${esc(e.entry_id)}">Not mine</button>` : ""}
+           </div>`).join("")
+        : `<div style="font-size:13px; color:var(--muted);">Nothing on your tab yet.</div>`;
+    } else if (res.recorded === false && res.each !== undefined) {
+      body = `<div style="font-size:13px; margin-bottom:4px;"><strong>${money(res.each, res.currency)} each</strong> · your share ${money(res.your_share, res.currency)}</div>`;
+    } else if (res.balances) {
+      body = res.balances.length
+        ? res.balances.map(b => `<div style="font-size:13px; margin-bottom:4px;">
+             <strong>${esc(who(b))}</strong> — ${esc(b.direction)} ${money(b.net, b.currency)}
+             ${b.they_owe_you ? "" : `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="settle-with" data-who="${esc(b.counterparty)}" data-cur="${esc(b.currency)}">Settle</button>`}
+           </div>`).join("")
+        : `<div style="font-size:13px; color:var(--muted);">Nothing on your tab.</div>`;
+    } else if (res.settled) {
+      body = `<div style="font-size:13px;">Settled ${money(res.amount, res.currency)} with ${esc(res.counterparty_handle || res.counterparty)}${res.clear ? " — all clear" : ` · ${money(res.still_owed, res.currency)} left`}</div>`;
+    } else if (res.recorded) {
+      body = `<div style="font-size:13px;">You owe ${esc(res.to_account_handle || res.to_account)}${res.amount ? " " + money(res.amount, res.currency) : ""}${res.item ? ` (${esc(res.item)})` : ""}</div>`;
+    }
+    const footer = res.no_money || res.note || "";
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:4px;">💸 Expense Split: ${esc(res.title)}</div>
-        <div style="font-size:13px; margin-bottom:4px;">Total: €${res.total_amount.toFixed(2)} · <strong>€${res.per_person.toFixed(2)} / person</strong> (${res.people_count} members)</div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="window.open('${esc(res.payment_link)}', '_blank'); toast('Payment link opened! 📲');">1-Tap Revolut Payment Link 📲</button>
-      </div>
-    `;
-  }, "Expense Split & Payment Link Generated! 💸"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${body}
+        ${footer ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(footer)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  on("[data-act=quick-split-expense]", () => act(async () => {
+    const amount = parseFloat($("#qs-amount").value);
+    if (!(amount > 0)) { toast("How much was it?"); return; }
+    const note = $("#qs-title").value.trim();
+    const who = $("#qs-who").value.split(",").map(w => w.trim()).filter(Boolean);
+    // Named people go on a tab; a bare headcount is only ever the arithmetic, and the
+    // response says which of the two happened rather than implying it wrote something.
+    const res = who.length
+      ? await api("/v1/ledger/quick-split", { amount, note, participants: who })
+      : await api("/v1/ledger/quick-split",
+                  { amount, note, people_count: parseInt($("#qs-people").value, 10) || 4 });
+    renderTab(res);
+  }));
+
+  on("[data-act=show-tab]", () => act(async () => {
+    renderTab(await api("/v1/ledger/tab"), "#quick-split-output");
+  }));
+
+  on("[data-act=tab-history]", () => act(async () => {
+    renderTab(await api("/v1/ledger/tab/entries"), "#quick-split-output");
+  }));
+
+  /* Anybody can write a debt against anybody. Being able to see a claim is not the same as
+     having agreed to it, so the side it counts against can reject it. */
+  on("[data-act=tab-dispute]", (el) => act(async () => {
+    await api("/v1/ledger/tab/dispute", { entry_id: el.dataset.entry });
+    renderTab(await api("/v1/ledger/tab/entries"), "#quick-split-output");
+  }));
+
+  on("[data-act=settle-with]", (el) => act(async () => {
+    renderTab(await api("/v1/ledger/settle-up",
+                        { counterparty: el.dataset.who, currency: el.dataset.cur }),
+              "#quick-split-output");
+  }));
 
   on("[data-act=start-audio-space]", () => act(async () => {
     const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";

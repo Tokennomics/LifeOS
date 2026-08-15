@@ -2387,16 +2387,20 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ledger/tip")
     def send_micro_tip_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex (Crew Host)").strip()
-        amount = body.get("amount", 3.50)
-        currency = body.get("currency", "EUR")
-        return {
-            "tipped": True,
-            "recipient": recipient,
-            "amount": amount,
-            "currency": currency,
-            "message": f"Sent €{amount:.2f} Coffee Micro-Tip to {recipient}! ☕"
-        }
+        """A tip you meant to send, recorded as owed rather than claimed as sent.
+
+        Returned `tipped: True` and "Sent €3.50 to Alex (Crew Host)" for a recipient it made
+        up when the caller named nobody. No money left anywhere. It goes on the tab instead,
+        where the other person can see it and either of you can mark it settled.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        to_account = _named_account(request, body.get("recipient", "")
+                                    or body.get("to_account", ""))
+        return _with_handles(request, guard(lambda: tab.iou(
+            _graph(request), account_id=account_id, to_account=to_account,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", ""))))
 
     @router.post("/spaces/audio")
     def create_audio_space_endpoint(request: Request, body: dict):
@@ -2970,14 +2974,21 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ledger/settle-up")
     def settle_up_crew_expenses_endpoint(request: Request, body: dict):
-        total_owed = body.get("amount", 22.50)
-        return {
-            "settled": True,
-            "net_owed": total_owed,
-            "creditors": [{"name": "Elena R.", "amount": 12.50}, {"name": "Alex M.", "amount": 10.00}],
-            "settlement_link": f"https://revolut.me/connectos-crew-settle",
-            "message": f"💸 Outing Ledger Settled! Net balance: €{total_owed:.2f}. Single 1-click settlement link active."
-        }
+        """Mark what you owe somebody as paid.
+
+        Reported a net balance of €22.50 owed to "Elena R." and "Alex M." on an account that
+        had never split anything, and a `settlement_link` to a revolut.me page for a Revolut
+        account nobody had connected. Settles a real balance now, refuses to settle more than
+        is owed, and does not pretend a transfer happened.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        counterparty = _named_account(request, body.get("counterparty", "")
+                                      or body.get("with", ""))
+        return _with_handles(request, guard(lambda: tab.settle(
+            _graph(request), account_id=account_id, counterparty=counterparty,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", ""))))
 
     @router.get("/gallery/live-event-wall")
     def get_live_event_photo_wall_endpoint(request: Request):
@@ -3134,17 +3145,21 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ledger/gift-coffee")
     def gift_coffee_or_drink_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Elena R.").strip()
-        item = body.get("item", "Specialty Flat White").strip()
-        amount_eur = body.get("amount", 3.80)
-        return {
-            "gifted": True,
-            "recipient": recipient,
-            "item": item,
-            "amount_eur": amount_eur,
-            "voucher_code": "GIFT-FLATWHITE-99",
-            "message": f"🎁 Gift Sent! {item} (€{amount_eur:.2f}) sent to {recipient} with voucher code GIFT-FLATWHITE-99 ☕"
-        }
+        """The coffee you owe somebody, written down where they can see it.
+
+        Returned `voucher_code: "GIFT-FLATWHITE-99"` — the same code for every gift ever
+        sent, redeemable at no counter on earth. There is no vendor integration here and
+        inventing one is worse than not having it. What is real is the promise: an IOU for a
+        thing, which needs no amount and clears when you actually buy it.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        to_account = _named_account(request, body.get("recipient", "")
+                                    or body.get("to_account", ""))
+        return _with_handles(request, guard(lambda: tab.iou(
+            _graph(request), account_id=account_id, to_account=to_account,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            item=body.get("item", "") or "coffee", note=body.get("note", ""))))
 
     @router.get("/vitals/social-wellness")
     def get_social_wellness_analytics_endpoint(request: Request):
@@ -5152,19 +5167,62 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/ledger/quick-split")
     def quick_split_expenses_endpoint(request: Request, body: dict):
-        title = body.get("title", "Sunset Drinks & Tapas").strip()
-        amount = body.get("amount", 60.00)
-        people_count = body.get("people_count", 4)
-        per_person = round(amount / max(1, people_count), 2)
-        return {
-            "split": True,
-            "title": title,
-            "total_amount": amount,
-            "people_count": people_count,
-            "per_person": per_person,
-            "payment_link": f"https://revolut.me/connectos?amount={per_person}&note={title}",
-            "message": f"💸 Split '{title}': €{per_person}/person ({people_count} people). Payment link generated! 📲"
-        }
+        """You paid; everybody else owes you their share.
+
+        Divided one number by another, generated a `revolut.me` link with the amount in the
+        query string, and stored nothing — so "split" meant the screen changed.
+
+        Naming people puts it on a tab both sides can see. Giving only a headcount still
+        answers the arithmetic, because that is a real question at a table where nobody has
+        swapped handles yet — it just says plainly that nothing was recorded.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        participants = body.get("participants") or body.get("people") or []
+        if not participants:
+            return guard(lambda: tab.preview(body.get("amount"),
+                                             body.get("people_count"),
+                                             body.get("currency", "EUR")))
+        if isinstance(participants, str):
+            participants = participants.split(",")
+        named = [_named_account(request, p) for p in participants if str(p or "").strip()]
+        return _with_handles(request, guard(lambda: tab.split(
+            _graph(request), account_id=account_id, participants=named,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", "") or body.get("title", ""))))
+
+    @router.get("/ledger/tab")
+    def ledger_tab_endpoint(request: Request):
+        """What you are owed and what you owe, per person, per currency."""
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request,
+                             guard(lambda: tab.balances(_graph(request),
+                                                        account_id=account_id)))
+
+    @router.post("/ledger/tab/dispute")
+    def ledger_tab_dispute_endpoint(request: Request, body: dict):
+        """Reject an entry somebody put on your tab.
+
+        Without this the tab is a way to harass somebody: anybody could assert that anybody
+        else owed them a thousand euros, and the other side could watch it sit there. Being
+        able to see a claim is not the same as having agreed to it.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: tab.dispute(_graph(request), account_id=account_id,
+                                         entry_id=body.get("entry_id", ""),
+                                         reason=body.get("reason", "")))
+
+    @router.get("/ledger/tab/entries")
+    def ledger_tab_entries_endpoint(request: Request, counterparty: str = ""):
+        """The history behind a balance, so the number is never something to take on faith."""
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request,
+                             guard(lambda: tab.entries(_graph(request),
+                                                       account_id=account_id,
+                                                       counterparty=counterparty)))
 
     @router.post("/synergy/sports-match")
     def sports_squad_match_endpoint(request: Request, body: dict):
@@ -5229,6 +5287,58 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
             return account, caller.get("handle", "")
         owner = _graph(request).default_owner or ""
         return owner, ""
+
+    def _named_account(request: Request, who) -> str:
+        """A handle or an id turned into an account id, for a write that must reach a person.
+
+        People type handles. Most features can live with a name that resolves to nobody — a
+        SafeWalk watcher list is only ever read back as text. A shared tab cannot: an entry
+        addressed to a string nobody owns is invisible to the person who supposedly owes the
+        money, and can never be settled. So this refuses rather than writing a debt into the
+        void.
+
+        In single-user owner-key mode there are no accounts to resolve against, and the
+        string is taken as given — the same shape `_signal_caller` preserves.
+        """
+        from gateway import accounts
+        graph = _graph(request)
+        who = str(who or "").strip()
+        if not accounts.accounts_exist(graph):
+            return who
+        resolved = accounts.account_id_for(graph, who)
+        if not resolved:
+            raise HTTPException(status_code=400,
+                                detail=f"nobody here goes by '{who}'" if who
+                                else "who is it for?")
+        return resolved
+
+    def _with_handles(request: Request, payload: dict) -> dict:
+        """Put readable names on a tab.
+
+        The ledger works in account ids on purpose — an id is stable and a handle is not —
+        but a balance screen that says "762f7110-0962-4523 owes you 30.00" is not a sentence
+        anybody can act on, so the handle is resolved at read time rather than frozen into
+        the row at write time.
+        """
+        from gateway import accounts
+        if not isinstance(payload, dict):
+            return payload
+        rows = [r for r in (payload.get("balances") or []) + (payload.get("entries") or [])
+                if isinstance(r, dict)]
+        wanted = {payload.get(k) for k in ("counterparty", "to_account") if payload.get(k)}
+        for row in rows:
+            wanted |= {row.get(k) for k in ("counterparty", "person") if row.get(k)}
+        names = accounts.handles_for(_graph(request), wanted)
+        if not names:
+            return payload
+        for row in rows:
+            for key in ("counterparty", "person"):
+                if row.get(key) in names:
+                    row["handle"] = names[row[key]]
+        for key in ("counterparty", "to_account"):
+            if payload.get(key) in names:
+                payload[key + "_handle"] = names[payload[key]]
+        return payload
 
     @router.post("/kudos/send")
     def kudos_send_endpoint(request: Request, body: dict):

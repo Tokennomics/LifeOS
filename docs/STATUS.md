@@ -289,6 +289,23 @@ file and still touches a trust boundary.
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
 
+- **The shared tab** (`modules/ledger/tab.py`, 46 tests). Four endpoints handled money between
+  friends and none of them wrote a row: `/ledger/quick-split` divided one number by another and
+  returned a `revolut.me` link for an account nobody had connected, `/ledger/settle-up` reported
+  €22.50 owed to two people who do not exist, and `/ledger/gift-coffee` returned the same voucher
+  code every time. The app moves no money and now says so on every response; what it does is the
+  part that actually causes the arguments — keeping track.
+  - Money is stored as **whole cents**, never floats, and **currencies never mix** (a balance is
+    per counterparty *per currency*).
+  - **The odd cents stay with whoever paid**, so a split adds back up to what left their account.
+  - **A tip is an IOU.** With no payment rails, "I sent you €3.50" is false and "I owe you €3.50"
+    is true; the coffee you promised is the same object pointing the other way.
+  - **Either side can reject an entry.** Anybody can write a debt against anybody, so being able
+    to *see* a claim is not the same as having agreed to it. A disputed entry stops counting and
+    stays on both histories — deleting it would leave an argument with no record.
+  - A headcount with nobody named still answers the arithmetic and says plainly that it recorded
+    nothing. Verified in a browser: two accounts, one dinner, settle, and a rejected €500 claim.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

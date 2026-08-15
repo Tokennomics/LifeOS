@@ -587,7 +587,16 @@ def test_the_pwa_escapes_every_value_it_renders_from_a_response():
     import pathlib
     app_js = (pathlib.Path(__file__).resolve().parent.parent
               / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
-    assert "${esc(c.name)} (€${Number(c.amount).toFixed(2)})" in app_js
+    # The first site was the settle-up render, which interpolated `c.name` from a list of
+    # creditors. That handler is gone — it displayed two invented creditors and a Revolut
+    # link — and its successor is the tab, which renders handles typed by other people. The
+    # escaping matters more there than it ever did here, so the check follows the code.
+    assert "function renderTab(res, selector)" in app_js
+    for rendered in ("esc(who(e))", "esc(who(b))", "esc(b.direction)",
+                     "esc(res.counterparty_handle || res.counterparty)",
+                     'data-entry="${esc(e.entry_id)}"',
+                     'data-who="${esc(b.counterparty)}"'):
+        assert rendered in app_js, f"renderTab renders {rendered} unescaped"
 
     # The second site was the voice-brief render, which interpolated `s.time`, `s.place`
     # and `s.activity` from a response. That handler is gone: it displayed two hardcoded
