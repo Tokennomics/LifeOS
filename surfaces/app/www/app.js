@@ -645,12 +645,12 @@ function todayView() {
   /* ---- Algorithmic Transparency & Community Revenue Share ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🛡️ Algorithmic Transparency & Revenue Share</h2>
-      <span class="badge good" style="font-weight:bold;">0% Doomscroll</span>
+      <h2>🛡️ How the feed ranks</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">read from the code</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">You control your feed algorithm parameters! Community Revenue Share: <strong>€145.00 Earned</strong>.</p>
+    <p class="hint" style="margin-bottom:8px;">The actual numbers the ranking uses, imported from the ranking itself — so this page cannot drift away from what the feed does. It is a description, not a control panel: the version this replaces took weights and stored none of them.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="apply-algo-rules">Apply Transparent Algo Rules 🛡️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="apply-algo-rules">Show me the rules 🛡️</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="stack-habit">Stack Growth Habit (+14 Streak) 🌱</button>
     </div>
     <div id="algo-revenue-output" style="margin-top:10px;"></div>
@@ -879,18 +879,19 @@ function todayView() {
     <div id="seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Universal ConnectOS Master Controller Studio ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(99,102,241,0.22), rgba(16,185,129,0.22)); border:1.5px solid rgba(245,158,11,0.5); box-shadow: 0 8px 32px rgba(245,158,11,0.15);">
+  /* ---- What is actually switched on ----
+     Was the "Universal ConnectOS Master Controller", badged "All 50+ Engines Unified",
+     with four mode buttons that stored nothing and a response claiming BLE mesh, spatial
+     audio and Apple Pay were online. Every line was a constant. */
+  html += `<div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2 style="background: linear-gradient(135deg, #f59e0b, #ec4899, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">👑 Universal ConnectOS Master Controller</h2>
-      <span class="badge" style="background:#f59e0b; color:#000; font-weight:bold;">All 50+ Engines Unified</span>
+      <h2>⚙️ What is switched on</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">derived, not asserted</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Harmonize AI Butler, Stripe/PayPal, Hardware Whispers, Circadian Vitality, Offline Mesh & Planetary Impact with 1 tap!</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="set-mode-adventure">🚀 High Adventure Mode</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="set-mode-recovery">🧘 Restorative Recovery</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="set-mode-flow">🎨 Creative Flow Mastery</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="set-mode-impact">🌍 Planetary Impact Guild</button>
+    <p class="hint" style="margin-bottom:8px;">Which capabilities this instance actually has, and which it genuinely cannot do. Each line is checked, not claimed.</p>
+    <div class="row2" style="margin-bottom:8px;">
+      <button class="primary" data-act="system-status">Check the system</button>
+      <button class="ghost" data-act="show-feed-rules">How the feed ranks</button>
     </div>
     <div id="master-controller-output" style="margin-top:10px;"></div>
   </div>`;
@@ -4104,18 +4105,30 @@ function wire(root) {
     `;
   }, "City Discovery Quest Generated! 🗺️"));
 
+  /* Claimed to *apply* a real_world_weight of 0.85 and a proximity_bias of 0.90, stored
+     neither, and reported "Doomscroll Protection Active" — describing a ranking this app
+     does not implement, while calling itself transparency. The real numbers are imported
+     from the ranking code, so this page cannot drift away from it. */
+  function renderFeedRules(res) {
+    return `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:12px; margin-bottom:6px;">${esc(res.explanation)}</div>
+        ${res.parts.map(p => `
+          <div style="font-size:12px; margin-bottom:4px;">
+            <strong>${esc(p.part)}</strong> — ${esc(p.how)}
+            <div style="font-size:11px; color:var(--muted);">${Object.entries(p.weights).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ")}</div>
+          </div>`).join("")}
+        <div style="font-size:12px; font-weight:700; margin-top:6px;">Never shown</div>
+        ${res.excluded.map(e => `<div style="font-size:11px; color:var(--muted);">· ${esc(e)}</div>`).join("")}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_advertising)} ${esc(res.no_engagement_optimisation)}</div>
+      </div>`;
+  }
+
   on("[data-act=apply-algo-rules]", () => act(async () => {
-    const res = await api("/v1/feed/transparent-rules", { real_world_weight: 0.85, proximity_bias: 0.90 });
     const out = $("#algo-revenue-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🛡️ 100% Transparent Feed Algorithm Applied!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Real-World Outings Weight: <strong>85%</strong> · Proximity Bias: <strong>90%</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Status: Ad-Free & 0% Engagement Bait (Doomscroll Protection Active)</div>
-      </div>
-    `;
-  }, "Transparent Algorithm Applied! 🛡️"));
+    out.innerHTML = renderFeedRules(await api("/v1/feed/transparent-rules", {}));
+  }));
 
   on("[data-act=stack-habit]", () => act(async () => {
     const res = await api("/v1/growth/habit-stacking", { anchor_habit: "Morning Espresso", new_habit: "20-Min Deep Reading" });
@@ -5342,25 +5355,30 @@ function wire(root) {
     `;
   }, "Intergenerational Mentorship Guild Synced! 🕊️"));
 
-  const handleMasterMode = (modeName) => act(async () => {
-    const res = await api("/v1/os/master-controller", { mode: modeName, city: "Edinburgh" });
+  /* Reported "50+ subsystems" online — an AI Butler v4, BLE 5.3 mesh, AirPods spatial
+     audio, Apple Pay ready, a web of trust at 98/100 — and closed with `system_health:
+     "100% Operational (898+ Tests Verified)"`. Every line was a constant. A status page
+     that always says OK is worse than none. */
+  on("[data-act=system-status]", () => act(async () => {
+    const res = await api("/v1/os/master-controller", {});
     const out = $("#master-controller-output");
     if (!out) return;
-    const subs = res.orchestrated_subsystems || {};
-    const items = Object.entries(subs).map(([k, v]) => `<div style="margin-top:2px;">• <strong style="color:var(--spark);">${esc(k.replace(/_/g, " ").toUpperCase())}</strong>: ${esc(v)}</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Master Controller Mode Active: "${esc(res.active_mode)}" (${esc(res.city)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:bold; margin-bottom:4px;">System Health: ${esc(res.system_health)}</div>
-        <div style="font-size:11px; background:rgba(0,0,0,0.25); padding:8px; border-radius:6px; margin-top:4px;">${items}</div>
-      </div>
-    `;
-  }, `ConnectOS Mode set to: ${modeName}! 👑`);
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${res.configured} of ${res.of} configured</div>
+        ${res.capabilities.map(c => `<div style="font-size:12px;">${c.available ? "✓" : "—"} ${esc(c.name)}${c.needs && !c.available ? ` <span style="color:var(--muted);">(needs ${esc(c.needs)})</span>` : ""}</div>`).join("")}
+        <div style="font-size:12px; font-weight:700; margin-top:8px;">Cannot do</div>
+        ${res.unavailable.map(u => `<div style="font-size:11px; color:var(--muted);">· ${esc(u.name)} — ${esc(u.why)}</div>`).join("")}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${Object.entries(res.counts).map(([k, v]) => `${v} ${esc(k)}`).join(" · ")}</div>
+      </div>`;
+  }));
 
-  on("[data-act=set-mode-adventure]", () => handleMasterMode("High Growth & Adventure")());
-  on("[data-act=set-mode-recovery]", () => handleMasterMode("Restorative Deep Recovery")());
-  on("[data-act=set-mode-flow]", () => handleMasterMode("Creative Flow Mastery")());
-  on("[data-act=set-mode-impact]", () => handleMasterMode("Planetary Impact Guild")());
+  on("[data-act=show-feed-rules]", () => act(async () => {
+    const res = await api("/v1/feed/transparent-rules", {});
+    const out = $("#master-controller-output");
+    if (!out) return;
+    out.innerHTML = renderFeedRules(res);
+  }));
 
   on("[data-act=view-vinyl-radar]", () => act(async () => {
     const res = await api("/v1/seeding/underground-vinyl-radar", { city: "Edinburgh" });

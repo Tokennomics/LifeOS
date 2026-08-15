@@ -163,9 +163,15 @@ def test_gen3_core_pillars(cfg):
     assert res2.json()["plans"] == []
     assert "calendar negotiation" in res2.json()["not_included"]
 
+    # Five hardcoded cities with coordinates, flare counts and weather ("24°C Sunny", in
+    # Lisbon, forever) — identical on every deployment, including one installed a minute
+    # ago. It counts rows now, so a fresh instance has nobody anywhere.
     res3 = client.get("/v1/city/live-globe")
     assert res3.status_code == 200
-    assert len(res3.json()["active_cities"]) >= 5
+    assert res3.json()["empty"] is True
+    assert res3.json()["coordinates"] is False
+    for invented in ("tokyo", "38.722", "flares", "sunny"):
+        assert invented not in res3.text.lower()
 
     # `/v1/zk/verify-attribute` is gone, and this test is the reason it lasted: it asserted
     # that an AGE_OVER_18 check returns verified=True, which the endpoint did for every
@@ -257,9 +263,15 @@ def test_settle_photo_wall_and_quests(cfg):
 
 def test_transparent_algo_and_revenue_share(cfg):
     client = TestClient(create_app(cfg))
+    # It claimed to *apply* a real_world_weight and a proximity_bias, stored neither, and
+    # described a ranking this app does not implement — while calling itself transparency.
+    # The weights are imported from the ranking code now, and it sets nothing.
     res1 = client.post("/v1/feed/transparent-rules", json={"real_world_weight": 0.85})
     assert res1.status_code == 200
-    assert res1.json()["applied"] is True
+    assert res1.json()["settable"] is False
+    assert [p["part"] for p in res1.json()["parts"]] == [
+        "interest match", "how many people are going", "how soon it is"]
+    assert "doomscroll" not in res1.text.lower()
 
     # Reported an 89% adherence rate for a stack it had just invented. It creates a real
     # routine now — with the anchor as the trigger — and needs both halves to do it.
@@ -895,11 +907,18 @@ def test_global_flourishing_and_regenerative_earth(cfg):
 
 def test_universal_master_controller(cfg):
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/os/master-controller", json={"mode": "High Growth & Adventure", "city": "Edinburgh"})
+    # It reported "50+ subsystems" online — an AI Butler v4, BLE 5.3 mesh, AirPods spatial
+    # audio, Apple Pay ready — and `system_health: "100% Operational (898+ Tests
+    # Verified)"`. Every line was a constant. A status page that always says OK is worse
+    # than no status page, and this test is what kept it saying OK.
+    res = client.post("/v1/os/master-controller", json={"mode": "High Growth & Adventure"})
     assert res.status_code == 200
-    assert res.json()["master_controller_online"] is True
-    assert "ai_butler_v4" in res.json()["orchestrated_subsystems"]
-    assert res.json()["active_mode"] == "High Growth & Adventure"
+    body = res.json()
+    # Each capability is derived from configuration, and what the app cannot do is listed.
+    assert {u["name"] for u in body["unavailable"]} >= {"push notifications", "payments"}
+    assert all(isinstance(c["available"], bool) for c in body["capabilities"])
+    for invented in ("ai_butler", "898", "100% operational", "ble 5.3", "apple pay"):
+        assert invented not in res.text.lower()
 
 def test_nextgen_content_seeding_engines(cfg):
     client = TestClient(create_app(cfg))

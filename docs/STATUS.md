@@ -421,6 +421,32 @@ file and still touches a trust boundary.
     Time" — constants, on any account, for a thing that measures no screens. It reports
     counts over a named window now, and no score at all.
 
+- **The three dashboard reads** (`modules/platform/overview.py`, 12 tests). All three were
+  screens whose whole job was to be believed, and all three lied.
+  - `/os/master-controller` reported orchestration of "50+ subsystems" — an AI Butler v4,
+    "220+ Verified Events Ingested (RA, Luma, Dice)", "Stripe + PayPal + Apple Pay 1-Tap
+    Split Ready", "BLE 5.3 Mesh P2P + AirPods Spatial Audio Online", a web of trust at
+    98/100 — and closed with `system_health: "100% Operational (898+ Tests Verified)"`.
+    Every line was a constant, and several named systems that do not exist. **A status page
+    that always says OK is worse than no status page.** It now derives each line — a key is
+    set or it is not, a table has rows or it does not — and *lists* what this app genuinely
+    cannot do (push, payments, hardware, identity verification) rather than omitting it,
+    because silently dropping what you cannot do reads as though you can.
+  - `/city/live-globe` returned five hardcoded cities with coordinates, flare counts and
+    weather ("24°C Sunny", in Lisbon, forever), identical on a deployment installed a minute
+    ago. It counts rows now, and there are no coordinates — the lat/lon were decoration on
+    numbers that were not real either.
+  - `/feed/transparent-rules` claimed to *apply* a `real_world_weight` of 0.85 and a
+    `proximity_bias` of 0.90, stored neither, reported `doomscroll_protection: "ACTIVE"`,
+    and described a ranking this app does not implement — while calling itself transparency.
+    The weights are now **imported from `modules/discover/core`**, so the page cannot drift
+    from the code that ranks; and it is explicitly a description, not a control panel.
+
+**Prop count: 495 handlers, 42 literals (8%).** Down from 184/445 (40%) when this began. What
+remains is the payments and monetization group (needs the owner's accounts and an explicit
+go-ahead), the hardware group (mesh, wearables, AR, spatial audio — a web app cannot reach
+it), and a short tail of single endpoints.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

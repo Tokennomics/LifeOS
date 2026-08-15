@@ -2957,24 +2957,15 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/city/live-globe")
     def get_live_3d_globe_telemetry_endpoint(request: Request):
-        return {
-            "mode": "3D_SPATIAL_GLOBE",
-            "active_cities": [
-                {"city": "Lisbon", "lat": 38.722, "lon": -9.139, "active_flares": 14, "weather": "24°C Sunny 🌅"},
-                {"city": "Tokyo", "lat": 35.676, "lon": 139.650, "active_flares": 28, "weather": "19°C Clear 🗼"},
-                {"city": "New York", "lat": 40.712, "lon": -74.006, "active_flares": 32, "weather": "22°C Mild 🌆"},
-                {"city": "London", "lat": 51.507, "lon": -0.127, "active_flares": 22, "weather": "18°C Partly Cloudy 🎡"},
-                {"city": "San Francisco", "lat": 37.774, "lon": -122.419, "active_flares": 19, "weather": "17°C Coastal Fog 🌁"}
-            ],
-            "message": "🗺️ Live 3D Globe Telemetry: 115 active social beacons across 5 global hubs!"
-        }
+        """Cities this instance actually has activity in.
 
-    # `POST /zk/verify-attribute` was here. It returned {"verified": true,
-    # "identity_disclosed": false} with a random "ZK-" string for ANY attribute from ANY
-    # caller — including AGE_OVER_18, in a repo that contains a dating surface. An age check
-    # that passes everyone is worse than no age check, because the rest of the system, and
-    # the user reading "Proof Verified", both believe it happened. Removed rather than
-    # rewritten: real attribute proofs need an issuer, and there isn't one.
+        Five hardcoded cities with coordinates, invented flare counts and invented weather
+        ("24°C Sunny", in Lisbon, forever) — identical on every deployment, including one
+        installed a minute ago. Counts rows now, and on a new instance says plainly that
+        nobody is anywhere yet.
+        """
+        from modules.platform import overview
+        return guard(lambda: overview.globe(_graph(request)))
 
     @router.get("/trust/karma-score")
     def get_social_karma_score_endpoint(request: Request):
@@ -3229,16 +3220,18 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/feed/transparent-rules")
     def set_algorithmic_transparency_rules_endpoint(request: Request, body: dict):
-        real_world_weight = body.get("real_world_weight", 0.85)
-        proximity_bias = body.get("proximity_bias", 0.90)
-        return {
-            "applied": True,
-            "real_world_weight": real_world_weight,
-            "proximity_bias": proximity_bias,
-            "ad_free": True,
-            "doomscroll_protection": "ACTIVE",
-            "message": "🛡️ 100% Transparent Algorithm Applied: 85% Real-World Outings, 0% Engagement-Bait."
-        }
+        """How the feed actually ranks — read from the code that ranks it.
+
+        Accepted a `real_world_weight` of 0.85 and a `proximity_bias` of 0.90, stored
+        neither, reported `ad_free: True` and `doomscroll_protection: "ACTIVE"`, and
+        described a ranking this app does not implement — while calling itself
+        transparency.
+
+        The numbers below are imported from `modules/discover/core`, so if the ranking
+        changes this changes with it. That is the only way a page like this stays true.
+        """
+        from modules.platform import overview
+        return guard(lambda: overview.feed_rules())
 
     @router.post("/growth/habit-stacking")
     def growth_habit_stacking_endpoint(request: Request, body: dict):
@@ -4780,24 +4773,22 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/os/master-controller")
     def universal_master_controller_endpoint(request: Request, body: dict):
-        active_mode = body.get("mode", "High Growth & Adventure").strip()
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "master_controller_online": True,
-            "city": city,
-            "active_mode": active_mode,
-            "orchestrated_subsystems": {
-                "ai_butler_v4": "Active (Serendipity & Proactive Concierge)",
-                "circadian_vitality": "Synchronized (07:30 AM Lux Window / 09:30 PM Melatonin Shield)",
-                "global_event_radar": "220+ Verified Events Ingested (RA, Luma, Dice)",
-                "payment_gateways": "Stripe + PayPal + Apple Pay 1-Tap Split Ready",
-                "mesh_and_wearables": "BLE 5.3 Mesh P2P + AirPods Spatial Audio Online",
-                "planetary_impact": "Eco-Quests + Zero-Waste Pantry + Intergenerational Guild Synced",
-                "web_of_trust": "Zero-Knowledge Community Verified (98/100)"
-            },
-            "system_health": "100% Operational (898+ Unit/Integration Tests Verified)",
-            "message": f"👑 Universal ConnectOS Master Controller Online! Orchestrating all 50+ subsystems in '{active_mode}' for {city}."
-        }
+        """What is actually configured on this instance.
+
+        Reported `master_controller_online: True` and orchestration of "50+ subsystems" —
+        an AI Butler v4, 220+ verified events, Stripe and Apple Pay ready, BLE 5.3 mesh and
+        spatial audio online, a web of trust "Zero-Knowledge Community Verified (98/100)" —
+        and closed with `system_health: "100% Operational (898+ Tests Verified)"`. Every
+        line was a constant, several described systems that do not exist, and a status page
+        that always says OK is worse than none: it is the one screen whose whole job is to
+        be believed.
+
+        Each line is derived now — a key is set or it is not, a table has rows or it does
+        not — and the things this app genuinely cannot do are listed rather than omitted.
+        """
+        from modules.platform import overview
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: overview.system(_graph(request), account_id=account_id))
 
     @router.post("/seeding/underground-vinyl-radar")
     def underground_vinyl_music_radar_endpoint(request: Request, body: dict):
