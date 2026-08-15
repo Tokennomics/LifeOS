@@ -228,9 +228,12 @@ def test_leaderboard_mentor_and_squad_routine(cfg):
     assert res2.json()["matched"] is False
     assert "mentor_name" not in res2.json()
 
+    # It reported "Weekly on Wednesdays @ 7:00 AM" whatever you asked for, claimed the
+    # routine was synced to 5 crew calendars, and linked an .ics on a host this deployment
+    # does not serve. A routine belongs to a crew now, so a name on its own is not one.
     res3 = client.post("/v1/routines/squad-sync", json={"routine_name": "Dawn Patrol Surf"})
-    assert res3.status_code == 200
-    assert res3.json()["synced"] is True
+    assert res3.status_code == 400
+    assert "connectos.app" not in res3.text
 
 def test_settle_photo_wall_and_quests(cfg):
     client = TestClient(create_app(cfg))

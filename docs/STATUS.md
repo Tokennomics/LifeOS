@@ -351,6 +351,33 @@ file and still touches a trust boundary.
     characters aloud. Single-use, ten minutes, an alphabet with no I/L/O/0/1 in it, and what
     comes back is what both have actually published — never a score.
 
+- **Reminders and standing crew routines** (`modules/notifications/reminders.py`,
+  `modules/routines/squad.py`, `modules/calendars/feeds.py`, 38 tests).
+  `/notifications/schedule` echoed two times back and stored nothing.
+  `/routines/squad-sync` reported `synced_calendars: 5` on a crew that might have had none,
+  the same recurrence whatever you asked for, and an `ics_link` on a host this deployment
+  does not serve.
+  - **This app cannot send a notification** — no VAPID key in the repo, no `pushManager`
+    subscription, no APNs certificate, no SMS provider. A reminder is a row that is waiting
+    when you next open the app, and `push_delivered` is false on every response.
+  - **Times are local wall-clock plus an offset**, never an instant. "Remind me at 08:00"
+    means eight where you wake up, and this app is for somebody who is travelling — an
+    instant computed once in Lisbon is wrong the moment they land anywhere else.
+  - **A reminder never fires for a moment before it existed.** Setting a daily 07:00 nudge
+    at lunchtime must not announce that you missed this morning's.
+  - **A routine is a rule that expands into real dates**, and its occurrences join the
+    crew's `.ics` feed.
+  - **Calendar feed tokens** (`modules/calendars/feeds.py`). The `.ics` route sits behind
+    the session bearer token, which a calendar client cannot send — so "Subscribe: <link>"
+    was a link that 401s for everything except the signed-in app. The subscribe URL is now
+    the credential: read-only, scoped to one crew, stored as a SHA-256, expiring, revocable,
+    and never a login. An unknown or revoked token gets the same empty calendar as any
+    other, so the URL space cannot be probed.
+  - **A dead emergency card, found by walking the app.** The PWA called
+    `/v1/triage/critical`; the route is `/v1/triage/card`, so saving and loading both 404'd
+    — and it read the fields off the response envelope rather than `card`, so the form would
+    have stayed empty even with the URL fixed. Somebody's medical card was never stored.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

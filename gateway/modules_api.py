@@ -3105,15 +3105,71 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/routines/squad-sync")
     def squad_recurring_routine_sync_endpoint(request: Request, body: dict):
-        routine_name = body.get("routine_name", "Wednesday Dawn Patrol Surf Crew").strip()
-        return {
-            "synced": True,
-            "routine_name": routine_name,
-            "recurrence": "Weekly on Wednesdays @ 7:00 AM",
-            "synced_calendars": 5,
-            "ics_link": "https://connectos.app/calendar/squad-surf.ics",
-            "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars."
-        }
+        """The same thing, same time, every week — as dates a calendar can subscribe to.
+
+        Returned `synced: True`, the same recurrence ("Weekly on Wednesdays @ 7:00 AM")
+        whatever you asked for, `synced_calendars: 5` on a crew that might have had none,
+        and an `ics_link` on connectos.app. Nothing was stored and no calendar was touched.
+
+        The rule is real now, `upcoming` expands it into dates, and the occurrences join the
+        crew's own .ics feed — which this deployment serves — so subscribing actually works.
+        Nothing claims to have added anything to anybody's calendar: that is a thing each
+        person does once, with the link.
+        """
+        from modules.routines import squad
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: squad.set_routine(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            title=body.get("title", "") or body.get("routine_name", ""),
+            day=body.get("day", ""), at=body.get("at", ""),
+            account_id=subject, minutes=body.get("minutes", 90),
+            place=body.get("place", "")))
+
+    @router.get("/crews/{crew_id}/routines")
+    def crew_routines(request: Request, crew_id: str, weeks: int = 4):
+        """Every standing thing this crew does, with its next few dates."""
+        from modules.routines import squad
+        subject = _subject(request, None)
+        return guard(lambda: squad.for_crew(_graph(request), crew_id=crew_id,
+                                            account_id=subject, weeks=weeks))
+
+    @router.post("/crews/{crew_id}/calendar-link")
+    def crew_calendar_link(request: Request, crew_id: str, body: dict | None = None):
+        """Mint a subscribe URL a calendar app can actually fetch.
+
+        Returned once. `/v1/crews/{id}/export.ics` needs the session bearer token, which a
+        calendar client cannot send — so without this, "Subscribe" was a link that 401s.
+        """
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        minted = guard(lambda: feeds.mint(_graph(request), crew_id=crew_id,
+                                          account_id=subject,
+                                          days=(body or {}).get("days",
+                                                                feeds.DEFAULT_DAYS)))
+        return {**minted, "subscribe_path": f"/calendar/{minted['token']}.ics"}
+
+    @router.get("/crews/{crew_id}/calendar-links")
+    def crew_calendar_links(request: Request, crew_id: str):
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        return guard(lambda: feeds.listing(_graph(request), crew_id=crew_id,
+                                           account_id=subject))
+
+    @router.post("/crews/calendar-link/revoke")
+    def crew_calendar_link_revoke(request: Request, body: dict):
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        return guard(lambda: feeds.revoke(_graph(request),
+                                          feed_id=body.get("feed_id", ""),
+                                          account_id=subject))
+
+    @router.post("/routines/squad-sync/end")
+    def squad_routine_end(request: Request, body: dict):
+        from modules.routines import squad
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: squad.end(_graph(request),
+                                       routine_id=body.get("routine_id", ""),
+                                       account_id=subject))
 
     @router.post("/ledger/settle-up")
     def settle_up_crew_expenses_endpoint(request: Request, body: dict):
@@ -5960,8 +6016,51 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         return guard(lambda: recap.heatmap(_graph(request), days))
     @router.post("/notifications/schedule")
     def schedule_notifications_endpoint(request: Request, body: dict):
-        am_time = body.get("am_time", "08:00")
-        pm_time = body.get("pm_time", "21:00")
-        return {"scheduled": True, "am_time": am_time, "pm_time": pm_time}
+        """Ask to be reminded of something, at a time, on some days.
+
+        Echoed the two times back and stored nothing: `{"scheduled": True, "am_time":
+        "08:00", "pm_time": "21:00"}`. Nothing was scheduled and the next request knew
+        nothing about the last one.
+
+        This app cannot send a notification — there is no push key in the repo, no APNs
+        certificate and no SMS provider — so a reminder is a row that is waiting for you
+        when you next open the app, and `push_delivered` says so on every response.
+        """
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.set_reminder(
+            _graph(request), account_id=account_id,
+            text=body.get("text", "") or body.get("about", ""),
+            at=body.get("at", "") or body.get("am_time", ""),
+            days=body.get("days"),
+            utc_offset_minutes=body.get("utc_offset_minutes", 0)))
+
+    @router.get("/notifications")
+    def notifications_listing(request: Request):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.listing(_graph(request), account_id=account_id))
+
+    @router.get("/notifications/due")
+    def notifications_due(request: Request):
+        """What came due and has not been seen. Opening the app is the delivery mechanism."""
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.due(_graph(request), account_id=account_id))
+
+    @router.post("/notifications/acknowledge")
+    def notifications_acknowledge(request: Request, body: dict):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.acknowledge(
+            _graph(request), account_id=account_id,
+            reminder_id=body.get("reminder_id", "")))
+
+    @router.post("/notifications/cancel")
+    def notifications_cancel(request: Request, body: dict):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.cancel(_graph(request), account_id=account_id,
+                                              reminder_id=body.get("reminder_id", "")))
 
     return router

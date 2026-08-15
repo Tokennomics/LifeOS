@@ -237,7 +237,9 @@ async function refresh() {
       const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
         api("/v1/vitals"), api("/v1/spaces"), api("/v1/people"),
-        api("/v1/triage/critical").catch(() => null),
+        // The route is `/triage/card`; this asked for `/triage/critical` and 404'd on
+        // every page load, so the emergency card was never displayed and never saved.
+        api("/v1/triage/card").catch(() => null),
         api("/v1/triage/deadman/status").catch(() => null),
         api("/v1/dating/availability").catch(() => null),
         api("/v1/dating/matches").catch(() => ({ matches: [] })),
@@ -611,8 +613,18 @@ function todayView() {
     </div>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Find a mentor 🤝</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Sync Squad Calendar 📅</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Set a weekly routine 📅</button>
     </div>
+    <div class="row2" style="margin-top:8px;">
+      <input class="field" id="sq-title" placeholder="What, every week? (dawn patrol)">
+      <input type="time" class="field" id="sq-at" value="07:00">
+    </div>
+    <select class="field" id="sq-day" style="margin-top:6px;">
+      <option value="mon">Mondays</option><option value="tue">Tuesdays</option>
+      <option value="wed" selected>Wednesdays</option><option value="thu">Thursdays</option>
+      <option value="fri">Fridays</option><option value="sat">Saturdays</option>
+      <option value="sun">Sundays</option>
+    </select>
     <div id="mentor-squad-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -2474,7 +2486,9 @@ function moreView() {
       : `<p class="empty">No shared spaces yet.</p>`}</div>`;
 
   /* ---- Critical Medical ID Card ---- */
-  const crit = m.critical || {};
+  // `/triage/card` answers `{configured, card: {...}}`, so reading the fields off the
+  // envelope left every box empty even once the URL was right.
+  const crit = (m.critical && m.critical.card) || {};
   html += `<div class="card"><h2>Critical Medical ID Card</h2>
     <div class="row2"><input class="field" id="cr-name" placeholder="Full Name" value="${esc(crit.full_name || "")}">
     <input class="field" id="cr-blood" placeholder="Blood Type (e.g. O+)" value="${esc(crit.blood_type || "")}"></div>
@@ -2705,12 +2719,22 @@ function moreView() {
     </div>
   </div>`;
 
-  /* ---- Diurnal Push Notification Scheduler ---- */
-  html += `<div class="card"><h2>Diurnal Push Notification Scheduler</h2>
-    <p class="hint" style="margin-bottom:10px;">Schedule device push triggers for Morning Intent lock and Evening Sunset reflection.</p>
-    <div class="row2"><label class="hint" style="margin-top:4px;">Morning Intent (AM): <input type="time" class="field" id="nt-am" value="08:00"></label>
-    <label class="hint" style="margin-top:4px;">Evening Sunset (PM): <input type="time" class="field" id="nt-pm" value="21:00"></label></div>
-    <button class="primary" style="margin-top:8px;" data-act="nt-save">Schedule Daily Notifications 🔔</button>
+  /* ---- Reminders ----
+     Was "Diurnal Push Notification Scheduler", which promised device push triggers. This
+     app has no push key, no APNs certificate and no SMS provider: a reminder is here
+     waiting when you next open it, and the card says so rather than implying a buzz. */
+  html += `<div class="card"><h2>Reminders</h2>
+    <p class="hint" style="margin-bottom:10px;">Nothing is pushed — this app cannot buzz your phone. A reminder waits here for you to open it.</p>
+    <div class="row2">
+      <input class="field" id="nt-text" placeholder="Remind me to…">
+      <input type="time" class="field" id="nt-at" value="08:00">
+    </div>
+    <input class="field" id="nt-days" placeholder="Days (mon,wed,fri) — empty means every day" style="margin-top:6px;">
+    <div class="row2" style="margin-top:8px;">
+      <button class="primary" data-act="nt-save">Remind me 🔔</button>
+      <button class="ghost" data-act="nt-list">What is waiting</button>
+    </div>
+    <div id="reminders-output" style="margin-top:10px;"></div>
   </div>`;
 
   return html;
@@ -3133,7 +3157,7 @@ function wire(root) {
     const blood_type = $("#cr-blood").value.trim();
     const allergies = $("#cr-allergies").value.trim();
     const notes = $("#cr-notes").value.trim();
-    await api("/v1/triage/critical", { full_name, blood_type, allergies, notes });
+    await api("/v1/triage/card", { full_name, blood_type, allergies, notes });
     await refresh();
   }, "Critical info saved ✔"));
 
@@ -3456,11 +3480,59 @@ function wire(root) {
     toast(`API Key Created! Secret copied to clipboard: ${secret.slice(0, 12)}... 🔑`);
   }));
 
+  /* It echoed two times back, stored nothing, and toasted "Daily Push Notifications
+     Scheduled". Nothing was scheduled and nothing could ever have been pushed. */
+  function renderReminders(res) {
+    const out = $("#reminders-output");
+    if (!out) return;
+    const dueList = res.due || [];
+    const set = res.reminders || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${dueList.map(r => `<div style="font-size:13px; margin-bottom:4px;">
+            <strong>${esc(r.text)}</strong> — due ${esc(r.at)}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="nt-ack" data-id="${esc(r.reminder_id)}">Got it</button>
+          </div>`).join("")}
+        ${set.map(r => `<div style="font-size:13px; margin-bottom:4px;">
+            ${esc(r.text)} · ${esc(r.at)} · ${esc((r.days || []).join(", "))}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="nt-cancel" data-id="${esc(r.reminder_id)}">Stop</button>
+          </div>`).join("")}
+        ${(dueList.length || set.length) ? "" : `<div style="font-size:13px; color:var(--muted);">Nothing set.</div>`}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.delivery_note || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
+
+  const showReminders = async () => {
+    const [due, set] = await Promise.all([api("/v1/notifications/due"),
+                                          api("/v1/notifications")]);
+    renderReminders({ ...set, due: due.due, delivery_note: set.delivery_note });
+  };
+
   on("[data-act=nt-save]", () => act(async () => {
-    const am_time = $("#nt-am").value || "08:00";
-    const pm_time = $("#nt-pm").value || "21:00";
-    await api("/v1/notifications/schedule", { am_time, pm_time });
-    toast(`Daily Push Notifications Scheduled for ${am_time} AM & ${pm_time} PM 🔔`);
+    const text = $("#nt-text").value.trim();
+    if (!text) { toast("Remind you of what?"); return; }
+    const days = $("#nt-days").value.split(",").map(d => d.trim()).filter(Boolean);
+    // The wall-clock time is what was typed; the offset says where the person is standing,
+    // so "08:00" stays eight in the morning after they fly somewhere else.
+    await api("/v1/notifications/schedule", {
+      text, at: $("#nt-at").value || "08:00", days,
+      utc_offset_minutes: -new Date().getTimezoneOffset(),
+    });
+    $("#nt-text").value = "";
+    await showReminders();
+  }));
+
+  on("[data-act=nt-list]", () => act(showReminders));
+
+  on("[data-act=nt-ack]", (el) => act(async () => {
+    await api("/v1/notifications/acknowledge", { reminder_id: el.dataset.id });
+    await showReminders();
+  }));
+
+  on("[data-act=nt-cancel]", (el) => act(async () => {
+    await api("/v1/notifications/cancel", { reminder_id: el.dataset.id });
+    await showReminders();
   }));
 
   /* ---- Ambient Focus & Sleep Audio Synthesizer ---- */
@@ -3981,17 +4053,34 @@ function wire(root) {
   }));
 
   on("[data-act=sync-squad-routine]", () => act(async () => {
-    const res = await api("/v1/routines/squad-sync", { routine_name: "Wednesday Dawn Patrol Surf Crew" });
+    /* Reported "Weekly on Wednesdays @ 7:00 AM" whatever you asked for, claimed it was
+       synced to 5 crew calendars, and linked an .ics on connectos.app. The rule is real
+       now and its occurrences join the crew's own feed, which this deployment serves. */
+    const crew_id = firstCrewId();
+    if (!crew_id) { toast("A routine belongs to a crew — make one first."); return; }
+    const title = $("#sq-title") ? $("#sq-title").value.trim() : "";
+    if (!title) { toast("What is the routine?"); return; }
+    const res = await api("/v1/routines/squad-sync", {
+      crew_id, title, day: ($("#sq-day") ? $("#sq-day").value : "wed"),
+      at: ($("#sq-at") ? $("#sq-at").value : "07:00"),
+    });
+    // A subscribe URL a calendar app can actually fetch. `res.ics_path` needs the session
+    // bearer token, which a calendar client cannot send — offering that as "Subscribe"
+    // would be a link that 401s for everything except this app.
+    const link = await api(`/v1/crews/${crew_id}/calendar-link`, {});
+    const url = location.origin + link.subscribe_path;
     const out = $("#mentor-squad-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📅 Squad Routine Synced:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Routine: <strong>${esc(res.routine_name)}</strong> (${esc(res.recurrence)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Synced across ${res.synced_calendars} crew calendars · ICS: ${esc(res.ics_link)}</div>
-      </div>
-    `;
-  }, "Squad Calendar Routine Synced! 📅"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${esc(res.title)} — ${esc(res.recurrence)}</div>
+        ${res.upcoming.map(d => `<div style="font-size:12px;">${esc(new Date(d).toDateString())}</div>`).join("")}
+        <div style="font-size:12px; margin-top:6px;">Subscribe in your calendar app:</div>
+        <div style="font-size:11px; word-break:break-all;">${esc(url)}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.sync_note)} ${esc(link.warning)}</div>
+      </div>`;
+    bindLater(out);
+  }));
 
   on("[data-act=settle-crew-tab]", () => act(async () => {
     /* Reported €22.50 owed to Elena R. and Alex M. on an account that had split nothing,
