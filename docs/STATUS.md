@@ -329,6 +329,28 @@ file and still touches a trust boundary.
     joined somebody else's crew never saw it in "Your crews" — with it, every per-crew
     surface (chat, plans, polls, beacons) was unreachable for anyone but the creator.
 
+- **Invites, sharing and being early** (`modules/growth/share.py`, 30 tests). Five endpoints
+  handed back URLs on `connectos.app` — a host this deployment does not serve — for
+  resources nothing ever created. Two of them attached **rewards that do not exist**: 100
+  karma and a free-coffee voucher for sharing an invite, a year of free VIP and
+  complimentary coffee at partner roasters for a "City Pioneer #042" badge. A fake link is
+  embarrassing; a fake promise of something free is a different kind of problem, and it is
+  the part nobody can quietly make true later.
+  - **`/viral/invite-crew` and `/seeding/golden-tickets`** mint real links through the
+    hardened `crews/invites` path — the tickets as *separate single-use* links, one per
+    person, rather than three behind one shared URL advertising an Apple Pay split this app
+    cannot perform.
+  - **`/viral/social-share` draws the card.** Nothing here rasterises images, so there is no
+    PNG; an SVG is a real image this process can produce, it carries the real link, and
+    every value in it is escaped, because a title is user input and an SVG is markup.
+  - **`/seeding/pioneer-pass` counts.** Your position among people who have actually posted
+    or published in a city, computed from real rows, with nothing attached to it.
+  - **`/nfc/tap-to-synergy` swaps a code.** It claimed an "NFC & Apple NameDrop Ephemeral
+    Handshake" and reported 94% compatibility with a named stranger for any peer string
+    sent. A web app speaks none of that; two people standing together can still read six
+    characters aloud. Single-use, ten minutes, an alphabet with no I/L/O/0/1 in it, and what
+    comes back is what both have actually published — never a score.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

@@ -3351,14 +3351,23 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/viral/invite-crew")
     def generate_viral_invite_link_endpoint(request: Request, body: dict):
-        crew_name = body.get("crew_name", "Lisbon Specialty Coffee & Tech").strip()
-        return {
-            "invite_code": "CREW-LISBON-8921",
-            "invite_url": "https://connectos.app/join/lisbon-coffee-crew",
-            "bonus_karma": 100,
-            "bonus_coffee_voucher": "VOUCHER-FREE-COFFEE",
-            "message": f"⚡ Viral Invite Link Created for '{crew_name}'! Shares award +100 Karma & 1 Free Coffee to both of you."
-        }
+        """A real join link for a crew you administer.
+
+        Returned `invite_code: "CREW-LISBON-8921"` — the same code for every crew on every
+        instance — on connectos.app, a host this deployment does not serve, plus 100 karma
+        and a free-coffee voucher from a rewards programme that does not exist and that
+        nobody has agreed to fund. The link is real now and the rewards are gone, because
+        inventing a reward is the one part of this nobody can quietly make true later.
+        """
+        from modules.crews import invites
+        subject = _subject(request, body.get("by"))
+        link = guard(lambda: invites.create(
+            _graph(request), body.get("crew_id", ""), subject,
+            ttl_hours=body.get("ttl_hours", 24 * 7),
+            max_uses=body.get("max_uses", 25)))
+        return {**link, "invite_path": f"/invite/{link['token']}",
+                "rewards": None,
+                "note": "No karma and no voucher — this app has neither."}
 
     @router.get("/gamification/streaks")
     def get_user_outing_streaks_endpoint(request: Request):
@@ -3367,13 +3376,18 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: recap.streaks(_graph(request)))
     @router.post("/viral/social-share")
     def generate_social_share_card_endpoint(request: Request, body: dict):
-        title = body.get("title", "Lisbon Rooftop Sunset Party").strip()
-        return {
-            "story_card_url": "https://connectos.app/cards/story-sunset-88.png",
-            "format": "1080x1920 Instagram/TikTok Story",
-            "embedded_qr_code": "https://connectos.app/qr/event-88",
-            "message": f"📢 Social Share Card Generated for '{title}' (1080x1920 Story format with QR code)!"
-        }
+        """A share card this process actually draws.
+
+        Returned `story_card_url` pointing at a PNG on connectos.app that nothing ever
+        rendered, and an "embedded QR code" at a second URL that was also never rendered.
+        Nothing in this app rasterises images, so a PNG would be another promise; an SVG is
+        a real image it can produce, and it carries the real link rather than a picture of
+        one.
+        """
+        from modules.growth import share
+        return guard(lambda: share.card(
+            body.get("title", ""), subtitle=body.get("subtitle", ""),
+            link=body.get("link", ""), footer=body.get("footer", "")))
 
     @router.get("/community/ambassadors")
     def get_city_launch_heatmaps_endpoint(request: Request):
@@ -3885,27 +3899,48 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/pioneer-pass")
     def pioneer_pass_ambassador_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        pioneer_number = int(body.get("pioneer_number", 42))
-        return {
-            "pioneer_pass_minted": True,
-            "badge_title": f"City Pioneer #{pioneer_number:03d} · {city}",
-            "perks": ["1 Year Free ConnectOS VIP", "Complimentary Batch Brew @ Partner Roasters", "Founding Crew Voting Rights"],
-            "qr_pass_url": f"https://connectos.app/pioneer/{city.lower()}-{pioneer_number}.pass",
-            "message": f"👑 Pioneer Pass #{pioneer_number:03d} Minted for {city}! 1-Year VIP & Free Coffee perks unlocked."
-        }
+        """How early you were here — a count, with nothing attached to it.
+
+        Minted "City Pioneer #042" with a year of free VIP, complimentary coffee at partner
+        roasters and founding voting rights. The number was whatever the caller sent, and
+        the perks are promises only the operator can make. Being early is a fact about real
+        rows, so it is counted from them.
+        """
+        from modules.growth import share
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: share.standing(_graph(request), _seed_city(body),
+                                            account_id=account_id))
 
     @router.post("/seeding/golden-tickets")
     def viral_golden_tickets_multiplier_endpoint(request: Request, body: dict):
-        outing_title = body.get("outing", "Sunset Catamaran Sailing (€30)").strip()
-        return {
-            "tickets_generated": True,
-            "outing": outing_title,
-            "tickets_count": 3,
-            "share_link": "https://connectos.app/invite/GOLDEN-CREW-8921",
-            "viral_multiplier": "3x Crew Invitations with 1-Tap Apple Pay Split",
-            "message": f"🎟️ 3 Golden Crew Tickets Generated for '{outing_title}'! Shareable 1-tap link ready for WhatsApp/iMessage."
-        }
+        """A handful of single-use invites, one per person you mean to bring.
+
+        Returned three "golden tickets" behind one connectos.app link — the same link every
+        time — advertising a "1-Tap Apple Pay Split" this app cannot perform. Separate
+        single-use links are the real version of the idea: you can hand one to each person
+        and see which were used.
+        """
+        from modules.crews import invites
+        subject = _subject(request, body.get("by"))
+        crew_id = body.get("crew_id", "")
+        try:
+            count = int(body.get("count", 3))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="count must be a number")
+        if not 1 <= count <= 10:
+            raise HTTPException(status_code=400, detail="between 1 and 10 tickets")
+
+        tickets = [guard(lambda: invites.create(_graph(request), crew_id, subject,
+                                                ttl_hours=body.get("ttl_hours", 24 * 7),
+                                                max_uses=1))
+                   for _ in range(count)]
+        return {"tickets": [{"invite_id": t["invite_id"], "token": t["token"],
+                             "invite_path": f"/invite/{t['token']}",
+                             "expires_at": t["expires_at"]} for t in tickets],
+                "count": len(tickets), "single_use_each": True,
+                "crew_name": tickets[0]["crew_name"] if tickets else "",
+                "no_payment": ("There is no Apple Pay split here. These are join links, one "
+                               "person each.")}
 
     @router.post("/seeding/anchor-outings")
     def anchor_weekly_outings_endpoint(request: Request, body: dict):
@@ -4162,18 +4197,24 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/nfc/tap-to-synergy")
     def nfc_tap_to_synergy_handshake_endpoint(request: Request, body: dict):
-        target_peer = body.get("peer", "Catriona (Nomad / Foodie)").strip()
-        return {
-            "handshake_verified": True,
-            "protocol": "NFC & Apple NameDrop Ephemeral Handshake",
-            "peer": target_peer,
-            "synergy_score": 94,
-            "shared_hobbies": ["Specialty Pour-Over Coffee", "35mm Analog Photography", "Trail Ridge Running"],
-            "mutual_connections": 3,
-            "haptic_feedback": "CONFIRM_DOUBLE_PULSE",
-            "zk_card_exchanged": True,
-            "message": f"🪄 Tap-to-Synergy Confirmed! 94% compatibility with {target_peer} (3 shared passions)."
-        }
+        """Swap a short code with somebody standing next to you.
+
+        Claimed an "NFC & Apple NameDrop Ephemeral Handshake", reported 94% compatibility
+        with three shared passions for any peer string sent, and confirmed a "zk card
+        exchanged". A web app cannot speak NFC or NameDrop, nobody was on the other end, and
+        the score was a constant.
+
+        Sending no code shows yours; sending one takes theirs. What comes back is what you
+        have both actually published, or nothing — never a percentage.
+        """
+        from modules.growth import share
+        account_id, handle = _signal_caller(request)
+        code = str(body.get("code", "") or "").strip()
+        if code:
+            return guard(lambda: share.redeem_code(_graph(request), code,
+                                                   account_id=account_id, handle=handle))
+        return guard(lambda: share.open_code(_graph(request), account_id=account_id,
+                                             handle=handle))
 
     @router.post("/ai/culture-bridge-translator")
     def local_culture_and_dialect_bridge_endpoint(request: Request, body: dict):

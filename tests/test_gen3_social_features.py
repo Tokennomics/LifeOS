@@ -325,18 +325,24 @@ def test_sustainable_multi_revenue_monetization(cfg):
 
 def test_viral_growth_and_traction(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/viral/invite-crew", json={"crew_name": "Lisbon Tech"})
-    assert res1.status_code == 200
-    assert "CREW-" in res1.json()["invite_code"]
+    # `invite_code: "CREW-LISBON-8921"` was the same string on every instance, and the
+    # response promised 100 karma and a free-coffee voucher for sharing it. A link now has
+    # to let somebody into a crew that exists, so with no crew there is nothing to mint.
+    res1 = client.post("/v1/viral/invite-crew", json={"crew_id": "no-such-crew"})
+    assert res1.status_code == 400
+    assert "karma" not in res1.text.lower() and "voucher" not in res1.text.lower()
 
     # Was a fixed 7 for everybody. Counted from real activity now, so a fresh account is 0.
     res2 = client.get("/v1/gamification/streaks")
     assert res2.status_code == 200
     assert res2.json()["current_streak_days"] == 0 and res2.json()["empty"] is True
 
+    # `story_card_url` pointed at a PNG on connectos.app that nothing ever rendered. The
+    # card is drawn here now, as an SVG, because nothing in this app rasterises images.
     res3 = client.post("/v1/viral/social-share", json={"title": "Rooftop Party"})
     assert res3.status_code == 200
-    assert "story-" in res3.json()["story_card_url"]
+    assert res3.json()["svg"].startswith("<svg")
+    assert "connectos.app" not in res3.text
 
     res4 = client.get("/v1/community/ambassadors")
     assert res4.status_code == 200
@@ -599,13 +605,20 @@ def test_city_seeding_and_cold_start_engine(cfg):
     assert res1.json()["empty"] is True
     assert "curated_third_places" not in res1.json()
 
-    res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon", "pioneer_number": 42})
+    # It minted "City Pioneer #042" — the number came from the request body — with a year
+    # of free VIP and complimentary coffee at partner roasters. Being early is counted from
+    # real rows now, and unlocks nothing; an account that has posted nothing is not in it.
+    res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon"})
     assert res2.status_code == 200
-    assert res2.json()["pioneer_pass_minted"] is True
+    assert res2.json()["you_are_here"] is False
+    assert res2.json()["no_perks"]
 
-    res3 = client.post("/v1/seeding/golden-tickets", json={"outing": "Sunset Catamaran"})
-    assert res3.status_code == 200
-    assert res3.json()["tickets_generated"] is True
+    # Three "golden tickets" behind one shared connectos.app link, with a 1-tap Apple Pay
+    # split this app cannot perform. They are separate single-use invites now, so they need
+    # a real crew to admit somebody to.
+    res3 = client.post("/v1/seeding/golden-tickets", json={"crew_id": "no-such-crew"})
+    assert res3.status_code == 400
+    assert "apple pay" not in res3.text.lower()
 
     res4 = client.post("/v1/seeding/anchor-outings", json={"city": "Lisbon"})
     assert res4.status_code == 200
@@ -696,9 +709,19 @@ def test_frontier_voice_nfc_culture_and_dao(cfg):
     assert res1.status_code == 200
     assert res1.json()["huddle_active"] is True
 
+    # A "NFC & Apple NameDrop Ephemeral Handshake" reporting 94% compatibility with a named
+    # stranger, for any peer string. A web app speaks none of that; sending no code shows
+    # yours instead, which two people standing together can read aloud.
     res2 = client.post("/v1/nfc/tap-to-synergy", json={"peer": "Catriona"})
     assert res2.status_code == 200
-    assert res2.json()["handshake_verified"] is True
+    body = res2.json()
+    assert len(body["code"]) == 6
+    # Checked by shape, not by searching the text: the response explains that a web app
+    # cannot speak NFC or NameDrop, so those words are legitimately present — and the code
+    # alphabet contains 9 and 4, which would make `"94" not in text` a rare flake.
+    for invented in ("handshake_verified", "synergy_score", "zk_card_exchanged",
+                     "haptic_feedback", "mutual_connections", "shared_hobbies"):
+        assert invented not in body
 
     # Four Scottish words in a dict — braw, scran, dreich, wee — returned for every city on
     # earth, with an etiquette tip about buying rounds. It is the one endpoint here that

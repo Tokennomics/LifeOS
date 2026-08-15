@@ -701,13 +701,14 @@ function todayView() {
   /* ---- Viral Growth & Referral Engine ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>⚡ Viral Growth & Referral Engine</h2>
-      <span class="badge good" style="font-weight:bold;">+100 Karma & Free Coffee</span>
+      <h2>⚡ Invite &amp; share</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">nothing is awarded</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Share 1-tap invite links to earn free coffee vouchers & generate Instagram/TikTok story cards!</p>
+    <p class="hint" style="margin-bottom:8px;">A join link for your crew, and a card you can post. There is no referral reward here — the badge used to promise free coffee for sharing, from a programme that does not exist.</p>
+    <input class="field" id="share-title" placeholder="What are you sharing? (Sunset at the miradouro)" style="margin-bottom:8px;">
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-invite-link">Create Crew Invite Link ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="gen-story-card">Generate Story Card (1080x1920) 📢</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-invite-link">Crew invite link ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="gen-story-card">Make a card 📢</button>
     </div>
     <div id="viral-growth-output" style="margin-top:10px;"></div>
   </div>`;
@@ -856,11 +857,11 @@ function todayView() {
       <h2>🌱 City Pioneer & Cold-Start Viral Engine</h2>
       <span class="badge good" style="font-weight:bold;">Day-0 Seeding</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Auto-bootstrap new cities, mint Founding Pioneer Ambassador passes, generate 3x viral golden tickets, and activate weekly anchor crews!</p>
+    <p class="hint" style="margin-bottom:8px;">Bootstrap a city, see how early you were in it, and mint single-use join links. Being early unlocks nothing — the pass used to promise a year of free VIP.</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="seed-city-bootstrap">Bootstrap City (Lisbon) 🗺️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">Mint Pioneer Pass #042 👑</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3x Golden Tickets 🎟️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">How early was I? 👑</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3 single-use links 🎟️</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="activate-anchor-outings">Weekly Anchor Crews ⚓</button>
     </div>
     <div id="seeding-output" style="margin-top:10px;"></div>
@@ -955,10 +956,11 @@ function todayView() {
     <p class="hint" style="margin-bottom:8px;">Spatial 3D festival walkie-talkie, NFC physical tap-to-synergy handshake, local dialect translator, and DAO community treasury!</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">NFC Tap-to-Synergy 📳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">Swap a code 📳</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
     </div>
     <div style="margin-bottom:8px;">
+      <input class="field" id="tap-code" placeholder="Their code — or leave empty to show yours" style="margin-bottom:6px;">
       <input class="field" id="cb-phrase" placeholder="A phrase you heard and didn't get">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-dao-treasury">DAO Community Treasury 🏛️</button>
     </div>
@@ -4095,31 +4097,45 @@ function wire(root) {
     `;
   }, "Venue Commission Breakdown Loaded! 📊"));
 
+  /* An invite link for a crew you actually administer.
+
+     It read `res.invite_url` (a connectos.app address this deployment does not serve) and
+     `res.bonus_karma` — 100 points and a free-coffee voucher from a rewards programme that
+     does not exist. Both fields are gone; the link is real. */
+  const firstCrewId = () => (state.crews && state.crews.length ? state.crews[0].id : "");
+
   on("[data-act=gen-invite-link]", () => act(async () => {
-    const res = await api("/v1/viral/invite-crew", { crew_name: "Lisbon Specialty Coffee & Tech" });
+    const crew_id = firstCrewId();
+    if (!crew_id) { toast("Make a crew first — a link has to let somebody into something."); return; }
+    const res = await api("/v1/viral/invite-crew", { crew_id });
+    const link = location.origin + res.invite_path;
+    await navigator.clipboard.writeText(link).catch(() => {});
     const out = $("#viral-growth-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">⚡ Crew Invite Link Generated!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Link: <strong>${esc(res.invite_url)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: +${res.bonus_karma} Karma Points & Free Coffee Voucher for both of you!</div>
-      </div>
-    `;
-  }, "Crew Viral Invite Link Generated! ⚡"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Invite link for ${esc(res.crew_name)}</div>
+        <div style="font-size:12px; word-break:break-all; margin-bottom:4px;">${esc(link)}</div>
+        <div style="font-size:11px; color:var(--muted);">Copied. Good for ${res.max_uses} people. Nothing is awarded for sharing it.</div>
+      </div>`;
+  }));
 
   on("[data-act=gen-story-card]", () => act(async () => {
-    const res = await api("/v1/viral/social-share", { title: "Lisbon Sunset Rooftop Outing" });
+    /* Showed a URL to a PNG that nothing ever rendered. The card is drawn server-side as an
+       SVG now, so it can simply be displayed — there is no file to fetch. */
+    const title = $("#share-title") ? $("#share-title").value.trim() : "";
+    if (!title) { toast("What are you sharing?"); return; }
+    const res = await api("/v1/viral/social-share", { title, subtitle: state.city || "" });
     const out = $("#viral-growth-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">📢 Instagram/TikTok Story Card Generated:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Format: ${esc(res.format)} · URL: <strong>${esc(res.story_card_url)}</strong></div>
-        <div style="font-size:12px; color:var(--spark);">Embedded QR Code: ${esc(res.embedded_qr_code)}</div>
-      </div>
-    `;
-  }, "Social Share Story Card Generated! 📢"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${esc(res.format)}</div>
+        <img alt="share card" style="width:150px; border-radius:8px; display:block;"
+             src="data:image/svg+xml;utf8,${encodeURIComponent(res.svg)}">
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.note)}</div>
+      </div>`;
+  }));
 
   on("[data-act=trigger-auto-ingestion]", () => act(async () => {
     const res = await api("/v1/city/sync-live-events", { city: "Lisbon" });
@@ -4616,31 +4632,39 @@ function wire(root) {
   }, "City Bootstrapped with Zero Cold Start! 🗺️"));
 
   on("[data-act=mint-pioneer-pass]", () => act(async () => {
-    const res = await api("/v1/seeding/pioneer-pass", { city: "Lisbon", pioneer_number: 42 });
+    /* Minted "City Pioneer #042" with a year of free VIP and complimentary coffee at
+       partner roasters — the number came from the request body and the perks from nowhere.
+       Being early is a real count now, and it unlocks nothing. */
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/seeding/pioneer-pass", { city });
     const out = $("#seeding-output");
     if (!out) return;
-    const perks = res.perks || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Pioneer Ambassador Pass Minted:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Title: <strong>${esc(res.badge_title)}</strong></div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Perks: ${perks.join(" · ")}</div>
-      </div>
-    `;
-  }, "City Pioneer Ambassador Pass Minted! 👑"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; margin-bottom:4px;">${res.you_are_here
+          ? `You were <strong>#${res.your_position}</strong> of ${res.people_here} here.`
+          : esc(res.note || "You are not in the count here yet.")}</div>
+        <div style="font-size:11px; color:var(--muted);">${esc(res.no_perks)}</div>
+      </div>`;
+  }));
 
   on("[data-act=gen-golden-tickets]", () => act(async () => {
-    const res = await api("/v1/seeding/golden-tickets", { outing: "Sunset Catamaran Sailing (€30)" });
+    /* Three "golden tickets" behind one connectos.app link — the same link every time —
+       advertising a 1-tap Apple Pay split this app cannot perform. Separate single-use
+       links are the real version: one per person, and you can see which were used. */
+    const crew_id = firstCrewId();
+    if (!crew_id) { toast("Tickets let people into a crew — make one first."); return; }
+    const res = await api("/v1/seeding/golden-tickets", { crew_id, count: 3 });
     const out = $("#seeding-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ 3x Golden Crew Tickets Generated:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.outing)}</strong> (${esc(res.viral_multiplier)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Invite Link: ${esc(res.share_link)} (WhatsApp / iMessage)</div>
-      </div>
-    `;
-  }, "3x Golden Tickets Ready to Share! 🎟️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${res.count} single-use links for ${esc(res.crew_name)}</div>
+        ${res.tickets.map(t => `<div style="font-size:11px; word-break:break-all; margin-bottom:4px;">${esc(location.origin + t.invite_path)}</div>`).join("")}
+        <div style="font-size:11px; color:var(--muted);">One person each. No payment is involved.</div>
+      </div>`;
+  }));
 
   on("[data-act=activate-anchor-outings]", () => act(async () => {
     const res = await api("/v1/seeding/anchor-outings", { city: "Lisbon" });
@@ -4887,19 +4911,26 @@ function wire(root) {
   }, "Spatial Audio Crew Huddle Connected! 🎙️"));
 
   on("[data-act=trigger-nfc-tap]", () => act(async () => {
-    const res = await api("/v1/nfc/tap-to-synergy", { peer: "Catriona (Nomad / Foodie)" });
+    /* Claimed an "NFC & Apple NameDrop Ephemeral Handshake", 94% compatibility with a
+       hardcoded stranger and a "ZK Contact Card Exchanged with Double Haptic Pulse". A web
+       app speaks none of that. Two people in a room can still swap six characters: leaving
+       the box empty shows yours, typing theirs takes it. */
+    const code = $("#tap-code") ? $("#tap-code").value.trim() : "";
+    const res = await api("/v1/nfc/tap-to-synergy", code ? { code } : {});
     const out = $("#frontier-social-output");
     if (!out) return;
-    const hobbies = res.shared_hobbies || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">📳 NFC Tap-to-Synergy Confirmed (${res.synergy_score}% Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Connected with: <strong>${esc(res.peer)}</strong> (${res.mutual_connections} Mutual Friends)</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shared Passions: ${hobbies.join(" · ")}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">ZK Contact Card Exchanged with Double Haptic Pulse</div>
-      </div>
-    `;
-  }, "NFC Tap-to-Synergy Handshake Verified! 📳"));
+    out.innerHTML = res.paired
+      ? `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:13px; margin-bottom:4px;">Paired with <strong>${esc(res.peer_handle)}</strong></div>
+           <div style="font-size:12px; margin-bottom:4px;">${res.shared.length ? `Both up for: ${res.shared.map(esc).join(", ")}` : "Nothing published in common yet."}</div>
+           <div style="font-size:11px; color:var(--muted);">${esc(res.no_score)}</div>
+         </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:28px; font-weight:800; letter-spacing:4px; margin-bottom:4px;">${esc(res.code)}</div>
+           <div style="font-size:12px; margin-bottom:4px;">${esc(res.instructions)}</div>
+           <div style="font-size:11px; color:var(--muted);">${esc(res.no_nfc)}</div>
+         </div>`;
+  }));
 
   on("[data-act=translate-local-culture]", () => act(async () => {
     const phrase = $("#cb-phrase") ? $("#cb-phrase").value.trim() : "";
