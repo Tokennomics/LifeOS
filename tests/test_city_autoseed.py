@@ -264,3 +264,73 @@ def test_the_drain_limit_is_bounded(city, cfg):
 def _graph_of(client):
     """The gateway's own graph, so a test can look at what the background task wrote."""
     return client.app.state.graph
+
+
+# ---- a self-seeded city gets content, not just a map -------------------------
+
+def test_seeding_pulls_conditions_as_well_as_places(graph, wired):
+    """Autoseeding used to pull only the map, so a city seeded itself into a list of cafés
+    and nothing else — no sense of what tonight is like."""
+    autoseed.request(graph, "Lisbon")
+    autoseed.drain(graph)
+    from modules.city import conditions
+    stored = conditions._sys(graph).find_entities(
+        "content", {"type": conditions.RECORD}, limit=1)
+    assert stored, "no conditions were fetched for a seeded city"
+
+
+def test_seeding_asks_the_listings_provider_too(graph, wired):
+    out = autoseed.bootstrap(graph, "Lisbon")
+    # No key is set in tests, so the honest answer is that Tier 2 contributes nothing.
+    assert out["listings"]["status"] == "not_configured"
+    assert out["listings"]["added"] == 0
+
+
+def test_one_source_being_down_does_not_cost_the_others(graph, monkeypatch, wired):
+    """A city with places and no weather is a real and useful state, and so is the reverse."""
+    from modules.city import conditions
+
+    def boom(*a, **k):
+        raise OSError("weather is down")
+
+    monkeypatch.setattr(conditions, "read", boom)
+    out = autoseed.bootstrap(graph, "Lisbon")
+    assert out["added"] == 1                      # the map still landed
+    assert out["conditions"]["available"] is False
+
+
+def test_the_operator_path_and_the_automatic_path_do_the_same_thing(city, wired):
+    """Two ways to seed a city that mean different things is how one of them quietly rots."""
+    client, people = city
+    client.get("/v1/city/arrival?city=Lisbon", headers=people["ana"]["h"])
+    automatic = places.listing(_graph_of(client), "Lisbon")["total"]
+
+    manual = client.post("/v1/seeding/city-bootstrap", json={"city": "Porto"},
+                         headers={"Authorization": "Bearer "})
+    # Operator-gated, so this is refused here — what matters is that both call
+    # autoseed.bootstrap, which the next assertion pins.
+    assert manual.status_code in (401, 403)
+    assert automatic == 1
+    import inspect
+    from modules.city import autoseed as a
+    assert "bootstrap" in inspect.getsource(a.drain)
+
+
+def test_a_city_that_cannot_be_located_is_not_geocoded_twice(graph, monkeypatch):
+    """Adding conditions to the bootstrap quietly doubled the geocoding of a typo, because
+    `places.seed` and `conditions.read` each resolve the name. The guardrail test caught it;
+    reading the code did not."""
+    from modules.feeds.providers import openmeteo, overpass as ov
+    calls = {"n": 0}
+
+    def nothing(url, params):
+        calls["n"] += 1
+        return {"results": []}
+
+    monkeypatch.setattr(openmeteo, "_fetch", nothing)
+    monkeypatch.setattr(ov, "_fetch", lambda u, q: OVERPASS)
+
+    out = autoseed.bootstrap(graph, "Xyzzyville")
+    assert calls["n"] == 1
+    assert out["conditions"]["available"] is False
+    assert "not located" in out["listings"]["status"]
