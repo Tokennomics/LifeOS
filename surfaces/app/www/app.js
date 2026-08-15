@@ -1206,9 +1206,9 @@ function todayView() {
       <h2>📦 Universal Data Portability & Obsidian Vault</h2>
       <span class="badge good" style="font-weight:bold;">100% User Owned</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Export your complete memories, social graph & financial ledger into clean linked Markdown for Obsidian, Notion & Apple Notes.</p>
+    <p class="hint" style="margin-bottom:8px;">Everything you have put in, as Markdown you can open anywhere. It is built here and saved from your own browser — nothing is uploaded, and credentials are left out.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #3b82f6); width:100%;" data-act="export-universal-markdown">Export Full Linked Obsidian Markdown Vault (.zip) 📁</button>
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #3b82f6); width:100%;" data-act="export-universal-markdown">Export everything 📁</button>
     </div>
     <div id="markdown-export-output" style="margin-top:10px;"></div>
   </div>`;
@@ -5619,54 +5619,24 @@ function wire(root) {
     if (link) link.href = res.vcard_data_uri;
   }, "Contact card ready"));
   on("[data-act=synthesize-daily-journal]", () => act(async () => {
-    const res = await api("/v1/journal/daily-reflection-synthesis", { city: "Munich", date: "Today" });
+    /* Read `res.poetic_daily_retrospective`, `res.events_experienced` and
+       `res.gratitude_dividends` — a hardcoded day per city. Send "Munich" and it told you,
+       in the first person, that you had watched dawn surfers on the Eisbach wave and
+       thanked a man called Lukas. None of those fields exist now: a day is built from
+       your own check-ins, notes and moments, and an empty day says so. */
+    const res = await api("/v1/journal/daily-reflection-synthesis", {});
     const out = $("#journal-synthesis-output");
     if (!out) return;
-    const vm = res.daily_vitality_metrics || {};
-    const events = (res.events_experienced || []).map(e => `<li>${esc(e)}</li>`).join("");
-    const grats = (res.gratitude_dividends || []).map(g => `<li>${esc(g)}</li>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:14px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:15px; font-weight:700; color:#6366f1; margin-bottom:6px;">🌙 Daily Midnight Reflection (${esc(res.city)} · ${esc(res.date)}):</div>
-        <div style="font-style:italic; font-size:13px; color:var(--growth); line-height:1.4; margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.2); border-radius:8px;">"${esc(res.poetic_daily_retrospective)}"</div>
-        <div style="font-size:12px; font-weight:bold; color:var(--text); margin-bottom:2px;">📍 Moments Experienced:</div>
-        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:var(--muted);">${events}</ul>
-        <div style="font-size:12px; font-weight:bold; color:#10b981; margin-bottom:2px;">✨ Gratitude Dividends:</div>
-        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:#10b981;">${grats}</ul>
-        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--spark); border-top:1px solid var(--line-soft); padding-top:6px; margin-top:6px;">
-          <span>🏃 Steps: <strong>${vm.steps_walked || 14280}</strong></span>
-          <span>👀 Presence: <strong>${esc(vm.presence_score)}</strong></span>
-          <span>🔒 Capsule: <strong>${esc(res.time_capsule_status)}</strong></span>
-        </div>
-      </div>
-    `;
-  }, "Midnight Memory Synthesized! 🌙"));
-
-  /* ---- Voice Copilot Handlers ---- */
-  async function triggerVoiceQuery(query) {
-    const res = await api("/v1/voice/copilot-chat", { query: query, city: "Munich" });
-    const out = $("#voice-copilot-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #3b82f6;">
-        <div style="font-size:12px; color:var(--muted); font-style:italic;">🗣️ "${esc(res.user_query)}"</div>
-        <div style="font-size:14px; font-weight:700; color:#3b82f6; margin-top:4px;">🎙️ AI Voice Copilot:</div>
-        <div style="font-size:13px; color:var(--text); line-height:1.4; margin-top:4px;">${esc(res.voice_reply_text)}</div>
-      </div>
-    `;
-    if ("speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(res.voice_reply_text);
-        utterance.rate = 1.05;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.warn("SpeechSynthesis error:", e);
-      }
-    }
-  }
-
+      <div style="background:var(--surface-2s); padding:14px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(res.date)}</div>
+        ${res.summary ? `<div style="font-size:13px; margin-bottom:8px;">${esc(res.summary)}</div>` : ""}
+        ${res.did.map(d => `<div style="font-size:12px;">· ${esc(d)}</div>`).join("")}
+        ${res.notes.map(n => `<div style="font-size:12px; color:var(--growth);">“${esc(n)}”</div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_score)}${res.sources.length ? ` · built from ${res.sources.length} of your own entries` : ""}</div>
+      </div>`;
+  }));
   on("[data-act=voice-ask-nightlife]", () => act(async () => {
     await triggerVoiceQuery("What are the best vinyl clubs and parties tonight?");
   }, "Spoken Nightlife Query Sent! 🔊"));
@@ -5719,22 +5689,26 @@ function wire(root) {
 
   /* ---- Universal Markdown Export Handler ---- */
   on("[data-act=export-universal-markdown]", () => act(async () => {
-    const res = await api("/v1/export/universal-markdown", { format: "Obsidian" });
+    /* Reported 48 vault files and offered a .zip on connectos.app that was never written,
+       on a host this deployment does not serve. The export is the response now, and the
+       download is a Blob built from it here — no file has to exist on any server. */
+    const res = await api("/v1/export/universal-markdown", {});
+    const text = Object.entries(res.documents)
+      .map(([name, body]) => `\n\n<!-- ${name} -->\n\n${body}`).join("").trim() + "\n";
     const out = $("#markdown-export-output");
     if (!out) return;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">📦 Obsidian / Notion Vault Export Ready (${res.total_vault_files} Notes):</div>
-        <div style="font-size:11px; color:var(--text);">• 01_Daily_Retrospectives: ${esc(res.vault_structure["01_Daily_Retrospectives"])}</div>
-        <div style="font-size:11px; color:var(--text);">• 02_People_Graph: ${esc(res.vault_structure["02_People_Graph"])}</div>
-        <div style="font-size:11px; color:var(--text);">• 03_Culture_Radar: ${esc(res.vault_structure["03_Culture_Radar"])}</div>
-        <div style="margin-top:8px;">
-          <a href="${safeUrl(res.download_url)}" download="lifeos-vault-obsidian.zip" class="primary" style="display:inline-block; background:linear-gradient(135deg, #8b5cf6, #3b82f6); padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px; color:#fff; font-weight:bold;">⬇️ Download Obsidian Vault .zip</a>
-        </div>
-      </div>
-    `;
-  }, "Obsidian Markdown Vault Generated! 📦"));
-
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${res.files} file${res.files === 1 ? "" : "s"} · ${res.rows} entr${res.rows === 1 ? "y" : "ies"}</div>
+        ${Object.keys(res.documents).map(n => `<div style="font-size:11px; color:var(--muted);">${esc(n)}</div>`).join("")}
+        <a id="md-export-link" class="primary" style="display:inline-block; margin-top:8px; padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px;" download="lifeos-export.md">⬇️ Save it</a>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.note)} ${esc(res.excluded_reason)}</div>
+      </div>`;
+    const link = $("#md-export-link");
+    if (link) link.href = url;      // a Blob built in this tab, not a URL to somebody's server
+    bindLater(out);
+  }));
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
     const out = $("#developer-output");

@@ -378,6 +378,28 @@ file and still touches a trust boundary.
     — and it read the fields off the response envelope rather than `card`, so the form would
     have stayed empty even with the URL fixed. Somebody's medical card was never stored.
 
+- **A day's reflection, and taking your data with you** (`modules/personal/journal.py`,
+  `modules/personal/export.py`, 26 tests).
+  - `/journal/daily-reflection-synthesis` was the most brazen prop in the repo, because it
+    did not invent a venue or a number — **it invented your day**. Send it "Munich" and it
+    told you, in the first person, that you had watched dawn surfers on the Eisbach wave and
+    shared sourdough pretzels with new local friends, then thanked a man called Lukas for a
+    speakeasy passcode. A branch per city and nothing else: two people in the same city got
+    the same memories, and so did somebody who had spent the day in bed. Where you are does
+    not tell anybody what they did, so the city is gone; it reads check-ins, moments, notes
+    and spending, and `sources` names the row behind every line.
+  - `/export/universal-markdown` reported 48 vault files, "42 connected friends with
+    bilateral trust indices", and a `download_url` to a zip on connectos.app that was never
+    written. **Nothing was exported, and somebody who clicked it believed their data was
+    safe.** The export is the response now — real Markdown, built from real rows — and the
+    PWA turns it into a download with a Blob in the tab, so no file has to exist on any
+    server. Credentials and their hashes are excluded by name.
+  - **Shared rows that are yours are in it too.** A kudos, a moment or a tab entry lives
+    under the system owner so both parties can read it, so an export walking only the owner
+    slice left out the notes people wrote you and the money on your tab — a partial export
+    presented as a whole one. It now includes system-owned rows that *name* you, and
+    nothing else; there is a test that a second account's rows never appear.
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

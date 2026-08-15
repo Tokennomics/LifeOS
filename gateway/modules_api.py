@@ -4966,64 +4966,31 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/journal/daily-reflection-synthesis")
     def daily_reflection_synthesis_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        date_str = body.get("date", "Today").strip()
-        
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            events_experienced = [
-                "Watched dawn surfers on the Eisbach wave with a hot flat white",
-                "Shared fresh warm sourdough pretzels & obatzda with new local friends",
-                "Explored analog synth sounds & VOID bass at Blitz Club open-air terrace"
-            ]
-            poetic_summary = "A day sculpted by the rush of glacial river rapids, the warmth of shared tables beneath chestnut trees, and the hypnotic pulse of midnight analog sound."
-            gratitude_dividends = [
-                "Lukas sharing the secret telephone booth speakeasy passcode",
-                "The golden sunset reflection off the Monopteros dome",
-                "Deep conversations with zero digital screen distraction"
-            ]
-        elif "edinburgh" in city_lower:
-            events_experienced = [
-                "Watched mist rise over Arthur's Seat during early morning hill walk",
-                "Poetry reading at Typewronger Books courtyard with hot spiced chai",
-                "Underground comedy & jazz session in the ancient stone close"
-            ]
-            poetic_summary = "A day wrapped in atmospheric Scottish drizzle, literary discovery, and the warm resonance of acoustic jazz echoing through ancient cobblestone closes."
-            gratitude_dividends = [
-                "The quiet serendipity of discovering an unmapped waterfall in the Pentlands",
-                "Shared laughter at the intimate comedy preview",
-                "A 100% eyes-up day with over 4 hours of genuine human connection"
-            ]
-        else:
-            events_experienced = [
-                "Morning surf session on Atlantic rolling swells",
-                "Sunset Pet-Nat with nomad founders overlooking the river Tagus",
-                "Rooftop acoustic jam under the stars"
-            ]
-            poetic_summary = "Sun-drenched cobblestones, ocean salt on the skin, and the effortless rhythm of spontaneous community."
-            gratitude_dividends = [
-                "The golden light hitting the terracotta rooftops",
-                "Warm welcome from the local community guild",
-                "Deep sense of presence and restorative energy"
-            ]
+        """A day's reflection, from your own rows.
 
-        return {
-            "synthesis_complete": True,
-            "city": city,
-            "date": date_str,
-            "poetic_daily_retrospective": poetic_summary,
-            "events_experienced": events_experienced,
-            "gratitude_dividends": gratitude_dividends,
-            "daily_vitality_metrics": {
-                "presence_score": "98.5% Eyes-Up Real World Presence",
-                "screen_time_saved": "3.8 Hours of Endless Scrolling Prevented",
-                "deep_connection_hours": "4.6 Hours Meaningful Interaction",
-                "steps_walked": 14280,
-                "memory_health_index": "99/100 (Optimal Serotonin & Memory Formation)"
-            },
-            "time_capsule_status": "SEALED_IN_SUBSTRATE_GRAPH",
-            "message": f"🌙 Daily Midnight Reflection & Memory Synthesized for {city}! Stored permanently in your personal Progress Vault."
-        }
+        This was the most brazen prop in the repo, because it did not invent a venue or a
+        number — it invented your day. Send it "Munich" and it told you, in the first
+        person, that you had watched dawn surfers on the Eisbach wave and shared sourdough
+        pretzels with new local friends, then thanked a man called Lukas for a speakeasy
+        passcode. A branch per city and nothing else: two people in the same city got the
+        same memories, and so did somebody who had spent the day in bed.
+
+        Where you are does not tell anybody what they did, so the city is gone. It reads
+        check-ins, moments, notes and spending, names the row behind every line, and says
+        plainly when a day has nothing in it.
+        """
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: journal.day(_graph(request), account_id=account_id,
+                                         date=body.get("date", ""),
+                                         claude=_claude(request)))
+
+    @router.get("/journal/week")
+    def journal_week(request: Request, days: int = 7):
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: journal.week(_graph(request), account_id=account_id,
+                                          days=days, claude=_claude(request)))
 
     @router.post("/voice/copilot-chat")
     def voice_copilot_chat_endpoint(request: Request, body: dict):
@@ -5053,35 +5020,31 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/export/universal-markdown")
     def universal_markdown_export_endpoint(request: Request, body: dict):
-        format_type = body.get("format", "Obsidian").strip()
-        return {
-            "export_complete": True,
-            "format": format_type,
-            "total_vault_files": 48,
-            "vault_structure": {
-                "01_Daily_Retrospectives": "30 Markdown daily reflection logs with frontmatter tags",
-                "02_People_Graph": "42 Connected friends, mentors & squad members with bilateral trust indices",
-                "03_Culture_Radar": "18 Saved hidden gems, vinyl lofts & speakeasy access passcodes",
-                "04_Financial_Ledger": "Double-entry transaction balances and split expense ledgers"
-            },
-            "sample_markdown_preview": """---
-title: Daily Memory Dividend
-date: 2026-08-11
-city: Munich
-presence_score: 98.5%
-tags: [culture, vinyl, river-surfing, gratitude]
----
+        """Everything you own, as Markdown, in this response.
 
-# A Day in Munich
-Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schwabing, and danced on the Isar river terrace at Blitz Club.
+        Reported 48 vault files, "42 connected friends with bilateral trust indices", "18
+        hidden gems, vinyl lofts & speakeasy access passcodes", and a `download_url` to a zip
+        on connectos.app that was never written, on a host this deployment does not serve.
+        The sample preview was a hand-written note about a day in Munich carrying a
+        `presence_score: 98.5%`. Nothing was exported, and somebody who clicked it believed
+        their data was safe.
 
-## Gratitude Dividends
-- Lukas sharing the phone booth speakeasy passcode
-- Sunset light hitting Monopteros dome
-""",
-            "download_url": "https://connectos.app/export/lifeos-vault-obsidian.zip",
-            "message": f"📦 Universal Markdown Vault Exported in {format_type} Format! 48 linked notes ready for Obsidian/Notion."
-        }
+        This is the export itself rather than a link to one: a URL means a file has to exist
+        somewhere later, and the thing it replaces reported one that never existed at all.
+        Credentials and their hashes are excluded — they are not your data, and an export is
+        a file that ends up in a lot of places.
+        """
+        from modules.personal import export
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: export.markdown(_graph(request), account_id=account_id))
+
+    @router.get("/export/universal-markdown.md")
+    def universal_markdown_file(request: Request):
+        """The same export as one Markdown file, for saving straight to disk."""
+        from modules.personal import export
+        account_id, _ = _signal_caller(request)
+        text = guard(lambda: export.as_single_file(_graph(request), account_id=account_id))
+        return Response(content=text, media_type="text/markdown; charset=utf-8")
 
     @router.post("/workshops/micro-masterclasses")
     def workshops_masterclass_endpoint(request: Request, body: dict):

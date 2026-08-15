@@ -961,14 +961,26 @@ def test_nightlife_party_and_speakeasy_engine(cfg):
     assert res4.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_daily_reflection_synthesis(cfg):
+    """This test pinned the worst prop in the repo in place. It asserted three "gratitude
+    dividends" and a `presence_score` — for a day the endpoint invented from the city name.
+    "Munich" returned dawn surfers on the Eisbach wave and thanks to a man called Lukas;
+    "Edinburgh" returned Arthur's Seat in the mist. Two people in the same city got the same
+    memories, and so did somebody who had spent the day in bed.
+
+    A day is read from your own check-ins, notes and moments now, so a fresh account gets an
+    empty one — which is the honest answer, and the useful one.
+    """
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/journal/daily-reflection-synthesis", json={"city": "Munich", "date": "Today"})
+    res = client.post("/v1/journal/daily-reflection-synthesis",
+                      json={"city": "Munich", "date": ""})
     assert res.status_code == 200
     data = res.json()
-    assert data["synthesis_complete"] is True
-    assert len(data["gratitude_dividends"]) >= 3
-    assert data["time_capsule_status"] == "SEALED_IN_SUBSTRATE_GRAPH"
-    assert "presence_score" in data["daily_vitality_metrics"]
+    assert data["empty"] is True
+    assert data["did"] == [] and data["notes"] == []
+    assert data["no_score"]
+    for invented in ("eisbach", "lukas", "gratitude_dividends", "presence_score",
+                     "time_capsule"):
+        assert invented not in res.text.lower()
 
 def test_voice_copilot_and_spoken_ar(cfg):
     client = TestClient(create_app(cfg))
@@ -980,13 +992,20 @@ def test_voice_copilot_and_spoken_ar(cfg):
     assert "<speak>" in data["tts_ssml"]
 
 def test_universal_markdown_export(cfg):
+    """It asserted 40+ vault files on an empty database. Nothing was exported: the
+    `download_url` pointed at a zip on connectos.app that was never written, and somebody
+    who clicked it believed their data was safe.
+
+    The export is the response now, so an empty account exports an empty export.
+    """
     client = TestClient(create_app(cfg))
     res = client.post("/v1/export/universal-markdown", json={"format": "Obsidian"})
     assert res.status_code == 200
     data = res.json()
-    assert data["export_complete"] is True
-    assert data["total_vault_files"] >= 40
-    assert "01_Daily_Retrospectives" in data["vault_structure"]
+    assert data["download_url"] is None
+    assert data["rows"] == 0
+    assert "index.md" in data["documents"]
+    assert "connectos.app" not in res.text and ".zip" not in res.text
 
 def test_micro_masterclasses_and_neighborhood_guilds(cfg):
     client = TestClient(create_app(cfg))
