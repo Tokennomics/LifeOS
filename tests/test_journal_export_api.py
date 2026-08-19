@@ -131,3 +131,44 @@ def test_a_shared_row_appears_for_both_sides_and_nobody_else(world):
                       headers=people["bruno"]["h"]).json()
     # It was addressed to him, so it is his to take too.
     assert "you carried the night" in "".join(his["documents"].values())
+
+
+def test_a_kudos_reaches_the_person_it_names(world):
+    """It passed the recipient straight through, so a kudos addressed to the handle
+    "bruno" was stored against the literal string — and `kudos_for` looks up by account id,
+    so the person it was about could never read it. That is the one thing this record
+    exists to do."""
+    client, people = world
+    sent = client.post("/v1/kudos/send",
+                       json={"to_account": "bruno", "note": "you carried the night"},
+                       headers=people["ana"]["h"])
+    assert sent.status_code == 200
+    assert sent.json()["to_account"] == people["bruno"]["id"]
+
+    got = client.get("/v1/kudos", headers=people["bruno"]["h"]).json()
+    assert [k["note"] for k in got["kudos"]] == ["you carried the night"]
+
+
+def test_a_kudos_to_nobody_is_refused(world):
+    client, people = world
+    res = client.post("/v1/kudos/send",
+                      json={"to_account": "nobody-here", "note": "hello"},
+                      headers=people["ana"]["h"])
+    assert res.status_code == 400
+
+
+def test_the_calendar_import_route_the_pwa_calls_exists(world):
+    """The PWA posted to `/v1/calendar/import-ics`; the route is `/calendar/sync-import`,
+    so every paste of a calendar feed 404'd and imported nothing."""
+    import pathlib
+    client, people = world
+    app_js = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
+    assert "/v1/calendar/import-ics" not in app_js
+
+    ics = ("BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:x@t\r\n"
+           "DTSTART:20260901T180000Z\r\nDTEND:20260901T200000Z\r\n"
+           "SUMMARY:Pottery evening\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+    res = client.post("/v1/calendar/sync-import", json={"ics_content": ics},
+                      headers=people["ana"]["h"])
+    assert res.status_code == 200

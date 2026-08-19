@@ -1970,12 +1970,15 @@ function peopleView() {
   /* ---- Strava-Style Kudos & XP Boost ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>👏 Strava-Style Kudos & XP Boost</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">+50 XP</span>
+      <h2>👏 Kudos</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">no score</span>
     </div>
-    <p class="hint" style="margin-bottom:10px;">Celebrate your friends' habit streaks, workouts, and deep work focus sessions!</p>
-    <div class="row2"><input class="field" id="kd-name" placeholder="Friend Name (e.g. Alex)">
-    <button class="primary" data-act="kudos-send">Send Kudos & XP 👏</button></div>
+    <p class="hint" style="margin-bottom:10px;">A short note to somebody, which they can read. No score and no streak — the "+50 XP" this card used to promise was the same number for everyone.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="kd-name" placeholder="Their handle">
+      <input class="field" id="kd-note" placeholder="What are you thanking them for?">
+    </div>
+    <button class="primary" data-act="kudos-send">Send it 👏</button>
   </div>`;
 
   /* ---- Buy a Coffee / Micro-Tip Host ---- */
@@ -3241,7 +3244,9 @@ function wire(root) {
   on("[data-act=ics-import]", () => act(async () => {
     const content = $("#ics-content").value.trim();
     if (!content) return toast("Paste .ics content to import.");
-    await api("/v1/calendar/import-ics", { ics_content: content });
+    // The route is `/calendar/sync-import`; this asked for `/calendar/import-ics`, which
+    // does not exist — so every paste of a calendar feed 404'd and imported nothing.
+    await api("/v1/calendar/sync-import", { ics_content: content });
     $("#ics-content").value = "";
     await refresh();
   }, "iCalendar feed imported ✔"));
@@ -3604,10 +3609,16 @@ function wire(root) {
   }, "Trip activities added to Smart Calendar! 📅"));
 
   on("[data-act=kudos-send]", () => act(async () => {
-    const recipient = $("#kd-name").value.trim() || "Alex";
-    const res = await api("/v1/kudos/send", { recipient });
-    $("#kd-name").value = "";
-    toast(res.message || `Kudos & +50 XP sent to ${recipient}! 👏`);
+    /* Posted `{recipient}` with no note, defaulting the name to "Alex" — so it 400'd on
+       every click (a kudos needs something to say), and had it succeeded it would have
+       been addressed to a string nobody owns. */
+    const recipient = $("#kd-name").value.trim();
+    const note = $("#kd-note").value.trim();
+    if (!recipient) { toast("Who is it for?"); return; }
+    if (!note) { toast("What are you thanking them for?"); return; }
+    await api("/v1/kudos/send", { to_account: recipient, note });
+    $("#kd-name").value = ""; $("#kd-note").value = "";
+    toast("Sent — they can read it.");
   }));
 
   on("[data-act=find-tomorrow-am]", () => act(async () => {

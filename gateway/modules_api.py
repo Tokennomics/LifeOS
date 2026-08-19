@@ -2571,8 +2571,10 @@ def build_router(auth) -> APIRouter:
         """The same object, sent for a different reason. It reported a kindness streak."""
         from modules.social import signals
         account_id, handle = _signal_caller(request)
+        to_account = _named_account(request, body.get("to_account", "")
+                                    or body.get("recipient", ""))
         return guard(lambda: signals.send_kudos(
-            _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
+            _graph(request), to_account,
             str(body.get("note", "") or ""), account_id=account_id, handle=handle,
             kind="kindness"))
 
@@ -5591,8 +5593,14 @@ def build_router(auth) -> APIRouter:
         """
         from modules.social import signals
         account_id, handle = _signal_caller(request)
+        # Resolved, not passed through. People type handles, and a kudos addressed to the
+        # literal string "bruno" is stored against nobody — the recipient's account id is a
+        # UUID, so `kudos_for` never finds it and the person it is about never sees it. The
+        # whole design of this record is that its subject can read it.
+        to_account = _named_account(request, body.get("to_account", "")
+                                    or body.get("recipient", ""))
         sent = guard(lambda: signals.send_kudos(
-            _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
+            _graph(request), to_account,
             str(body.get("note", "") or body.get("text", "")),
             account_id=account_id, handle=handle))
         _fire(request, "kudos.sent", {"kudos_id": sent.get("kudos_id", "")})
