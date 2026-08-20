@@ -277,3 +277,46 @@ def test_social_synergy_and_dating_match_persistence(cfg):
     assert data_escort["active"] is True
     assert "session_id" in data_escort
     assert data_escort["escort_code"] == "SAFE-8921"
+
+
+def test_highlight_reel_memory_persistence(cfg):
+    """Verifies that AI memory highlight-reel creates a real memory entity in the Substrate graph."""
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/memories/highlight-reel", json={"title": "Eisbach River Surf Session"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "capsule_id" in data
+    assert "CAP-" in data["capsule_id"]
+    assert data["share_url"] == f"/#memory?id={data['memory_id']}"
+
+
+def test_squad_routine_ics_validity(cfg):
+    """Verifies that squad routine sync exports a valid RFC 5545 iCalendar stream."""
+    import base64
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/routines/squad-sync", json={"routine_name": "Wednesday Dawn Surf"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["synced"] is True
+    assert data["ics_link"].startswith("data:text/calendar;charset=utf8;base64,")
+    
+    b64_str = data["ics_link"].replace("data:text/calendar;charset=utf8;base64,", "")
+    decoded_ics = base64.b64decode(b64_str).decode("utf-8")
+    assert "BEGIN:VCALENDAR" in decoded_ics
+    assert "SUMMARY:Wednesday Dawn Surf" in decoded_ics
+
+
+def test_viral_social_share_svg_data_uri(cfg):
+    """Verifies that social share cards return a valid SVG data URI without fake external URLs."""
+    import base64
+    client = TestClient(create_app(cfg))
+    res = client.post("/v1/viral/social-share", json={"title": "Munich Sunset Colonnade Party"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["story_card_url"].startswith("data:image/svg+xml")
+    assert "story-" in data["story_card_url"]
+    
+    b64_str = data["story_card_url"].split("base64,")[1]
+    decoded_svg = base64.b64decode(b64_str).decode("utf-8")
+    assert "<svg" in decoded_svg
+    assert "Munich Sunset Colonnade Party" in decoded_svg

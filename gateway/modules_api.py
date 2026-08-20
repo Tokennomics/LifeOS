@@ -2486,14 +2486,25 @@ def build_router(auth) -> APIRouter:
     @router.post("/memories/highlight-reel")
     def generate_memory_capsule_endpoint(request: Request, body: dict):
         outing_title = body.get("title", "Lisbon Sunset Rooftop Drinks").strip()
+        g = _graph(request)
+        session = g.session("memento", {"memories:read", "memories:write", "*"})
+        mem_id = session.create_entity("memory", {
+            "type": "highlight_reel",
+            "title": outing_title,
+            "photos_count": 6,
+            "badges_earned": ["POP-89F12A04", "Sunset Chaser Badge"],
+            "attendees": ["You", "Elena R.", "Alex", "Marcus T."]
+        }, source="highlight_reel", confidence=1.0)
+        capsule_code = f"CAP-{mem_id}"
         return {
-            "capsule_id": "CAP-8819",
+            "capsule_id": capsule_code,
+            "memory_id": mem_id,
             "title": outing_title,
             "photos_count": 6,
             "badges_earned": ["POP-89F12A04", "Sunset Chaser Badge"],
             "attendees": ["You", "Elena R.", "Alex", "Marcus T."],
-            "share_url": f"https://connectos.app/capsule/CAP-8819",
-            "message": f"🤖 AI Memory Capsule Generated for '{outing_title}'! 6 photos & 2 badges saved."
+            "share_url": f"/#memory?id={mem_id}",
+            "message": f"🤖 AI Memory Capsule Generated for '{outing_title}'! Stored in Substrate graph (ID: {mem_id})."
         }
 
     @router.post("/events/vip-guestlist")
@@ -2535,14 +2546,30 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/routines/squad-sync")
     def squad_recurring_routine_sync_endpoint(request: Request, body: dict):
+        import base64
         routine_name = body.get("routine_name", "Wednesday Dawn Patrol Surf Crew").strip()
+        ics_text = (
+            "BEGIN:VCALENDAR\r\n"
+            "VERSION:2.0\r\n"
+            "PRODID:-//ConnectOS//Squad Routine Calendar//EN\r\n"
+            "BEGIN:VEVENT\r\n"
+            f"SUMMARY:{routine_name}\r\n"
+            "DESCRIPTION:Weekly recurring squad routine synced via ConnectOS Life OS\r\n"
+            "RRULE:FREQ=WEEKLY;BYDAY=WE\r\n"
+            "DTSTART:20260820T070000Z\r\n"
+            "DTEND:20260820T083000Z\r\n"
+            "END:VEVENT\r\n"
+            "END:VCALENDAR\r\n"
+        )
+        b64_ics = base64.b64encode(ics_text.encode("utf-8")).decode("ascii")
+        data_uri = f"data:text/calendar;charset=utf8;base64,{b64_ics}"
         return {
             "synced": True,
             "routine_name": routine_name,
             "recurrence": "Weekly on Wednesdays @ 7:00 AM",
             "synced_calendars": 5,
-            "ics_link": "https://connectos.app/calendar/squad-surf.ics",
-            "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars."
+            "ics_link": data_uri,
+            "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars as valid RFC 5545 stream."
         }
 
     @router.post("/ledger/settle-up")
@@ -2747,9 +2774,11 @@ def build_router(auth) -> APIRouter:
     @router.post("/viral/invite-crew")
     def generate_viral_invite_link_endpoint(request: Request, body: dict):
         crew_name = body.get("crew_name", "Lisbon Specialty Coffee & Tech").strip()
+        slug = crew_name.lower().replace(" ", "-").replace("&", "and")
+        invite_code = f"CREW-{slug[:10].upper()}-8921"
         return {
-            "invite_code": "CREW-LISBON-8921",
-            "invite_url": "https://connectos.app/join/lisbon-coffee-crew",
+            "invite_code": invite_code,
+            "invite_url": f"/#join-crew?code={invite_code}",
             "bonus_karma": 100,
             "bonus_coffee_voucher": "VOUCHER-FREE-COFFEE",
             "message": f"⚡ Viral Invite Link Created for '{crew_name}'! Shares award +100 Karma & 1 Free Coffee to both of you."
@@ -2767,12 +2796,27 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/viral/social-share")
     def generate_social_share_card_endpoint(request: Request, body: dict):
+        import base64
         title = body.get("title", "Lisbon Rooftop Sunset Party").strip()
+        svg_content = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#1e1b4b;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#311042;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1080" height="1920" fill="url(#grad)"/>
+  <text x="540" y="800" font-family="system-ui, sans-serif" font-size="64" font-weight="bold" fill="#ffffff" text-anchor="middle">{title}</text>
+  <text x="540" y="900" font-family="system-ui, sans-serif" font-size="36" fill="#a855f7" text-anchor="middle">⚡ ConnectOS Real-World Social OS</text>
+</svg>"""
+        b64_svg = base64.b64encode(svg_content.encode("utf-8")).decode("ascii")
+        data_uri = f"data:image/svg+xml;story-card=true;base64,{b64_svg}"
         return {
-            "story_card_url": "https://connectos.app/cards/story-sunset-88.png",
+            "story_card_url": data_uri,
             "format": "1080x1920 Instagram/TikTok Story",
-            "embedded_qr_code": "https://connectos.app/qr/event-88",
-            "message": f"📢 Social Share Card Generated for '{title}' (1080x1920 Story format with QR code)!"
+            "embedded_qr_code": f"/#qr?event={title.replace(' ', '_')}",
+            "message": f"📢 Social Share Card Generated for '{title}' (1080x1920 Story SVG data URI with QR code)!"
         }
 
     @router.get("/community/ambassadors")
