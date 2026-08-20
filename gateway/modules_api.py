@@ -4953,11 +4953,28 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/events/apple-wallet-pass")
     def generate_apple_wallet_pass_endpoint(request: Request, body: dict):
+        import base64
         event_name = body.get("event_name", "Miradouro Sunset Rooftop Meet").strip()
+        pass_json = json.dumps({
+            "formatVersion": 1,
+            "passTypeIdentifier": "pass.app.connectos.event",
+            "serialNumber": "VIP-KARMA-98",
+            "teamIdentifier": "CONNECTOS",
+            "organizationName": "ConnectOS Culture",
+            "description": event_name,
+            "foregroundColor": "rgb(255, 255, 255)",
+            "backgroundColor": "rgb(30, 41, 59)",
+            "eventTicket": {
+                "primaryFields": [{"key": "event", "label": "EVENT", "value": event_name}],
+                "secondaryFields": [{"key": "badge", "label": "ENTRY", "value": "VIP FAST-PASS"}]
+            }
+        })
+        b64_pass = base64.b64encode(pass_json.encode("utf-8")).decode("ascii")
+        data_uri = f"data:application/vnd.apple.pkpass;base64,{b64_pass}"
         return {
             "pass_generated": True,
             "event_name": event_name,
-            "pkpass_url": "https://connectos.app/passes/sunset-rooftop.pkpass",
+            "pkpass_url": data_uri,
             "wallet_type": "Apple & Google Wallet",
             "pass_code": "VIP-KARMA-98",
             "message": f"📲 Wallet Pass Generated for '{event_name}'! Download .pkpass for 1-tap lockscreen access."
@@ -5233,11 +5250,25 @@ def build_router(auth) -> APIRouter:
     @router.post("/kudos/send")
     def send_kudos_endpoint(request: Request, body: dict):
         recipient = body.get("recipient", "Alex")
+        g = _graph(request)
+        session = g.session("kudos", {"metrics:read", "metrics:write", "*"})
+        session.create_entity("metric", {
+            "type": "kudos",
+            "recipient": recipient,
+            "xp_awarded": 50
+        }, source="kudos_api", confidence=1.0)
         return {"sent": True, "recipient": recipient, "message": f"Kudos & +50 XP sent to {recipient}! 👏"}
 
     @router.post("/moments/flash")
     def post_flash_moment_endpoint(request: Request, body: dict):
         caption = body.get("caption", "Great session!")
+        g = _graph(request)
+        session = g.session("moments", {"content:read", "content:write", "*"})
+        session.create_entity("content", {
+            "type": "flash_moment",
+            "caption": caption,
+            "expires_in": "24h"
+        }, source="moments_api", confidence=1.0)
         return {"posted": True, "expires_in": "24h", "caption": caption, "message": "24h Flash Moment posted to crew feed! 📸"}
 
     @router.post("/comms/messages")
@@ -5285,8 +5316,24 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/synergy/overlap")
     def get_mutual_availability_overlap_endpoint(request: Request):
-        return {
-            "overlaps": [
+        g = _graph(request)
+        session = g.session("reconnect", {"people:read", "*"})
+        people = session.find_entities("person", limit=10)
+        overlaps = []
+        if people:
+            for idx, p in enumerate(people[:3]):
+                name = p.get("attrs", {}).get("name", "Friend")
+                topic = "Bouldering & Coffee" if idx == 0 else ("Sunset Drinks" if idx == 1 else "Analog Vinyl & Art")
+                window = "Friday 19:00 - 22:00" if idx == 0 else "Sunday 18:00 - 20:00"
+                overlaps.append({
+                    "friend_name": name,
+                    "topic": topic,
+                    "window": window,
+                    "city": "Munich",
+                    "share_text": f"⚡ Hey {name}! ConnectOS noticed we are both free {window} for {topic}! Want to meet up?"
+                })
+        else:
+            overlaps = [
                 {
                     "friend_name": "Alex",
                     "topic": "Bouldering & Coffee",
@@ -5302,7 +5349,7 @@ def build_router(auth) -> APIRouter:
                     "share_text": "🌅 Hey Elena! Are you down for Sunset Drinks Sunday 18:00?"
                 }
             ]
-        }
+        return {"overlaps": overlaps}
 
     @router.get("/horizon/planner/micro-break")
     def list_micro_breaks_endpoint(request: Request):
@@ -5604,12 +5651,24 @@ def build_router(auth) -> APIRouter:
     @router.get("/developer/keys")
     def list_api_keys_endpoint(request: Request):
         from substrate import now_iso
-        return {
-            "keys": [
+        g = _graph(request)
+        session = g.session("developer", {"admin_items:read", "*"})
+        items = session.find_entities("admin_item", {"item_type": "api_key"}, limit=50)
+        keys = []
+        for it in items:
+            a = it["attrs"]
+            keys.append({
+                "id": it["id"],
+                "name": a.get("name", "API Key"),
+                "created_at": a.get("created_at", it.get("created_at", now_iso())),
+                "status": a.get("status", "active")
+            })
+        if not keys:
+            keys = [
                 {"id": "key_live_9921", "name": "Zapier Automation Key", "created_at": now_iso(), "status": "active"},
                 {"id": "key_live_4412", "name": "Python Script Runner", "created_at": now_iso(), "status": "active"}
             ]
-        }
+        return {"keys": keys}
 
     @router.post("/developer/keys")
     def create_api_key_endpoint(request: Request, body: dict):
@@ -5617,8 +5676,17 @@ def build_router(auth) -> APIRouter:
         from substrate import now_iso
         name = body.get("name", "New API Key").strip()
         key_secret = f"los_sk_{uuid.uuid4().hex}"
+        g = _graph(request)
+        session = g.session("developer", {"admin_items:read", "admin_items:write", "*"})
+        item_id = session.create_entity("admin_item", {
+            "item_type": "api_key",
+            "name": name,
+            "secret_preview": key_secret[:12] + "...",
+            "status": "active",
+            "created_at": now_iso()
+        }, source="developer_keys", confidence=1.0)
         return {
-            "id": f"key_{uuid.uuid4().hex[:8]}",
+            "id": item_id,
             "name": name,
             "secret": key_secret,
             "status": "active",
@@ -5640,10 +5708,16 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/routines/heatmap")
     def get_habit_heatmap_endpoint(request: Request):
-        # 30-day activity matrix (1=light, 2=medium, 3=high focus)
-        import random
-        days = [{"day": i + 1, "level": (i % 3) + 1} for i in range(30)]
-        return {"days": days, "streak_days": 14}
+        g = _graph(request)
+        session = g.session("routines", {"tasks:read", "content:read", "memories:read", "*"})
+        tasks = session.find_entities("task", limit=300)
+        done_tasks = [t for t in tasks if t.get("attrs", {}).get("status") == "done"]
+        streak = min(30, max(1, len(done_tasks) // 2)) if done_tasks else 14
+        days = []
+        for i in range(30):
+            level = min(3, max(1, (i % 3) + 1))
+            days.append({"day": i + 1, "level": level})
+        return {"days": days, "streak_days": streak}
 
     @router.post("/notifications/schedule")
     def schedule_notifications_endpoint(request: Request, body: dict):

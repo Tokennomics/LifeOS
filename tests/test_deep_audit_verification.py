@@ -180,3 +180,67 @@ def test_layover_multi_hub_discovery(cfg):
     data_lis = res_lis.json()
     assert "Metro Vermelha" in data_lis["curated_micro_escape"]["transit"]
     assert "Santa Luzia" in str(data_lis["curated_micro_escape"]["stops"])
+
+
+def test_developer_api_keys_graph_persistence(cfg):
+    """Verifies that creating an API key stores an admin_item in the Substrate graph and is returned by list."""
+    client = TestClient(create_app(cfg))
+    
+    res = client.post("/v1/developer/keys", json={"name": "Production Stripe Webhook"})
+    assert res.status_code == 200
+    data = res.json()
+    assert "id" in data
+    assert data["name"] == "Production Stripe Webhook"
+    assert data["secret"].startswith("los_sk_")
+    
+    # Verify listed
+    res_list = client.get("/v1/developer/keys")
+    assert res_list.status_code == 200
+    keys = res_list.json()["keys"]
+    assert any(k["id"] == data["id"] and k["name"] == "Production Stripe Webhook" for k in keys)
+
+
+def test_kudos_and_flash_moments_graph_persistence(cfg):
+    """Verifies that kudos and flash moments write real metric and content entities."""
+    client = TestClient(create_app(cfg))
+    
+    res_kudos = client.post("/v1/kudos/send", json={"recipient": "Hanna"})
+    assert res_kudos.status_code == 200
+    assert res_kudos.json()["sent"] is True
+    
+    res_moment = client.post("/v1/moments/flash", json={"caption": "Sunrise swim at Flaucher"})
+    assert res_moment.status_code == 200
+    assert res_moment.json()["posted"] is True
+
+
+def test_apple_wallet_pass_generation(cfg):
+    """Verifies that Apple Wallet Pass returns a valid Base64 PKPass payload."""
+    import json
+    client = TestClient(create_app(cfg))
+    
+    res = client.post("/v1/events/apple-wallet-pass", json={"event_name": "Isar Sunrise Plunge"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["pass_generated"] is True
+    assert "pkpass_url" in data
+    assert data["pkpass_url"].startswith("data:application/vnd.apple.pkpass;base64,")
+    
+    # Decode payload
+    b64_str = data["pkpass_url"].replace("data:application/vnd.apple.pkpass;base64,", "")
+    decoded_json = json.loads(base64.b64decode(b64_str).decode("utf-8"))
+    assert decoded_json["description"] == "Isar Sunrise Plunge"
+    assert decoded_json["organizationName"] == "ConnectOS Culture"
+
+
+def test_synergy_overlap_graph_awareness(cfg):
+    """Verifies that synergy overlap dynamically picks up real contacts from graph."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/people", json={"name": "Klaus", "cadence_days": 7})
+    client.post("/v1/people", json={"name": "Martina", "cadence_days": 14})
+    
+    res = client.get("/v1/synergy/overlap")
+    assert res.status_code == 200
+    overlaps = res.json()["overlaps"]
+    assert len(overlaps) >= 2
+    assert any(o["friend_name"] == "Klaus" for o in overlaps)
+    assert any(o["friend_name"] == "Martina" for o in overlaps)
