@@ -5852,4 +5852,59 @@ if (magicBtn) {
   });
 }
 
+/* ---- Settings Dialog & Universal Markdown Vault Export ---- */
+const settingsDlg = $("#settings");
+const settingsBtn = $("#settings-btn");
+const setCloseBtn = $("#set-close");
+const setSaveBtn = $("#set-save");
+const setExportBtn = $("#set-export");
+
+if (settingsBtn && settingsDlg) {
+  settingsBtn.addEventListener("click", () => {
+    $("#set-base").value = localStorage.getItem("lifeos.base") || "";
+    $("#set-token").value = localStorage.getItem("lifeos.token") || "";
+    settingsDlg.showModal();
+  });
+}
+
+if (setCloseBtn && settingsDlg) {
+  setCloseBtn.addEventListener("click", () => settingsDlg.close());
+}
+
+if (setSaveBtn && settingsDlg) {
+  setSaveBtn.addEventListener("click", () => {
+    const base = $("#set-base").value.trim();
+    const token = $("#set-token").value.trim();
+    if (base) localStorage.setItem("lifeos.base", base);
+    else localStorage.removeItem("lifeos.base");
+    if (token) localStorage.setItem("lifeos.token", token);
+    else localStorage.removeItem("lifeos.token");
+    settingsDlg.close();
+    toast("Settings saved! ✓");
+    refresh();
+  });
+}
+
+if (setExportBtn) {
+  setExportBtn.addEventListener("click", async () => {
+    try {
+      toast("Generating Universal Markdown Vault (.zip)... 📦");
+      const res = await api("/v1/export/universal-markdown", { format: "Obsidian" });
+      if (res && res.download_url) {
+        const a = document.createElement("a");
+        a.href = res.download_url;
+        a.download = res.filename || "lifeos_obsidian_vault.zip";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast(`Exported ${res.exported_notes_count} notes to ${a.download}! 🚀`);
+      } else {
+        toast("Export failed: no download url returned");
+      }
+    } catch (err) {
+      toast("Export error: " + err.message);
+    }
+  });
+}
+
 refresh();
