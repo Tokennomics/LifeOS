@@ -360,6 +360,17 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     def goals(request: Request):
         return {"goals": planner.list_goals(_g(request))}
 
+    @app.post("/v1/goals", dependencies=[Depends(auth)])
+    def create_goal(request: Request, body: dict):
+        scoped = _g(request)
+        session = scoped.session("planner", {"goals:read", "goals:write"})
+        goal_id = session.create_entity("goal", {
+            "title": body.get("title", "New Goal"),
+            "target_week": body.get("target_week", "Current"),
+            "focus": body.get("focus", False)
+        }, source="api", confidence=1.0)
+        return {"goal_id": goal_id, "title": body.get("title")}
+
     @app.post("/v1/focus", dependencies=[Depends(auth)])
     def focus(request: Request, body: FocusIn):
         """Gate-first (T3): the focused goal leads next week's plan."""

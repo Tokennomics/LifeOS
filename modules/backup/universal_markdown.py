@@ -134,6 +134,23 @@ tags: ["goal", "progress"]
             content += "- [ ] Establish 12-week milestones\n- [ ] Complete weekly focus action\n"
         files[filename] = content.strip()
 
+    # Unassigned / Standalone tasks
+    standalone_tasks = [t for t in tasks if not t.get("attrs", {}).get("goal_id")]
+    if standalone_tasks:
+        task_inbox = """---
+title: "Tasks Inbox"
+tags: ["tasks", "inbox"]
+---
+
+# 📋 Tasks Inbox
+
+"""
+        for t in standalone_tasks:
+            ta = t.get("attrs", {})
+            done = ta.get("status") == "done"
+            task_inbox += f"- [{'x' if done else ' '}] {ta.get('title', 'Task')}\n"
+        files["03_Goals_and_Tasks/Tasks_Inbox.md"] = task_inbox.strip()
+
     # 4. 04_Decisions_and_Reviews
     decisions = by_kind.get("decision", [])
     for d in decisions:
@@ -181,6 +198,46 @@ tags: ["place", "culture", "discovery"]
 - **Address / Note**: {a.get("address") or a.get("note") or "Saved in ConnectOS"}
 """
         files[filename] = content.strip()
+
+    for ev in events:
+        a = ev.get("attrs", {})
+        title = a.get("title", "Cultural Event")
+        filename = f"05_Culture_and_Places/Event_{title.replace(' ', '_')[:35]}.md"
+        content = f"""---
+id: {ev["id"]}
+title: "{title}"
+place: "{a.get('place', '')}"
+date: "{a.get('date') or a.get('start', '')}"
+tags: ["event", "culture", "discovery"]
+---
+
+# 🎭 {title}
+
+- **Venue / Location**: {a.get("place") or a.get("venue") or "TBA"}
+- **Schedule**: {a.get("date") or a.get("start") or a.get("schedule") or "TBA"}
+- **Vibe**: {a.get("vibe", "Curated event")}
+- **Cost**: {a.get("cost", "N/A")}
+"""
+        files[filename] = content.strip()
+
+    # 6. 06_Notes_and_Captures (Content entities)
+    contents = by_kind.get("content", [])
+    for idx, c in enumerate(contents, start=1):
+        a = c.get("attrs", {})
+        raw_text = a.get("text", "Captured Note")
+        title = raw_text[:30].replace("\n", " ").strip()
+        filename = f"06_Notes_and_Captures/Note_{idx:02d}_{title.replace(' ', '_')[:25]}.md"
+        note_content = f"""---
+id: {c["id"]}
+created_at: {c.get("created_at", date_slug)}
+tags: ["capture", "note"]
+---
+
+# 📝 {title}
+
+{raw_text}
+"""
+        files[filename] = note_content.strip()
 
     # Create root README.md
     files["README.md"] = f"""# ConnectOS Life & Culture Vault ({format_type})
