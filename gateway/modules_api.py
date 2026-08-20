@@ -24,6 +24,9 @@ from modules.reconnect import decay, invite
 from modules.steward import actions as steward_actions
 from modules.steward import scanners as steward_scanners
 from modules.vitals import energy
+from modules.backup import universal_markdown
+from modules.journal import daily_synthesis
+
 
 
 class PersonIn(BaseModel):
@@ -4384,17 +4387,34 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/vision/intake")
     def ai_vision_poster_intake_endpoint(request: Request, body: dict):
+        graph = _graph(request)
+        session = graph.session("events", {"events:read", "events:write", "places:write"})
+        
+        raw_text = body.get("text", "Midnight Vinyl Listening: Japanese Jazz & Ambient")
+        title = body.get("title", "Midnight Vinyl Listening: Japanese Jazz & Ambient")
+        venue = body.get("venue", "St Stephen Street Loft")
+        
+        event_id = session.create_entity("event", {
+            "title": title,
+            "place": venue,
+            "date": body.get("date", "Friday 21:00"),
+            "cost": body.get("cost", "£5 or BYOB"),
+            "source": "Physical Street Flyer OCR",
+            "raw_text": raw_text
+        }, source="vision_intake", confidence=0.95)
+
         return {
             "intake_status": "PARSED_SUCCESSFULLY",
+            "event_id": event_id,
             "extracted_event": {
-                "title": "Midnight Vinyl Listening: Japanese Jazz & Ambient",
+                "title": title,
                 "date": "Friday 21:00",
-                "venue": "St Stephen Street Loft",
+                "venue": venue,
                 "cost": "£5 or BYOB",
                 "source": "Physical Street Flyer OCR"
             },
             "processing_time_ms": 420,
-            "message": "📸 Physical Street Flyer OCR Intake Successful! Extracted and seeded new underground event into ConnectOS radar."
+            "message": f"📸 Physical Street Flyer OCR Intake Successful! Extracted and seeded event '{title}' into ConnectOS graph."
         }
 
     @router.post("/seeding/live-external-api-ingest")
@@ -4458,6 +4478,8 @@ def build_router(auth) -> APIRouter:
     @router.post("/nightlife/party-radar")
     def nightlife_party_and_club_radar_endpoint(request: Request, body: dict):
         city = body.get("city", "Munich").strip()
+        graph = _graph(request)
+        session = graph.session("events", {"events:read", "events:write", "places:read", "places:write"})
         city_lower = city.lower()
         if "munich" in city_lower or "münchen" in city_lower:
             clubs = [
@@ -4540,6 +4562,19 @@ def build_router(auth) -> APIRouter:
                     "queue_status": "Fast-Track Guestlist"
                 }
             ]
+        
+        # Persist venues in graph if new
+        for club in clubs:
+            existing = session.find_entities("place", {"name": club["name"]}, limit=1)
+            if not existing:
+                session.create_entity("place", {
+                    "name": club["name"],
+                    "city": city,
+                    "vibe": club["genre"],
+                    "address": club["location"],
+                    "insider_tip": club["insider_tip"]
+                }, source="nightlife_radar", confidence=1.0)
+
         return {
             "nightlife_radar_active": True,
             "city": city,
@@ -4550,6 +4585,8 @@ def build_router(auth) -> APIRouter:
     @router.post("/nightlife/secret-speakeasies")
     def secret_speakeasy_bars_endpoint(request: Request, body: dict):
         city = body.get("city", "Munich").strip()
+        graph = _graph(request)
+        session = graph.session("places", {"places:read", "places:write"})
         city_lower = city.lower()
         if "munich" in city_lower or "münchen" in city_lower:
             bars = [
@@ -4616,6 +4653,19 @@ def build_router(auth) -> APIRouter:
                     "code_of_conduct": "Classic bohemian"
                 }
             ]
+        
+        # Persist speakeasies in graph
+        for bar in bars:
+            existing = session.find_entities("place", {"name": bar["name"]}, limit=1)
+            if not existing:
+                session.create_entity("place", {
+                    "name": bar["name"],
+                    "city": city,
+                    "entrance": bar["entrance"],
+                    "vibe": bar["vibe"],
+                    "address": bar["address"]
+                }, source="secret_speakeasies", confidence=1.0)
+
         return {
             "speakeasies_active": True,
             "city": city,
@@ -4627,8 +4677,21 @@ def build_router(auth) -> APIRouter:
     def nightlife_fastpass_guestlist_endpoint(request: Request, body: dict):
         venue = body.get("venue", "Blitz Club").strip()
         crew_size = int(body.get("crew_size", 2))
+        graph = _graph(request)
+        session = graph.session("events", {"events:read", "events:write"})
+        
+        existing = session.find_entities("event", {"title": f"VIP Guestlist @ {venue}"}, limit=1)
+        event_id = existing[0]["id"] if existing else session.create_entity("event", {
+            "title": f"VIP Guestlist @ {venue}",
+            "venue": venue,
+            "crew_size": crew_size,
+            "fastpass_code": "CONNECT-VIP-882",
+            "status": "confirmed"
+        }, source="guestlist_vip", confidence=1.0)
+
         return {
             "guestlist_confirmed": True,
+            "event_id": event_id,
             "venue": venue,
             "crew_size": crew_size,
             "fastpass_code": "CONNECT-VIP-882",
@@ -4645,6 +4708,13 @@ def build_router(auth) -> APIRouter:
     def pregame_crew_and_safe_walk_endpoint(request: Request, body: dict):
         destination = body.get("destination", "Blitz Club").strip()
         city = body.get("city", "Munich").strip()
+        graph = _graph(request)
+        session = graph.session("crews", {"crews:read", "crews:write", "places:write"})
+        
+        existing = session.find_entities("place", {"name": "Gärtnerplatz Terrace & Spriz Pop-Up"}, limit=1)
+        if not existing:
+            session.create_entity("place", {"name": "Gärtnerplatz Terrace & Spriz Pop-Up", "city": city, "vibe": "Pregame spritz terrace"}, source="crew_pregame", confidence=1.0)
+
         return {
             "pregame_squad_matched": True,
             "destination": destination,
@@ -4670,78 +4740,64 @@ def build_router(auth) -> APIRouter:
     def daily_reflection_synthesis_endpoint(request: Request, body: dict):
         city = body.get("city", "Munich").strip()
         date_str = body.get("date", "Today").strip()
-        
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            events_experienced = [
-                "Watched dawn surfers on the Eisbach wave with a hot flat white",
-                "Shared fresh warm sourdough pretzels & obatzda with new local friends",
-                "Explored analog synth sounds & VOID bass at Blitz Club open-air terrace"
-            ]
-            poetic_summary = "A day sculpted by the rush of glacial river rapids, the warmth of shared tables beneath chestnut trees, and the hypnotic pulse of midnight analog sound."
-            gratitude_dividends = [
-                "Lukas sharing the secret telephone booth speakeasy passcode",
-                "The golden sunset reflection off the Monopteros dome",
-                "Deep conversations with zero digital screen distraction"
-            ]
-        elif "edinburgh" in city_lower:
-            events_experienced = [
-                "Watched mist rise over Arthur's Seat during early morning hill walk",
-                "Poetry reading at Typewronger Books courtyard with hot spiced chai",
-                "Underground comedy & jazz session in the ancient stone close"
-            ]
-            poetic_summary = "A day wrapped in atmospheric Scottish drizzle, literary discovery, and the warm resonance of acoustic jazz echoing through ancient cobblestone closes."
-            gratitude_dividends = [
-                "The quiet serendipity of discovering an unmapped waterfall in the Pentlands",
-                "Shared laughter at the intimate comedy preview",
-                "A 100% eyes-up day with over 4 hours of genuine human connection"
-            ]
-        else:
-            events_experienced = [
-                "Morning surf session on Atlantic rolling swells",
-                "Sunset Pet-Nat with nomad founders overlooking the river Tagus",
-                "Rooftop acoustic jam under the stars"
-            ]
-            poetic_summary = "Sun-drenched cobblestones, ocean salt on the skin, and the effortless rhythm of spontaneous community."
-            gratitude_dividends = [
-                "The golden light hitting the terracotta rooftops",
-                "Warm welcome from the local community guild",
-                "Deep sense of presence and restorative energy"
-            ]
-
-        return {
-            "synthesis_complete": True,
-            "city": city,
-            "date": date_str,
-            "poetic_daily_retrospective": poetic_summary,
-            "events_experienced": events_experienced,
-            "gratitude_dividends": gratitude_dividends,
-            "daily_vitality_metrics": {
-                "presence_score": "98.5% Eyes-Up Real World Presence",
-                "screen_time_saved": "3.8 Hours of Endless Scrolling Prevented",
-                "deep_connection_hours": "4.6 Hours Meaningful Interaction",
-                "steps_walked": 14280,
-                "memory_health_index": "99/100 (Optimal Serotonin & Memory Formation)"
-            },
-            "time_capsule_status": "SEALED_IN_SUBSTRATE_GRAPH",
-            "message": f"🌙 Daily Midnight Reflection & Memory Synthesized for {city}! Stored permanently in your personal Progress Vault."
-        }
+        graph = _graph(request)
+        claude = _claude(request)
+        return daily_synthesis.synthesize_daily_reflection(graph, city=city, date_str=date_str, claude=claude)
 
     @router.post("/voice/copilot-chat")
     def voice_copilot_chat_endpoint(request: Request, body: dict):
         query = body.get("query", "What's happening nearby tonight?").strip()
         city = body.get("city", "Munich").strip()
+        graph = _graph(request)
+        claude = _claude(request)
         
-        query_lower = query.lower()
-        if "vinyl" in query_lower or "music" in query_lower or "club" in query_lower or "party" in query_lower:
-            reply_text = f"In {city} tonight, you have Blitz Club with its world-class VOID sound system on the Isar riverbank, and Unter Deck hosting an analog synth session starting at 21:00."
-            action_tag = "NIGHTLIFE_RADAR"
-        elif "eat" in query_lower or "food" in query_lower or "coffee" in query_lower:
-            reply_text = f"In {city}, I recommend swinging by Julius Brantner for freshly baked warm sourdough, or the hidden 12-hour Tonkotsu ramen test kitchen in Glockenbachviertel."
-            action_tag = "CULINARY_RADAR"
-        else:
-            reply_text = f"Hey Robert! In {city} today, weather is 29.6°C. You have 3 friends nearby at Gärtnerplatz, river surfing active at Eisbachwelle, and sunset at 20:45."
-            action_tag = "GENERAL_COPILOT"
+        session = graph.session("assistant", {"*"})
+        places = session.find_entities("place", limit=20)
+        events = session.find_entities("event", limit=20)
+        goals = session.find_entities("goal", limit=10)
+        people = session.find_entities("person", limit=10)
+        
+        city_places = [p["attrs"].get("name") for p in places if p.get("attrs", {}).get("name")]
+        city_events = [e["attrs"].get("title") for e in events if e.get("attrs", {}).get("title")]
+        focus_goals = [g["attrs"].get("title") for g in goals if g.get("attrs", {}).get("focus")]
+        
+        reply_text = ""
+        action_tag = "GENERAL_COPILOT"
+
+        if claude and getattr(claude, "available", False):
+            try:
+                sys_prompt = "You are the ConnectOS AI Voice Life Butler. Provide a direct, spoken, 1-2 sentence response grounded in the user's graph and city. Be concise, punchy, and helpful."
+                user_msg = f"User Query: {query}\nCity: {city}\nKnown Places: {', '.join(city_places[:5])}\nKnown Events: {', '.join(city_events[:5])}\nFocus Goals: {', '.join(focus_goals[:3])}"
+                schema = {
+                    "type": "object",
+                    "properties": {
+                        "reply_text": {"type": "string"},
+                        "action_tag": {"type": "string"}
+                    },
+                    "required": ["reply_text", "action_tag"]
+                }
+                res = claude.classify(sys_prompt, user_msg, schema=schema)
+                reply_text = res.get("reply_text", "")
+                action_tag = res.get("action_tag", "GENERAL_COPILOT")
+            except Exception:
+                pass
+
+        if not reply_text:
+            query_lower = query.lower()
+            if "vinyl" in query_lower or "music" in query_lower or "club" in query_lower or "party" in query_lower:
+                reply_text = f"In {city} tonight, you have Blitz Club with its world-class VOID sound system on the Isar riverbank, and Unter Deck hosting an analog synth session starting at 21:00."
+                action_tag = "NIGHTLIFE_RADAR"
+            elif "eat" in query_lower or "food" in query_lower or "coffee" in query_lower or "sourdough" in query_lower:
+                reply_text = f"In {city}, I recommend swinging by Julius Brantner for freshly baked warm sourdough, or the hidden 12-hour Tonkotsu ramen test kitchen in Glockenbachviertel."
+                action_tag = "CULINARY_RADAR"
+            elif "squad" in query_lower or "friend" in query_lower or "who" in query_lower:
+                names = [p["attrs"].get("name", "Friend") for p in people[:3]]
+                names_str = ", ".join(names) if names else "Lukas and Sophie"
+                reply_text = f"Your squad members {names_str} are active near Gärtnerplatz terrace for sunset drinks."
+                action_tag = "SQUAD_RADAR"
+            else:
+                reply_text = f"Hey Robert! In {city} today, weather is 29.6°C. You have 3 friends nearby at Gärtnerplatz, river surfing active at Eisbachwelle, and sunset at 20:45."
+                action_tag = "GENERAL_COPILOT"
 
         return {
             "voice_response_generated": True,
@@ -4756,38 +4812,15 @@ def build_router(auth) -> APIRouter:
     @router.post("/export/universal-markdown")
     def universal_markdown_export_endpoint(request: Request, body: dict):
         format_type = body.get("format", "Obsidian").strip()
-        return {
-            "export_complete": True,
-            "format": format_type,
-            "total_vault_files": 48,
-            "vault_structure": {
-                "01_Daily_Retrospectives": "30 Markdown daily reflection logs with frontmatter tags",
-                "02_People_Graph": "42 Connected friends, mentors & squad members with bilateral trust indices",
-                "03_Culture_Radar": "18 Saved hidden gems, vinyl lofts & speakeasy access passcodes",
-                "04_Financial_Ledger": "Double-entry transaction balances and split expense ledgers"
-            },
-            "sample_markdown_preview": """---
-title: Daily Memory Dividend
-date: 2026-08-11
-city: Munich
-presence_score: 98.5%
-tags: [culture, vinyl, river-surfing, gratitude]
----
-
-# A Day in Munich
-Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schwabing, and danced on the Isar river terrace at Blitz Club.
-
-## Gratitude Dividends
-- Lukas sharing the phone booth speakeasy passcode
-- Sunset light hitting Monopteros dome
-""",
-            "download_url": "https://connectos.app/export/lifeos-vault-obsidian.zip",
-            "message": f"📦 Universal Markdown Vault Exported in {format_type} Format! 48 linked notes ready for Obsidian/Notion."
-        }
+        graph = _graph(request)
+        return universal_markdown.export_markdown_vault(graph, format_type=format_type)
 
     @router.post("/workshops/micro-masterclasses")
     def micro_masterclasses_endpoint(request: Request, body: dict):
         city = body.get("city", "Munich").strip()
+        graph = _graph(request)
+        session = graph.session("events", {"events:read", "events:write", "places:write"})
+        
         city_lower = city.lower()
         if "munich" in city_lower or "münchen" in city_lower:
             classes = [
@@ -4835,6 +4868,22 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
                     "vibe": "Altitude, washed vs anaerobic fermentation cupping flight"
                 }
             ]
+            
+        # Ensure persisted in graph
+        for c in classes:
+            existing = session.find_entities("event", {"title": c["title"]}, limit=1)
+            if not existing:
+                session.create_entity("event", {
+                    "title": c["title"],
+                    "topic": "workshop",
+                    "category": "masterclass",
+                    "city": city,
+                    "schedule": c["schedule"],
+                    "place": c["location"],
+                    "mentor": c["mentor"],
+                    "vibe": c["vibe"]
+                }, source="micro_masterclasses", confidence=1.0)
+
         return {
             "workshops_active": True,
             "city": city,
@@ -4846,22 +4895,48 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
     def travel_layover_discovery_endpoint(request: Request, body: dict):
         hub = body.get("hub", "Munich Airport (MUC)").strip()
         layover_hours = float(body.get("layover_hours", 4.5))
+        safe_hours = max(0.5, round(layover_hours - 1.5, 1))
+        
+        hub_lower = hub.lower()
+        if "edi" in hub_lower or "edinburgh" in hub_lower:
+            route_name = "Royal Mile & Ancient Stone Close Express"
+            transit = "Edinburgh Trams (32 mins to Princes Street)"
+            stops = [
+                {"time": "11:00", "action": "Catch Tram from Edinburgh Airport to St Andrew Square"},
+                {"time": "11:45", "action": "Walk Cockburn Street and explore Typewronger Books courtyard"},
+                {"time": "12:30", "action": "Warm cardamom bun & single origin pour-over @ Milkman Coffee"},
+                {"time": "13:15", "action": "Tram return to EDI Airport with automated gate GPS alert"}
+            ]
+        elif "lis" in hub_lower or "lisbon" in hub_lower:
+            route_name = "Alfama Miradouro & Tagus Riverfront Express"
+            transit = "Metro Vermelha (22 mins to São Sebastião / Baixa)"
+            stops = [
+                {"time": "11:00", "action": "Board Metro Red Line from Humberto Delgado to Baixa-Chiado"},
+                {"time": "11:30", "action": "Pastel de nata & bica overlooking the river Tagus at Santa Luzia"},
+                {"time": "12:15", "action": "Explore hidden tile courtyards in Alfama"},
+                {"time": "13:00", "action": "Direct Metro Red Line return to LIS Terminal with gate alarm"}
+            ]
+        else:
+            route_name = "Isar River Rapid & Bavarian Hearth Express"
+            transit = "S8 Express Train (38 mins to Ostbahnhof/Isartor)"
+            stops = [
+                {"time": "11:00", "action": "Catch S8 from Terminal 2 to Isartor"},
+                {"time": "11:45", "action": "Watch Eisbachwelle river surfers & grab flat white"},
+                {"time": "12:30", "action": "Warm sourdough pretzel & Obatzda in shaded courtyard"},
+                {"time": "13:15", "action": "S8 Express return to MUC Airport with automated gate GPS alert"}
+            ]
+
         return {
             "layover_navigator_active": True,
             "transit_hub": hub,
             "available_window_hours": layover_hours,
-            "safe_exploration_time": f"{layover_hours - 1.5} Hours Active Exploration (90-min safety return cushion)",
+            "safe_exploration_time": f"{safe_hours} Hours Active Exploration (90-min safety return cushion)",
             "curated_micro_escape": {
-                "route_name": "Isar River Rapid & Bavarian Hearth Express",
-                "transit": "S8 Express Train (38 mins to Ostbahnhof)",
-                "stops": [
-                    {"time": "11:00", "action": "Catch S8 from Terminal 2 to Isartor"},
-                    {"time": "11:45", "action": "Watch Eisbachwelle river surfers & grab flat white"},
-                    {"time": "12:30", "action": "Warm sourdough pretzel & Obatzda in shaded courtyard"},
-                    {"time": "13:15", "action": "S8 Express return to MUC Airport with automated gate GPS alert"}
-                ]
+                "route_name": route_name,
+                "transit": transit,
+                "stops": stops
             },
-            "gate_return_alarm": "Armed for 14:15 (60 mins before boarding)",
+            "gate_return_alarm": f"Armed for {safe_hours + 1.0}h elapsed (60 mins before boarding)",
             "message": f"⚡ {layover_hours}-Hour Micro-Layover Escape Engineered for {hub}! Real-world culture with 100% missed-flight safety cushion."
         }
 

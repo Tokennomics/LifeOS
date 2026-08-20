@@ -785,6 +785,7 @@ def test_daily_reflection_synthesis(cfg):
     assert res.status_code == 200
     data = res.json()
     assert data["synthesis_complete"] is True
+    assert "memory_id" in data
     assert len(data["gratitude_dividends"]) >= 3
     assert data["time_capsule_status"] == "SEALED_IN_SUBSTRATE_GRAPH"
     assert "presence_score" in data["daily_vitality_metrics"]
@@ -800,12 +801,19 @@ def test_voice_copilot_and_spoken_ar(cfg):
 
 def test_universal_markdown_export(cfg):
     client = TestClient(create_app(cfg))
+    # Add a person and goal first to populate the graph
+    client.post("/v1/people", json={"name": "Stefan", "cadence_days": 14})
+    client.post("/v1/goals", json={"title": "Master Analog Synth Sound Design", "target_week": "W34"})
+    
     res = client.post("/v1/export/universal-markdown", json={"format": "Obsidian"})
     assert res.status_code == 200
     data = res.json()
     assert data["export_complete"] is True
-    assert data["total_vault_files"] >= 40
-    assert "01_Daily_Retrospectives" in data["vault_structure"]
+    assert data["total_vault_files"] >= 2
+    assert "download_url" in data
+    assert data["download_url"].startswith("data:application/zip;base64,")
+    assert "files" in data
+    assert "README.md" in data["files"]
 
 def test_micro_masterclasses_and_neighborhood_guilds(cfg):
     client = TestClient(create_app(cfg))
