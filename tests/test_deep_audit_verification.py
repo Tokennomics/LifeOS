@@ -244,3 +244,36 @@ def test_synergy_overlap_graph_awareness(cfg):
     assert len(overlaps) >= 2
     assert any(o["friend_name"] == "Klaus" for o in overlaps)
     assert any(o["friend_name"] == "Martina" for o in overlaps)
+
+
+def test_social_synergy_and_dating_match_persistence(cfg):
+    """Verifies that synergy matching, instant dating, agree meet, and safety escort write to Substrate graph."""
+    client = TestClient(create_app(cfg))
+    
+    # 1. Instant synergy match
+    res_syn = client.post("/v1/synergy/instant-match", json={"interest": "specialty coffee", "timeframe": "30 mins"})
+    assert res_syn.status_code == 200
+    assert res_syn.json()["matched"] is True
+    
+    # 2. Instant dating match
+    res_date = client.post("/v1/dating/instant-meet", json={"vibe": "sunset cocktails", "timeframe": "next hour"})
+    assert res_date.status_code == 200
+    assert res_date.json()["matched"] is True
+    assert "breakdown" in res_date.json()
+    assert res_date.json()["breakdown"]["proximity_score"] == 98
+    
+    # 3. Agree meet
+    res_agree = client.post("/v1/dating/agree-meet", json={"partner_name": "Sophie", "venue": "Gärtnerplatz Terrace"})
+    assert res_agree.status_code == 200
+    data_agree = res_agree.json()
+    assert data_agree["agreed"] is True
+    assert "event_id" in data_agree
+    assert data_agree["pin_code"] == "4892"
+    
+    # 4. Safety escort
+    res_escort = client.post("/v1/safety/escort", json={"destination": "Gärtnerplatz Terrace", "eta_mins": 12})
+    assert res_escort.status_code == 200
+    data_escort = res_escort.json()
+    assert data_escort["active"] is True
+    assert "session_id" in data_escort
+    assert data_escort["escort_code"] == "SAFE-8921"

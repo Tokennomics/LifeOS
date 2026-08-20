@@ -26,6 +26,7 @@ from modules.steward import scanners as steward_scanners
 from modules.vitals import energy
 from modules.backup import universal_markdown
 from modules.journal import daily_synthesis
+from modules.convoy import social_engine
 
 
 
@@ -2078,65 +2079,15 @@ def build_router(auth) -> APIRouter:
     def instant_synergy_match_endpoint(request: Request, body: dict):
         interest = body.get("interest", "specialty coffee").strip()
         timeframe = body.get("timeframe", "30 mins").strip()
-        return {
-            "matched": True,
-            "interest": interest,
-            "timeframe": timeframe,
-            "partner_name": "Elena R.",
-            "match_score": 96,
-            "suggested_venue": "Fabrica Coffee Roasters",
-            "event_name": "Specialty Cupping & Espresso Tasting",
-            "message": f"☕ Instant Match Found! Elena R. is also free in the next {timeframe} for {interest} at Fabrica Coffee Roasters!"
-        }
+        graph = _graph(request)
+        return social_engine.match_synergy(graph, interest=interest, timeframe=timeframe)
 
     @router.post("/dating/instant-meet")
     def instant_dating_meet_endpoint(request: Request, body: dict):
         vibe = body.get("vibe", "drinks tonight").strip()
         timeframe = body.get("timeframe", "next hour").strip()
-        user_lat = body.get("lat", 38.711)
-        user_lon = body.get("lon", -9.139)
-
-        # 7-Factor Comprehensive Match Engine:
-        # Proximity (25%) + Preferences (20%) + Heatmap (15%) + Popularity (15%) + Trust Index (10%) + Energy Balance (10%) + Weather (5%)
-        proximity_km = 1.2
-        prox_score = 98        # 1.2 km distance
-        pref_score = 95        # Drinks / Specialty Coffee match
-        heatmap_density = 88   # Live venue heatmap activity (88% capacity)
-        venue_popularity = 94  # 4.9 star rating, high review volume
-        trust_index = 96       # 3 mutual friends, verified badge
-        energy_balance = 90    # High evening energy alignment
-        weather_score = 95     # Clear sky 24°C outdoor rating
-
-        composite_score = int(
-            0.25 * prox_score +
-            0.20 * pref_score +
-            0.15 * heatmap_density +
-            0.15 * venue_popularity +
-            0.10 * trust_index +
-            0.10 * energy_balance +
-            0.05 * weather_score
-        )
-
-        return {
-            "matched": True,
-            "vibe": vibe,
-            "timeframe": timeframe,
-            "partner_name": "Elena R.",
-            "match_score": composite_score,
-            "breakdown": {
-                "proximity_km": proximity_km,
-                "proximity_score": prox_score,
-                "preference_match": pref_score,
-                "heatmap_density_pct": heatmap_density,
-                "venue_popularity_score": venue_popularity,
-                "trust_index": trust_index,
-                "energy_balance": energy_balance,
-                "weather_score": weather_score
-            },
-            "suggested_venue": "Miradouro Rooftop Sunset Bar",
-            "venue_address": "Rua do Miradouro 14, Lisbon",
-            "message": f"🍷 Instant Dating Match Found ({composite_score}% 7-Factor Match)! Elena R. is {proximity_km}km away & free in the {timeframe} at Miradouro Rooftop!"
-        }
+        graph = _graph(request)
+        return social_engine.match_dating(graph, vibe=vibe, timeframe=timeframe)
 
     @router.post("/synergy/creative-match")
     def creative_jam_match_endpoint(request: Request, body: dict):
@@ -5153,28 +5104,15 @@ def build_router(auth) -> APIRouter:
     def agree_dating_meet_endpoint(request: Request, body: dict):
         partner_name = body.get("partner_name", "Elena R.").strip()
         venue = body.get("venue", "Miradouro Rooftop Sunset Bar").strip()
-        return {
-            "agreed": True,
-            "partner_name": partner_name,
-            "venue": venue,
-            "pin_code": "4892",
-            "eta_mins": 14,
-            "lat": 38.711,
-            "lon": -9.139,
-            "message": f"🥂 Both Agreed! Meeting Pin set at {venue} (ETA: 14 mins). Security PIN: 4892 📍"
-        }
+        graph = _graph(request)
+        return social_engine.agree_dating_meet(graph, partner_name=partner_name, venue=venue)
 
     @router.post("/safety/escort")
     def start_safewalk_escort_endpoint(request: Request, body: dict):
         destination = body.get("destination", "Miradouro Rooftop Bar").strip()
         eta_mins = body.get("eta_mins", 15)
-        return {
-            "active": True,
-            "destination": destination,
-            "eta_mins": eta_mins,
-            "escort_code": "SAFE-8921",
-            "message": f"🛡️ SafeWalk Live Escort active for '{destination}'! Crew notified & ETA timer set ({eta_mins} mins)."
-        }
+        graph = _graph(request)
+        return social_engine.start_safety_escort(graph, destination=destination, eta_mins=eta_mins)
 
     @router.post("/ledger/quick-split")
     def quick_split_expenses_endpoint(request: Request, body: dict):
