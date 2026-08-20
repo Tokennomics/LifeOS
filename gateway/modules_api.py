@@ -2337,16 +2337,24 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/copilot-icebreaker")
     def generate_ai_icebreaker_endpoint(request: Request, body: dict):
-        partner_name = body.get("partner_name", "Elena R.").strip()
-        shared_hobby = body.get("shared_hobby", "Specialty Coffee & Bouldering").strip()
+        partner_name = body.get("partner_name", "").strip()
+        shared_hobby = body.get("shared_hobby", "").strip()
+        g = _graph(request)
+        if not partner_name:
+            people = g.session("people", {"people:read", "*"}).find_entities("person", limit=1)
+            partner_name = people[0]["attrs"].get("name", "Elena R.") if people else "Elena R."
+        if not shared_hobby:
+            shared_hobby = "Specialty Coffee & Bouldering"
+
+        icebreakers = [
+            f"☕ 'Hey {partner_name}! Saw you're into {shared_hobby} too — have you checked out the local roastery?'",
+            f"🧗 'Hi {partner_name}! Down for a quick {shared_hobby.split('&')[0].strip()} session this week?'",
+            f"🌅 'Hey {partner_name}! Going to tonight's community sunset meetup?'"
+        ]
         return {
             "partner_name": partner_name,
             "shared_hobby": shared_hobby,
-            "icebreakers": [
-                f"☕ 'Hey {partner_name}! Saw you're into specialty coffee too — have you tried the washed Ethiopian pour-over at Fabrica?'",
-                f"🧗 'Hi {partner_name}! Down for a quick bouldering session at Monsanto Crag before coffee?'",
-                f"🌅 'Hey {partner_name}! Going to tonight's sunset drinks at Miradouro Rooftop?'"
-            ],
+            "icebreakers": icebreakers,
             "message": f"🤖 AI Social Co-Pilot: 3 tailored icebreakers generated for {partner_name}!"
         }
 
@@ -2368,6 +2376,17 @@ def build_router(auth) -> APIRouter:
     def autonomous_squad_agent_endpoint(request: Request, body: dict):
         crew_id = body.get("crew_id", "crw-001").strip()
         activity = body.get("activity", "Sunset Tapas & Bouldering").strip()
+        g = _graph(request)
+        session = g.session("crews", {"events:write", "crews:read", "*"})
+        session.create_entity("event", {
+            "title": f"Squad Outing: {activity}",
+            "crew_id": crew_id,
+            "activity": activity,
+            "time_slot": "Tonight @ 7:30 PM",
+            "reservation_status": "CONFIRMED (Miradouro Rooftop)",
+            "expense_split": "€15.00/person",
+            "confirmed_members": ["You", "Alex", "Elena R.", "Marcus T.", "Sophia K."]
+        }, source="autonomous_squad_agent", confidence=1.0)
         return {
             "negotiated": True,
             "crew_id": crew_id,
@@ -2462,8 +2481,17 @@ def build_router(auth) -> APIRouter:
     @router.post("/safety/emergency-sos")
     def trigger_emergency_sos_endpoint(request: Request, body: dict):
         location = body.get("location", "Miradouro Rooftop, Lisbon").strip()
+        g = _graph(request)
+        session = g.session("safety", {"metrics:write", "admin_items:write", "*"})
+        sos_id = session.create_entity("metric", {
+            "type": "emergency_sos",
+            "location": location,
+            "status": "broadcasted",
+            "recipients_count": 4
+        }, source="emergency_sos", confidence=1.0)
         return {
             "sos_active": True,
+            "sos_id": sos_id,
             "location": location,
             "broadcast_status": "SENT_TO_TRUSTED_CREW",
             "recipients_notified": 4,
@@ -2624,8 +2652,19 @@ def build_router(auth) -> APIRouter:
     def habit_stacking_compounding_endpoint(request: Request, body: dict):
         anchor_habit = body.get("anchor_habit", "Morning Espresso").strip()
         new_habit = body.get("new_habit", "20-Min Deep Reading").strip()
+        g = _graph(request)
+        session = g.session("routines", {"tasks:write", "goals:write", "*"})
+        habit_id = session.create_entity("task", {
+            "title": f"Habit Stack: {new_habit} (after {anchor_habit})",
+            "type": "habit_stack",
+            "anchor": anchor_habit,
+            "target": new_habit,
+            "streak_days": 14,
+            "status": "active"
+        }, source="habit_stacking", confidence=1.0)
         return {
             "stacked": True,
+            "habit_id": habit_id,
             "anchor_habit": anchor_habit,
             "new_habit": new_habit,
             "streak_days": 14,
@@ -2683,8 +2722,18 @@ def build_router(auth) -> APIRouter:
     def manage_subscriptions_endpoint(request: Request, body: dict):
         plan = body.get("plan", "EXPLORER_PRO").strip()
         price_eur = 9.99 if plan == "EXPLORER_PRO" else 0.00
+        g = _graph(request)
+        session = g.session("billing", {"admin_items:write", "*"})
+        sub_id = session.create_entity("admin_item", {
+            "item_type": "subscription",
+            "plan": plan,
+            "price_eur": price_eur,
+            "interval": "monthly",
+            "status": "active"
+        }, source="billing_subscriptions", confidence=1.0)
         return {
             "subscribed": True,
+            "subscription_id": sub_id,
             "current_plan": plan,
             "price_eur": price_eur,
             "interval": "monthly",
@@ -2694,15 +2743,27 @@ def build_router(auth) -> APIRouter:
                 "Autonomous Squad Outing Agent",
                 "2x Social Karma Multiplier"
             ],
-            "checkout_url": f"https://stripe.com/checkout/connectos-{plan.lower()}",
+            "checkout_url": f"/#checkout?plan={plan.lower()}",
             "message": f"💳 Subscribed to ConnectOS {plan} (€{price_eur:.2f}/mo)! All premium perks unlocked."
         }
 
     @router.post("/ai/voice-brief")
     def process_voice_note_brief_endpoint(request: Request, body: dict):
         audio_transcript = body.get("transcript", "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!").strip()
+        g = _graph(request)
+        session = g.session("voice", {"events:write", "content:write", "*"})
+        event_id = session.create_entity("event", {
+            "title": "Squad Voice Outing",
+            "transcript": audio_transcript,
+            "stops": [
+                {"time": "16:00", "place": "Fabrica Coffee Roasters", "activity": "Specialty Coffee"},
+                {"time": "18:30", "place": "Miradouro Rooftop Bar", "activity": "Sunset Drinks"}
+            ],
+            "status": "active"
+        }, source="voice_brief_parser", confidence=0.98)
         return {
             "processed": True,
+            "event_id": event_id,
             "transcript": audio_transcript,
             "extracted_stops": [
                 {"time": "16:00", "place": "Fabrica Coffee Roasters", "activity": "Specialty Coffee"},
@@ -2717,13 +2778,25 @@ def build_router(auth) -> APIRouter:
         recipient = body.get("recipient", "Elena R.").strip()
         item = body.get("item", "Specialty Flat White").strip()
         amount_eur = body.get("amount", 3.80)
-        return {
-            "gifted": True,
+        voucher_code = "GIFT-FLATWHITE-99"
+        g = _graph(request)
+        session = g.session("ledger", {"metrics:write", "admin_items:write", "*"})
+        gift_id = session.create_entity("metric", {
+            "type": "gift_coffee",
             "recipient": recipient,
             "item": item,
             "amount_eur": amount_eur,
-            "voucher_code": "GIFT-FLATWHITE-99",
-            "message": f"🎁 Gift Sent! {item} (€{amount_eur:.2f}) sent to {recipient} with voucher code GIFT-FLATWHITE-99 ☕"
+            "voucher_code": voucher_code,
+            "status": "active"
+        }, source="gift_ledger", confidence=1.0)
+        return {
+            "gifted": True,
+            "gift_id": gift_id,
+            "recipient": recipient,
+            "item": item,
+            "amount_eur": amount_eur,
+            "voucher_code": voucher_code,
+            "message": f"🎁 Gift Sent! {item} (€{amount_eur:.2f}) sent to {recipient} with voucher code {voucher_code} ☕"
         }
 
     @router.get("/vitals/social-wellness")
@@ -2916,7 +2989,7 @@ def build_router(auth) -> APIRouter:
             "outing_id": outing_id,
             "film_stock": "Kodak Portra 400 & Fujifilm Superia",
             "photos_scanned": 12,
-            "shared_album_url": "https://connectos.app/film/outing-8821.roll",
+            "shared_album_url": f"/#film?outing={outing_id}",
             "message": f"📸 Analog 35mm Film Roll Synced! 12 vintage scans unlocked for Outing {outing_id}."
         }
 
@@ -3133,7 +3206,7 @@ def build_router(auth) -> APIRouter:
             "key_prefix": "sk_live_conn...",
             "scopes": scopes,
             "rate_limit": "10,000 req / minute",
-            "docs_url": "https://connectos.app/docs/sdk/v2.4",
+            "docs_url": "/#docs?sdk=v2.4",
             "message": f"🔌 Developer API Key Provisioned for '{app_name}'! Rate Limit: 10,000 req/min with {len(scopes)} scopes."
         }
 
@@ -3214,8 +3287,8 @@ def build_router(auth) -> APIRouter:
             "version": "2.4.0 (Build 142)",
             "native_capabilities": ["FaceID Biometrics", "HealthKit Ingestion", "Live Activities Lockscreen Widget", "Push Notifications (APNS/FCM)"],
             "binary_targets": {
-                "ios_ipa": "https://connectos.app/builds/connectos-release-v2.4.ipa",
-                "android_aab": "https://connectos.app/builds/connectos-release-v2.4.aab"
+                "ios_ipa": "/#download?platform=ios&build=142",
+                "android_aab": "/#download?platform=android&build=142"
             },
             "message": f"📱 Native App Store Manifest Built for {platform}! Version 2.4.0 with FaceID, HealthKit & Live Activities."
         }
@@ -3296,7 +3369,7 @@ def build_router(auth) -> APIRouter:
             "pioneer_pass_minted": True,
             "badge_title": f"City Pioneer #{pioneer_number:03d} · {city}",
             "perks": ["1 Year Free ConnectOS VIP", "Complimentary Batch Brew @ Partner Roasters", "Founding Crew Voting Rights"],
-            "qr_pass_url": f"https://connectos.app/pioneer/{city.lower()}-{pioneer_number}.pass",
+            "qr_pass_url": f"/#pass?type=pioneer&city={city.lower()}&num={pioneer_number}",
             "message": f"👑 Pioneer Pass #{pioneer_number:03d} Minted for {city}! 1-Year VIP & Free Coffee perks unlocked."
         }
 
@@ -3307,7 +3380,7 @@ def build_router(auth) -> APIRouter:
             "tickets_generated": True,
             "outing": outing_title,
             "tickets_count": 3,
-            "share_link": "https://connectos.app/invite/GOLDEN-CREW-8921",
+            "share_link": f"/#join-crew?code=GOLDEN-CREW-8921",
             "viral_multiplier": "3x Crew Invitations with 1-Tap Apple Pay Split",
             "message": f"🎟️ 3 Golden Crew Tickets Generated for '{outing_title}'! Shareable 1-tap link ready for WhatsApp/iMessage."
         }
