@@ -32,6 +32,14 @@ def main(args_list: list[str] | None = None, graph: Graph | None = None) -> int:
     # Steward command
     subparsers.add_parser("steward", help="View open steward items")
 
+    # Export command
+    exp_parser = subparsers.add_parser("export", help="Export Universal Markdown Vault (.zip)")
+    exp_parser.add_argument("--format", type=str, default="Obsidian", help="Vault format (Obsidian, Notion, AppleNotes)")
+    exp_parser.add_argument("--output", type=str, default="lifeos_vault.zip", help="Target zip filename")
+
+    # Daily synthesize command
+    subparsers.add_parser("synthesize", help="Run Daily Midnight Reflection Synthesis")
+
     parsed = parser.parse_args(args_list)
 
     if graph is None:
@@ -68,6 +76,25 @@ def main(args_list: list[str] | None = None, graph: Graph | None = None) -> int:
         print(f"[LifeOS CLI] Open Steward Items ({len(items)}):")
         for item in items:
             print(f"  - [{item['type']}] {item['title']}: {item['suggestion']}")
+        return 0
+
+    elif parsed.command == "export":
+        from modules.backup import universal_markdown
+        import base64
+        res = universal_markdown.export_markdown_vault(graph, format_type=parsed.format)
+        b64_data = res["download_url"].split("base64,")[1]
+        zip_bytes = base64.b64decode(b64_data)
+        with open(parsed.output, "wb") as f:
+            f.write(zip_bytes)
+        print(f"[LifeOS CLI] Exported {res['total_vault_files']} notes across 11 graph kinds to '{parsed.output}' ({res['format']})! 📦")
+        return 0
+
+    elif parsed.command == "synthesize":
+        from modules.journal import daily_synthesis
+        res = daily_synthesis.synthesize_daily_reflection(graph)
+        print(f"[LifeOS CLI] Daily Reflection Synthesized (Memory ID: {res['memory_id']}):")
+        print(f"  * Summary: {res['poetic_daily_retrospective']}")
+        print(f"  * Gratitude: {res['gratitude_dividends']}")
         return 0
 
     else:

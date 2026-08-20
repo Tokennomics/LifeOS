@@ -5897,7 +5897,8 @@ if (setExportBtn) {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        toast(`Exported ${res.exported_notes_count} notes to ${a.download}! 🚀`);
+        const count = res.total_vault_files || res.exported_notes_count || (res.files ? Object.keys(res.files).length : 1);
+        toast(`Exported ${count} notes to ${a.download}! 🚀`);
       } else {
         toast("Export failed: no download url returned");
       }
