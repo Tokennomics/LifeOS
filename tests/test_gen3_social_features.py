@@ -53,12 +53,18 @@ def test_safewalk_escort(cfg):
     assert "SAFE-8921" not in res.text
 
 def test_quick_split_expenses(cfg):
+    # This used to assert the payment link — `"revolut.me" in data["payment_link"]` — which
+    # pinned the defect in place: a link to somebody else's payment service, carrying the
+    # amount in a query string, for an account nobody had connected. Splitting stores a real
+    # tab now, and a headcount with nobody named is the calculator, which says so.
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/ledger/quick-split", json={"title": "Sunset Drinks", "amount": 60.00, "people_count": 4})
+    res = client.post("/v1/ledger/quick-split",
+                      json={"title": "Sunset Drinks", "amount": 60.00, "people_count": 4})
     assert res.status_code == 200
     data = res.json()
-    assert data["per_person"] == 15.00
-    assert "revolut.me" in data["payment_link"]
+    assert data["each"] == 15.00
+    assert data["recorded"] is False
+    assert "revolut" not in res.text.lower()
 
 def test_sports_and_nomad_match(cfg):
     client = TestClient(create_app(cfg))
@@ -157,9 +163,15 @@ def test_gen3_core_pillars(cfg):
     assert res2.json()["plans"] == []
     assert "calendar negotiation" in res2.json()["not_included"]
 
+    # Five hardcoded cities with coordinates, flare counts and weather ("24°C Sunny", in
+    # Lisbon, forever) — identical on every deployment, including one installed a minute
+    # ago. It counts rows now, so a fresh instance has nobody anywhere.
     res3 = client.get("/v1/city/live-globe")
     assert res3.status_code == 200
-    assert len(res3.json()["active_cities"]) >= 5
+    assert res3.json()["empty"] is True
+    assert res3.json()["coordinates"] is False
+    for invented in ("tokyo", "38.722", "flares", "sunny"):
+        assert invented not in res3.text.lower()
 
     # `/v1/zk/verify-attribute` is gone, and this test is the reason it lasted: it asserted
     # that an AGE_OVER_18 check returns verified=True, which the endpoint did for every
@@ -222,15 +234,21 @@ def test_leaderboard_mentor_and_squad_routine(cfg):
     assert res2.json()["matched"] is False
     assert "mentor_name" not in res2.json()
 
+    # It reported "Weekly on Wednesdays @ 7:00 AM" whatever you asked for, claimed the
+    # routine was synced to 5 crew calendars, and linked an .ics on a host this deployment
+    # does not serve. A routine belongs to a crew now, so a name on its own is not one.
     res3 = client.post("/v1/routines/squad-sync", json={"routine_name": "Dawn Patrol Surf"})
-    assert res3.status_code == 200
-    assert res3.json()["synced"] is True
+    assert res3.status_code == 400
+    assert "connectos.app" not in res3.text
 
 def test_settle_photo_wall_and_quests(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/ledger/settle-up", json={"amount": 22.50})
-    assert res1.status_code == 200
-    assert res1.json()["settled"] is True
+    # It reported €22.50 settled with "Elena R." and "Alex M." on an account that had split
+    # nothing with anybody, and offered a revolut.me link for an unconnected account.
+    # Settling needs a real balance owed to a real person.
+    res1 = client.post("/v1/ledger/settle-up", json={"counterparty": "nobody"})
+    assert res1.status_code == 400
+    assert "revolut" not in res1.text.lower()
 
     res2 = client.get("/v1/gallery/live-event-wall")
     assert res2.status_code == 200
@@ -245,9 +263,15 @@ def test_settle_photo_wall_and_quests(cfg):
 
 def test_transparent_algo_and_revenue_share(cfg):
     client = TestClient(create_app(cfg))
+    # It claimed to *apply* a real_world_weight and a proximity_bias, stored neither, and
+    # described a ranking this app does not implement — while calling itself transparency.
+    # The weights are imported from the ranking code now, and it sets nothing.
     res1 = client.post("/v1/feed/transparent-rules", json={"real_world_weight": 0.85})
     assert res1.status_code == 200
-    assert res1.json()["applied"] is True
+    assert res1.json()["settable"] is False
+    assert [p["part"] for p in res1.json()["parts"]] == [
+        "interest match", "how many people are going", "how soon it is"]
+    assert "doomscroll" not in res1.text.lower()
 
     # Reported an 89% adherence rate for a stack it had just invented. It creates a real
     # routine now — with the anchor as the trigger — and needs both halves to do it.
@@ -286,9 +310,14 @@ def test_voice_brief_gifting_and_wellness(cfg):
     assert res1.json()["speech_to_text"] is False
     assert res1.json()["available"] is False        # no ANTHROPIC_API_KEY in tests
 
-    res2 = client.post("/v1/ledger/gift-coffee", json={"recipient": "Elena R.", "amount": 3.80})
+    # It returned `voucher_code: "GIFT-FLATWHITE-99"` — the same code for every gift, good
+    # at no counter anywhere. The promise is the real part, and it goes on the tab as owed.
+    res2 = client.post("/v1/ledger/gift-coffee",
+                       json={"recipient": "elena", "amount": 3.80})
     assert res2.status_code == 200
-    assert res2.json()["gifted"] is True
+    assert res2.json()["recorded"] is True
+    assert res2.json()["money_moved"] is False
+    assert "voucher" not in res2.text.lower()
 
     res3 = client.get("/v1/vitals/social-wellness")
     assert res3.status_code == 200
@@ -311,18 +340,24 @@ def test_sustainable_multi_revenue_monetization(cfg):
 
 def test_viral_growth_and_traction(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/viral/invite-crew", json={"crew_name": "Lisbon Tech"})
-    assert res1.status_code == 200
-    assert "CREW-" in res1.json()["invite_code"]
+    # `invite_code: "CREW-LISBON-8921"` was the same string on every instance, and the
+    # response promised 100 karma and a free-coffee voucher for sharing it. A link now has
+    # to let somebody into a crew that exists, so with no crew there is nothing to mint.
+    res1 = client.post("/v1/viral/invite-crew", json={"crew_id": "no-such-crew"})
+    assert res1.status_code == 400
+    assert "karma" not in res1.text.lower() and "voucher" not in res1.text.lower()
 
     # Was a fixed 7 for everybody. Counted from real activity now, so a fresh account is 0.
     res2 = client.get("/v1/gamification/streaks")
     assert res2.status_code == 200
     assert res2.json()["current_streak_days"] == 0 and res2.json()["empty"] is True
 
+    # `story_card_url` pointed at a PNG on connectos.app that nothing ever rendered. The
+    # card is drawn here now, as an SVG, because nothing in this app rasterises images.
     res3 = client.post("/v1/viral/social-share", json={"title": "Rooftop Party"})
     assert res3.status_code == 200
-    assert "story-" in res3.json()["story_card_url"]
+    assert res3.json()["svg"].startswith("<svg")
+    assert "connectos.app" not in res3.text
 
     res4 = client.get("/v1/community/ambassadors")
     assert res4.status_code == 200
@@ -585,13 +620,20 @@ def test_city_seeding_and_cold_start_engine(cfg):
     assert res1.json()["empty"] is True
     assert "curated_third_places" not in res1.json()
 
-    res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon", "pioneer_number": 42})
+    # It minted "City Pioneer #042" — the number came from the request body — with a year
+    # of free VIP and complimentary coffee at partner roasters. Being early is counted from
+    # real rows now, and unlocks nothing; an account that has posted nothing is not in it.
+    res2 = client.post("/v1/seeding/pioneer-pass", json={"city": "Lisbon"})
     assert res2.status_code == 200
-    assert res2.json()["pioneer_pass_minted"] is True
+    assert res2.json()["you_are_here"] is False
+    assert res2.json()["no_perks"]
 
-    res3 = client.post("/v1/seeding/golden-tickets", json={"outing": "Sunset Catamaran"})
-    assert res3.status_code == 200
-    assert res3.json()["tickets_generated"] is True
+    # Three "golden tickets" behind one shared connectos.app link, with a 1-tap Apple Pay
+    # split this app cannot perform. They are separate single-use invites now, so they need
+    # a real crew to admit somebody to.
+    res3 = client.post("/v1/seeding/golden-tickets", json={"crew_id": "no-such-crew"})
+    assert res3.status_code == 400
+    assert "apple pay" not in res3.text.lower()
 
     res4 = client.post("/v1/seeding/anchor-outings", json={"city": "Lisbon"})
     assert res4.status_code == 200
@@ -682,9 +724,19 @@ def test_frontier_voice_nfc_culture_and_dao(cfg):
     assert res1.status_code == 200
     assert res1.json()["huddle_active"] is True
 
+    # A "NFC & Apple NameDrop Ephemeral Handshake" reporting 94% compatibility with a named
+    # stranger, for any peer string. A web app speaks none of that; sending no code shows
+    # yours instead, which two people standing together can read aloud.
     res2 = client.post("/v1/nfc/tap-to-synergy", json={"peer": "Catriona"})
     assert res2.status_code == 200
-    assert res2.json()["handshake_verified"] is True
+    body = res2.json()
+    assert len(body["code"]) == 6
+    # Checked by shape, not by searching the text: the response explains that a web app
+    # cannot speak NFC or NameDrop, so those words are legitimately present — and the code
+    # alphabet contains 9 and 4, which would make `"94" not in text` a rare flake.
+    for invented in ("handshake_verified", "synergy_score", "zk_card_exchanged",
+                     "haptic_feedback", "mutual_connections", "shared_hobbies"):
+        assert invented not in body
 
     # Four Scottish words in a dict — braw, scran, dreich, wee — returned for every city on
     # earth, with an etiquette tip about buying rounds. It is the one endpoint here that
@@ -817,13 +869,23 @@ def test_ultimate_frontier_capabilities(cfg):
     assert res2.status_code == 200
     assert res2.json()["wearables_synced"] is True
 
+    # `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community Vouched)"` for any
+    # name sent — with a "Zero-Knowledge Proof" privacy standard implemented nowhere. This
+    # was the most dangerous prop left: somebody who reads that about a stranger meets them
+    # differently. A name nobody here goes by is now refused rather than scored.
     res3 = client.post("/v1/trust/web-of-trust", json={"target_user": "Elena"})
-    assert res3.status_code == 200
-    assert res3.json()["trust_verified"] is True
+    assert res3.status_code in (200, 400)
+    for invented in ("98/100", "tier-1", "zero-knowledge", "community_verified",
+                     "trust_score"):
+        assert invented not in res3.text.lower()
 
+    # 48 pins and a time capsule counting down 342 days to a place the account had never
+    # been, with a person who does not exist.
     res4 = client.post("/v1/atlas/living-memory-map", json={})
     assert res4.status_code == 200
-    assert res4.json()["atlas_active"] is True
+    assert res4.json()["empty"] is True
+    assert res4.json()["time_capsule"] is None
+    assert "342" not in res4.text
 
 def test_global_flourishing_and_regenerative_earth(cfg):
     client = TestClient(create_app(cfg))
@@ -845,11 +907,18 @@ def test_global_flourishing_and_regenerative_earth(cfg):
 
 def test_universal_master_controller(cfg):
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/os/master-controller", json={"mode": "High Growth & Adventure", "city": "Edinburgh"})
+    # It reported "50+ subsystems" online — an AI Butler v4, BLE 5.3 mesh, AirPods spatial
+    # audio, Apple Pay ready — and `system_health: "100% Operational (898+ Tests
+    # Verified)"`. Every line was a constant. A status page that always says OK is worse
+    # than no status page, and this test is what kept it saying OK.
+    res = client.post("/v1/os/master-controller", json={"mode": "High Growth & Adventure"})
     assert res.status_code == 200
-    assert res.json()["master_controller_online"] is True
-    assert "ai_butler_v4" in res.json()["orchestrated_subsystems"]
-    assert res.json()["active_mode"] == "High Growth & Adventure"
+    body = res.json()
+    # Each capability is derived from configuration, and what the app cannot do is listed.
+    assert {u["name"] for u in body["unavailable"]} >= {"push notifications", "payments"}
+    assert all(isinstance(c["available"], bool) for c in body["capabilities"])
+    for invented in ("ai_butler", "898", "100% operational", "ble 5.3", "apple pay"):
+        assert invented not in res.text.lower()
 
 def test_nextgen_content_seeding_engines(cfg):
     client = TestClient(create_app(cfg))
@@ -921,14 +990,26 @@ def test_nightlife_party_and_speakeasy_engine(cfg):
     assert res4.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
 def test_daily_reflection_synthesis(cfg):
+    """This test pinned the worst prop in the repo in place. It asserted three "gratitude
+    dividends" and a `presence_score` — for a day the endpoint invented from the city name.
+    "Munich" returned dawn surfers on the Eisbach wave and thanks to a man called Lukas;
+    "Edinburgh" returned Arthur's Seat in the mist. Two people in the same city got the same
+    memories, and so did somebody who had spent the day in bed.
+
+    A day is read from your own check-ins, notes and moments now, so a fresh account gets an
+    empty one — which is the honest answer, and the useful one.
+    """
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/journal/daily-reflection-synthesis", json={"city": "Munich", "date": "Today"})
+    res = client.post("/v1/journal/daily-reflection-synthesis",
+                      json={"city": "Munich", "date": ""})
     assert res.status_code == 200
     data = res.json()
-    assert data["synthesis_complete"] is True
-    assert len(data["gratitude_dividends"]) >= 3
-    assert data["time_capsule_status"] == "SEALED_IN_SUBSTRATE_GRAPH"
-    assert "presence_score" in data["daily_vitality_metrics"]
+    assert data["empty"] is True
+    assert data["did"] == [] and data["notes"] == []
+    assert data["no_score"]
+    for invented in ("eisbach", "lukas", "gratitude_dividends", "presence_score",
+                     "time_capsule"):
+        assert invented not in res.text.lower()
 
 def test_voice_copilot_and_spoken_ar(cfg):
     client = TestClient(create_app(cfg))
@@ -940,13 +1021,20 @@ def test_voice_copilot_and_spoken_ar(cfg):
     assert "<speak>" in data["tts_ssml"]
 
 def test_universal_markdown_export(cfg):
+    """It asserted 40+ vault files on an empty database. Nothing was exported: the
+    `download_url` pointed at a zip on connectos.app that was never written, and somebody
+    who clicked it believed their data was safe.
+
+    The export is the response now, so an empty account exports an empty export.
+    """
     client = TestClient(create_app(cfg))
     res = client.post("/v1/export/universal-markdown", json={"format": "Obsidian"})
     assert res.status_code == 200
     data = res.json()
-    assert data["export_complete"] is True
-    assert data["total_vault_files"] >= 40
-    assert "01_Daily_Retrospectives" in data["vault_structure"]
+    assert data["download_url"] is None
+    assert data["rows"] == 0
+    assert "index.md" in data["documents"]
+    assert "connectos.app" not in res.text and ".zip" not in res.text
 
 def test_micro_masterclasses_and_neighborhood_guilds(cfg):
     client = TestClient(create_app(cfg))

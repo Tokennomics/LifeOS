@@ -234,6 +234,49 @@ def revoke_all(graph: Graph, account_id: str, source: str = MODULE) -> dict:
     return {"account_id": account_id, "revoked": count}
 
 
+def account_id_for(graph: Graph, who: str) -> str:
+    """An account id for a handle or an id, or "" if it is neither.
+
+    Naming somebody is how every social feature in this app addresses a second person, and
+    people type handles, not UUIDs. Where the answer only has to be readable — a SafeWalk
+    watcher list, say — an unresolved string is harmless. Where it has to be *arithmetic*,
+    like a debt on a shared tab, it is not: an entry addressed to a name nobody owns is
+    invisible to the person who supposedly owes it and can never be settled.
+
+    So this returns the id or nothing, and the caller decides which of those two cases it is
+    in. It deliberately does not reveal whether a handle exists to anyone who cannot already
+    see the roster — it is used behind an authenticated write, never as a lookup endpoint.
+    """
+    who = str(who or "").strip()
+    if not who:
+        return ""
+    session = _sys(graph)
+    row = session.get_entity(who)
+    if row is not None and row["attrs"].get("type") == "account":
+        return who
+    account = _find_account(session, _norm_handle(who))
+    return account["id"] if account else ""
+
+
+def handles_for(graph: Graph, account_ids) -> dict:
+    """Account ids to handles, for anything a person has to read.
+
+    Records address people by id, because ids are stable and handles are not. Screens have
+    the opposite requirement: "762f7110-0962-4523 owes you 30.00" is not a sentence anybody
+    can act on. Unknown ids are simply absent — the caller decides what to show instead.
+    """
+    wanted = {str(i).strip() for i in (account_ids or []) if str(i or "").strip()}
+    if not wanted:
+        return {}
+    session = _sys(graph)
+    found = {}
+    for account_id in wanted:
+        row = session.get_entity(account_id)
+        if row is not None and row["attrs"].get("type") == "account":
+            found[account_id] = row["attrs"].get("handle", "")
+    return found
+
+
 def sessions(graph: Graph, account_id: str, limit: int = 100) -> list[dict]:
     """Active sessions for an account — never exposes tokens or their hashes."""
     session = _sys(graph)

@@ -1036,6 +1036,19 @@ def build_router(auth) -> APIRouter:
             _graph(request), body.crew_id, body.visibility, body.admission,
             _actor_opt(request, body.by)))
 
+    @router.get("/crews/mine")
+    def crews_mine(request: Request, person_id: str = ""):
+        """Every crew you are actually in — including ones that live in somebody else's graph.
+
+        `GET /crews` browses your own graph, so a crew you *joined* was invisible to you: it
+        belongs to whoever created it, membership lives in the ACL, and nothing in your own
+        slice indexes it. `crews.my_crews` was written for exactly this and was never wired
+        to an endpoint, so the whole per-crew surface — chat, plans, polls, beacons — was
+        unreachable for every member who was not the crew's creator.
+        """
+        subject = _subject(request, person_id or None)
+        return {"crews": guard(lambda: crews.my_crews(_graph(request), subject))}
+
     @router.get("/crews/directory")
     def crews_directory(request: Request, topic: str = "", city: str = ""):
         """The cross-account public directory — every published crew, whoever owns it.
@@ -1114,6 +1127,148 @@ def build_router(auth) -> APIRouter:
     def crews_invite_revoke(request: Request, body: InviteRevokeIn):
         return guard(lambda: invites.revoke(
             _graph(request), body.invite_id, _subject(request, body.by)))
+
+    # ---- Crew polls and beacons -------------------------------------------
+    #
+    # `/crews/polls/vote` took any string as an option, defaulted it to "Bouldering &
+    # Drinks", returned `voted: True` and stored nothing — there was no poll to vote in.
+    # `/crews/beacon` returned `broadcasted: True` for an activity it made up when the form
+    # was empty, and broadcast it to nobody.
+
+    def _crew_caller(request: Request, body: dict):
+        """Who is acting, and what to call them on screen. Crew membership is keyed on the
+        same subject `_subject` pins, so the two must not drift apart."""
+        subject = _subject(request, body.get("person_id"))
+        _, handle = _signal_caller(request)
+        return subject, handle
+
+    @router.post("/crews/polls")
+    def crews_poll_open(request: Request, body: dict):
+        """Ask your crew something. Any member can — a poll is not a privilege."""
+        from modules.crews import polls
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: polls.open_poll(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            question=body.get("question", ""), options=body.get("options", []),
+            account_id=subject, handle=handle, hours=body.get("hours", polls.DEFAULT_HOURS)))
+
+    @router.post("/crews/polls/vote")
+    def vote_crew_poll_endpoint(request: Request, body: dict):
+        """Vote by index into the poll's own options — one each, changeable until it closes.
+
+        It used to accept any string, so two people picking the same thing spelled
+        differently would have been two answers, and a vote for an option nobody offered
+        would have counted. Neither mattered, because nothing was stored.
+        """
+        from modules.crews import polls
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: polls.vote(
+            _graph(request), poll_id=body.get("poll_id", ""),
+            option=body.get("option", body.get("option_index")),
+            account_id=subject, handle=handle))
+
+    # Nested under the crew rather than `/crews/polls`: `GET /crews/{crew_id}` is declared
+    # above, and a two-segment literal after it is simply swallowed — "polls" arrives as a
+    # crew id and the caller gets "unknown crew". Three segments cannot be shadowed by it.
+    @router.get("/crews/{crew_id}/polls")
+    def crews_polls_list(request: Request, crew_id: str = "", include_closed: bool = False):
+        from modules.crews import polls
+        subject = _subject(request, None)
+        return guard(lambda: polls.for_crew(_graph(request), crew_id=crew_id,
+                                            account_id=subject,
+                                            include_closed=include_closed))
+
+    @router.get("/crews/polls/{poll_id}")
+    def crews_poll_results(request: Request, poll_id: str):
+        from modules.crews import polls
+        subject = _subject(request, None)
+        return guard(lambda: polls.results(_graph(request), poll_id=poll_id,
+                                           account_id=subject))
+
+    @router.post("/crews/polls/close")
+    def crews_poll_close(request: Request, body: dict):
+        from modules.crews import polls
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: polls.close_poll(_graph(request),
+                                              poll_id=body.get("poll_id", ""),
+                                              account_id=subject))
+
+    @router.post("/crews/beacon")
+    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
+        """"I am going now, who is coming?" — a row your crew can see, not a broadcast.
+
+        Returned `broadcasted: True` and told you your crew had been rallied. This app sends
+        nothing: `push_delivered` is false and `can_see_it` counts the members who could
+        read it, never the ones who were told.
+        """
+        from modules.crews import beacons
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: beacons.raise_beacon(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            activity=body.get("activity", ""), account_id=subject, handle=handle,
+            minutes=body.get("minutes", body.get("timeframe_minutes",
+                                                 beacons.DEFAULT_MINUTES)),
+            note=body.get("note", ""), place=body.get("place", "")))
+
+    @router.get("/crews/{crew_id}/beacons")
+    def crews_beacons_live(request: Request, crew_id: str = ""):
+        """What your crew is up for right now."""
+        from modules.crews import beacons
+        subject = _subject(request, None)
+        return guard(lambda: beacons.live(_graph(request), crew_id=crew_id,
+                                          account_id=subject))
+
+    @router.post("/crews/beacon/join")
+    def crews_beacon_join(request: Request, body: dict):
+        """Say you are in. A beacon nobody can answer is a broadcast into the void."""
+        from modules.crews import beacons
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: beacons.join(_graph(request),
+                                          beacon_id=body.get("beacon_id", ""),
+                                          account_id=subject, handle=handle))
+
+    @router.post("/crews/beacon/leave")
+    def crews_beacon_leave(request: Request, body: dict):
+        from modules.crews import beacons
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: beacons.leave(_graph(request),
+                                           beacon_id=body.get("beacon_id", ""),
+                                           account_id=subject))
+
+    @router.post("/crews/beacon/stand-down")
+    def crews_beacon_stand_down(request: Request, body: dict):
+        from modules.crews import beacons
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: beacons.stand_down(_graph(request),
+                                                beacon_id=body.get("beacon_id", ""),
+                                                account_id=subject))
+
+    @router.post("/crews/{crew_id}/guest-pass")
+    def create_guest_pass_endpoint(request: Request, crew_id: str, body: dict | None = None):
+        """A plus-one: a real single-use invite link that expires in a day.
+
+        This was a GET returning `https://lifeos.app/#join-crew?crew_id=…&token=plus_one_<the
+        crew id>` — a token derived from the crew id, stored nowhere, granting nothing, on a
+        domain this deployment does not serve. Anybody who saw one crew id could write a
+        "pass" for it themselves.
+
+        It mints a genuine invite now, through the same hardened path as `/crews/invite-link`
+        — 256 random bits, only the SHA-256 stored, shown exactly once — capped at one use so
+        a plus-one is one person, and expiring in a day so a forwarded pass goes cold.
+
+        It is a POST because it creates a capability. Minting one on a GET is CSRF-able from
+        any page a member visits, and caches.
+        """
+        from modules.crews import invites
+        subject = _subject(request, (body or {}).get("by"))
+        pass_ = guard(lambda: invites.create(_graph(request), crew_id, subject,
+                                             ttl_hours=24, max_uses=1))
+        # A path, not an absolute URL: the client knows its own origin, and the old handler's
+        # hardcoded domain pointed the invitee at a host that serves none of this.
+        return {**pass_, "invite_path": f"/invite/{pass_['token']}",
+                "plus_one": True, "expires_in_hours": 24,
+                "share_note": ("One person, one day. Send it to the friend you meant it "
+                               "for — whoever opens it first is the plus-one.")}
 
     @router.post("/crews/request/approve")
     def crews_approve(request: Request, body: CrewActIn):
@@ -1971,6 +2126,33 @@ def build_router(auth) -> APIRouter:
         from modules.venues import explore
         return guard(lambda: explore.save_explored_place(_graph(request), body.place_info))
 
+    # Declared above `/venues/{place_id}`, which would otherwise swallow it: routes match
+    # in declaration order, so this handler was unreachable and every call to it was
+    # served by the venue-details route with place_id="programs". Still a literal — the
+    # venue programme surface is its own ticket — but at least it is the handler that runs.
+    @router.get("/venues/programs")
+    def list_venue_programs_endpoint(request: Request):
+        return {
+            "programs": [
+                {
+                    "venue_name": "Vertical Wall Climbing Gym",
+                    "category": "bouldering_gym",
+                    "city": "Lisbon",
+                    "title": "Weekly Bouldering League & Sunset Social",
+                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
+                    "perks": "15% off for ConnectOS Crew Members 🎟️"
+                },
+                {
+                    "venue_name": "Fabrica Coffee Roasters",
+                    "category": "specialty_coffee",
+                    "city": "Lisbon",
+                    "title": "Specialty Cupping & Founder Morning",
+                    "schedule": "Wednesdays 08:30 AM",
+                    "perks": "Free Espresso Tasting ☕"
+                }
+            ]
+        }
+
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
         from modules.venues import places
@@ -2309,34 +2491,6 @@ def build_router(auth) -> APIRouter:
             "message": f"Official Venue Program published for {venue_name}! 🏛️"
         }
 
-    @router.get("/venues/programs")
-    def list_venue_programs_endpoint(request: Request):
-        return {
-            "programs": [
-                {
-                    "venue_name": "Vertical Wall Climbing Gym",
-                    "category": "bouldering_gym",
-                    "city": "Lisbon",
-                    "title": "Weekly Bouldering League & Sunset Social",
-                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
-                    "perks": "15% off for ConnectOS Crew Members 🎟️"
-                },
-                {
-                    "venue_name": "Fabrica Coffee Roasters",
-                    "category": "specialty_coffee",
-                    "city": "Lisbon",
-                    "title": "Specialty Cupping & Founder Morning",
-                    "schedule": "Wednesdays 08:30 AM",
-                    "perks": "Free Espresso Tasting ☕"
-                }
-            ]
-        }
-
-    @router.post("/crews/polls/vote")
-    def vote_crew_poll_endpoint(request: Request, body: dict):
-        option = body.get("option", "Bouldering & Drinks")
-        return {"voted": True, "option": option, "message": f"Voted for '{option}'! 📊"}
-
     @router.post("/rituals/sunset")
     def rituals_sunset_endpoint(request: Request, body: dict):
         """Write down the day's win, and see when the sun actually sets.
@@ -2387,16 +2541,20 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ledger/tip")
     def send_micro_tip_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex (Crew Host)").strip()
-        amount = body.get("amount", 3.50)
-        currency = body.get("currency", "EUR")
-        return {
-            "tipped": True,
-            "recipient": recipient,
-            "amount": amount,
-            "currency": currency,
-            "message": f"Sent €{amount:.2f} Coffee Micro-Tip to {recipient}! ☕"
-        }
+        """A tip you meant to send, recorded as owed rather than claimed as sent.
+
+        Returned `tipped: True` and "Sent €3.50 to Alex (Crew Host)" for a recipient it made
+        up when the caller named nobody. No money left anywhere. It goes on the tab instead,
+        where the other person can see it and either of you can mark it settled.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        to_account = _named_account(request, body.get("recipient", "")
+                                    or body.get("to_account", ""))
+        return _with_handles(request, guard(lambda: tab.iou(
+            _graph(request), account_id=account_id, to_account=to_account,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", ""))))
 
     @router.post("/spaces/audio")
     def create_audio_space_endpoint(request: Request, body: dict):
@@ -2413,21 +2571,12 @@ def build_router(auth) -> APIRouter:
         """The same object, sent for a different reason. It reported a kindness streak."""
         from modules.social import signals
         account_id, handle = _signal_caller(request)
+        to_account = _named_account(request, body.get("to_account", "")
+                                    or body.get("recipient", ""))
         return guard(lambda: signals.send_kudos(
-            _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
+            _graph(request), to_account,
             str(body.get("note", "") or ""), account_id=account_id, handle=handle,
             kind="kindness"))
-
-    @router.post("/crews/beacon")
-    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
-        activity = body.get("activity", "Coffee & Quick Bouldering").strip()
-        timeframe = body.get("timeframe", "30 mins").strip()
-        return {
-            "broadcasted": True,
-            "activity": activity,
-            "timeframe": timeframe,
-            "message": f"⚡ Outing Squad Beacon broadcasted! '{activity}' in next {timeframe}."
-        }
 
     @router.get("/gamification/passport")
     def get_city_passport_endpoint(request: Request, city: str = ""):
@@ -2810,24 +2959,15 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/city/live-globe")
     def get_live_3d_globe_telemetry_endpoint(request: Request):
-        return {
-            "mode": "3D_SPATIAL_GLOBE",
-            "active_cities": [
-                {"city": "Lisbon", "lat": 38.722, "lon": -9.139, "active_flares": 14, "weather": "24°C Sunny 🌅"},
-                {"city": "Tokyo", "lat": 35.676, "lon": 139.650, "active_flares": 28, "weather": "19°C Clear 🗼"},
-                {"city": "New York", "lat": 40.712, "lon": -74.006, "active_flares": 32, "weather": "22°C Mild 🌆"},
-                {"city": "London", "lat": 51.507, "lon": -0.127, "active_flares": 22, "weather": "18°C Partly Cloudy 🎡"},
-                {"city": "San Francisco", "lat": 37.774, "lon": -122.419, "active_flares": 19, "weather": "17°C Coastal Fog 🌁"}
-            ],
-            "message": "🗺️ Live 3D Globe Telemetry: 115 active social beacons across 5 global hubs!"
-        }
+        """Cities this instance actually has activity in.
 
-    # `POST /zk/verify-attribute` was here. It returned {"verified": true,
-    # "identity_disclosed": false} with a random "ZK-" string for ANY attribute from ANY
-    # caller — including AGE_OVER_18, in a repo that contains a dating surface. An age check
-    # that passes everyone is worse than no age check, because the rest of the system, and
-    # the user reading "Proof Verified", both believe it happened. Removed rather than
-    # rewritten: real attribute proofs need an issuer, and there isn't one.
+        Five hardcoded cities with coordinates, invented flare counts and invented weather
+        ("24°C Sunny", in Lisbon, forever) — identical on every deployment, including one
+        installed a minute ago. Counts rows now, and on a new instance says plainly that
+        nobody is anywhere yet.
+        """
+        from modules.platform import overview
+        return guard(lambda: overview.globe(_graph(request)))
 
     @router.get("/trust/karma-score")
     def get_social_karma_score_endpoint(request: Request):
@@ -2958,26 +3098,89 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/routines/squad-sync")
     def squad_recurring_routine_sync_endpoint(request: Request, body: dict):
-        routine_name = body.get("routine_name", "Wednesday Dawn Patrol Surf Crew").strip()
-        return {
-            "synced": True,
-            "routine_name": routine_name,
-            "recurrence": "Weekly on Wednesdays @ 7:00 AM",
-            "synced_calendars": 5,
-            "ics_link": "https://connectos.app/calendar/squad-surf.ics",
-            "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars."
-        }
+        """The same thing, same time, every week — as dates a calendar can subscribe to.
+
+        Returned `synced: True`, the same recurrence ("Weekly on Wednesdays @ 7:00 AM")
+        whatever you asked for, `synced_calendars: 5` on a crew that might have had none,
+        and an `ics_link` on connectos.app. Nothing was stored and no calendar was touched.
+
+        The rule is real now, `upcoming` expands it into dates, and the occurrences join the
+        crew's own .ics feed — which this deployment serves — so subscribing actually works.
+        Nothing claims to have added anything to anybody's calendar: that is a thing each
+        person does once, with the link.
+        """
+        from modules.routines import squad
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: squad.set_routine(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            title=body.get("title", "") or body.get("routine_name", ""),
+            day=body.get("day", ""), at=body.get("at", ""),
+            account_id=subject, minutes=body.get("minutes", 90),
+            place=body.get("place", "")))
+
+    @router.get("/crews/{crew_id}/routines")
+    def crew_routines(request: Request, crew_id: str, weeks: int = 4):
+        """Every standing thing this crew does, with its next few dates."""
+        from modules.routines import squad
+        subject = _subject(request, None)
+        return guard(lambda: squad.for_crew(_graph(request), crew_id=crew_id,
+                                            account_id=subject, weeks=weeks))
+
+    @router.post("/crews/{crew_id}/calendar-link")
+    def crew_calendar_link(request: Request, crew_id: str, body: dict | None = None):
+        """Mint a subscribe URL a calendar app can actually fetch.
+
+        Returned once. `/v1/crews/{id}/export.ics` needs the session bearer token, which a
+        calendar client cannot send — so without this, "Subscribe" was a link that 401s.
+        """
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        minted = guard(lambda: feeds.mint(_graph(request), crew_id=crew_id,
+                                          account_id=subject,
+                                          days=(body or {}).get("days",
+                                                                feeds.DEFAULT_DAYS)))
+        return {**minted, "subscribe_path": f"/calendar/{minted['token']}.ics"}
+
+    @router.get("/crews/{crew_id}/calendar-links")
+    def crew_calendar_links(request: Request, crew_id: str):
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        return guard(lambda: feeds.listing(_graph(request), crew_id=crew_id,
+                                           account_id=subject))
+
+    @router.post("/crews/calendar-link/revoke")
+    def crew_calendar_link_revoke(request: Request, body: dict):
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        return guard(lambda: feeds.revoke(_graph(request),
+                                          feed_id=body.get("feed_id", ""),
+                                          account_id=subject))
+
+    @router.post("/routines/squad-sync/end")
+    def squad_routine_end(request: Request, body: dict):
+        from modules.routines import squad
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: squad.end(_graph(request),
+                                       routine_id=body.get("routine_id", ""),
+                                       account_id=subject))
 
     @router.post("/ledger/settle-up")
     def settle_up_crew_expenses_endpoint(request: Request, body: dict):
-        total_owed = body.get("amount", 22.50)
-        return {
-            "settled": True,
-            "net_owed": total_owed,
-            "creditors": [{"name": "Elena R.", "amount": 12.50}, {"name": "Alex M.", "amount": 10.00}],
-            "settlement_link": f"https://revolut.me/connectos-crew-settle",
-            "message": f"💸 Outing Ledger Settled! Net balance: €{total_owed:.2f}. Single 1-click settlement link active."
-        }
+        """Mark what you owe somebody as paid.
+
+        Reported a net balance of €22.50 owed to "Elena R." and "Alex M." on an account that
+        had never split anything, and a `settlement_link` to a revolut.me page for a Revolut
+        account nobody had connected. Settles a real balance now, refuses to settle more than
+        is owed, and does not pretend a transfer happened.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        counterparty = _named_account(request, body.get("counterparty", "")
+                                      or body.get("with", ""))
+        return _with_handles(request, guard(lambda: tab.settle(
+            _graph(request), account_id=account_id, counterparty=counterparty,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", ""))))
 
     @router.get("/gallery/live-event-wall")
     def get_live_event_photo_wall_endpoint(request: Request):
@@ -3019,16 +3222,18 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/feed/transparent-rules")
     def set_algorithmic_transparency_rules_endpoint(request: Request, body: dict):
-        real_world_weight = body.get("real_world_weight", 0.85)
-        proximity_bias = body.get("proximity_bias", 0.90)
-        return {
-            "applied": True,
-            "real_world_weight": real_world_weight,
-            "proximity_bias": proximity_bias,
-            "ad_free": True,
-            "doomscroll_protection": "ACTIVE",
-            "message": "🛡️ 100% Transparent Algorithm Applied: 85% Real-World Outings, 0% Engagement-Bait."
-        }
+        """How the feed actually ranks — read from the code that ranks it.
+
+        Accepted a `real_world_weight` of 0.85 and a `proximity_bias` of 0.90, stored
+        neither, reported `ad_free: True` and `doomscroll_protection: "ACTIVE"`, and
+        described a ranking this app does not implement — while calling itself
+        transparency.
+
+        The numbers below are imported from `modules/discover/core`, so if the ranking
+        changes this changes with it. That is the only way a page like this stays true.
+        """
+        from modules.platform import overview
+        return guard(lambda: overview.feed_rules())
 
     @router.post("/growth/habit-stacking")
     def growth_habit_stacking_endpoint(request: Request, body: dict):
@@ -3134,28 +3339,35 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ledger/gift-coffee")
     def gift_coffee_or_drink_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Elena R.").strip()
-        item = body.get("item", "Specialty Flat White").strip()
-        amount_eur = body.get("amount", 3.80)
-        return {
-            "gifted": True,
-            "recipient": recipient,
-            "item": item,
-            "amount_eur": amount_eur,
-            "voucher_code": "GIFT-FLATWHITE-99",
-            "message": f"🎁 Gift Sent! {item} (€{amount_eur:.2f}) sent to {recipient} with voucher code GIFT-FLATWHITE-99 ☕"
-        }
+        """The coffee you owe somebody, written down where they can see it.
+
+        Returned `voucher_code: "GIFT-FLATWHITE-99"` — the same code for every gift ever
+        sent, redeemable at no counter on earth. There is no vendor integration here and
+        inventing one is worse than not having it. What is real is the promise: an IOU for a
+        thing, which needs no amount and clears when you actually buy it.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        to_account = _named_account(request, body.get("recipient", "")
+                                    or body.get("to_account", ""))
+        return _with_handles(request, guard(lambda: tab.iou(
+            _graph(request), account_id=account_id, to_account=to_account,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            item=body.get("item", "") or "coffee", note=body.get("note", ""))))
 
     @router.get("/vitals/social-wellness")
-    def get_social_wellness_analytics_endpoint(request: Request):
-        return {
-            "flourishing_score": 92,
-            "deep_connection_index": "95%",
-            "real_world_ratio": "85% Outings / 15% Screen Time",
-            "active_crew_size": 18,
-            "diversity_index": "High (5 activity verticals)",
-            "message": "📊 Social Wellness Index: 92/100 (Peak Real-World Connection & Flourishing)!"
-        }
+    def get_social_wellness_analytics_endpoint(request: Request, days: int = 30):
+        """What your last month contained. Counts, not indices.
+
+        Reported a `flourishing_score` of 92, a `deep_connection_index` of 95%, a
+        `real_world_ratio` of "85% Outings / 15% Screen Time" and an `active_crew_size` of
+        18 — every one a constant, on any account, including one created a second earlier.
+        This app measures no screen time and computes no flourishing.
+        """
+        from modules.personal import atlas
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: atlas.wellness(_graph(request), account_id=account_id,
+                                            days=days))
 
     @router.get("/monetization/venue-commissions")
     def get_venue_commission_breakdown_endpoint(request: Request):
@@ -3193,14 +3405,23 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/viral/invite-crew")
     def generate_viral_invite_link_endpoint(request: Request, body: dict):
-        crew_name = body.get("crew_name", "Lisbon Specialty Coffee & Tech").strip()
-        return {
-            "invite_code": "CREW-LISBON-8921",
-            "invite_url": "https://connectos.app/join/lisbon-coffee-crew",
-            "bonus_karma": 100,
-            "bonus_coffee_voucher": "VOUCHER-FREE-COFFEE",
-            "message": f"⚡ Viral Invite Link Created for '{crew_name}'! Shares award +100 Karma & 1 Free Coffee to both of you."
-        }
+        """A real join link for a crew you administer.
+
+        Returned `invite_code: "CREW-LISBON-8921"` — the same code for every crew on every
+        instance — on connectos.app, a host this deployment does not serve, plus 100 karma
+        and a free-coffee voucher from a rewards programme that does not exist and that
+        nobody has agreed to fund. The link is real now and the rewards are gone, because
+        inventing a reward is the one part of this nobody can quietly make true later.
+        """
+        from modules.crews import invites
+        subject = _subject(request, body.get("by"))
+        link = guard(lambda: invites.create(
+            _graph(request), body.get("crew_id", ""), subject,
+            ttl_hours=body.get("ttl_hours", 24 * 7),
+            max_uses=body.get("max_uses", 25)))
+        return {**link, "invite_path": f"/invite/{link['token']}",
+                "rewards": None,
+                "note": "No karma and no voucher — this app has neither."}
 
     @router.get("/gamification/streaks")
     def get_user_outing_streaks_endpoint(request: Request):
@@ -3209,13 +3430,18 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: recap.streaks(_graph(request)))
     @router.post("/viral/social-share")
     def generate_social_share_card_endpoint(request: Request, body: dict):
-        title = body.get("title", "Lisbon Rooftop Sunset Party").strip()
-        return {
-            "story_card_url": "https://connectos.app/cards/story-sunset-88.png",
-            "format": "1080x1920 Instagram/TikTok Story",
-            "embedded_qr_code": "https://connectos.app/qr/event-88",
-            "message": f"📢 Social Share Card Generated for '{title}' (1080x1920 Story format with QR code)!"
-        }
+        """A share card this process actually draws.
+
+        Returned `story_card_url` pointing at a PNG on connectos.app that nothing ever
+        rendered, and an "embedded QR code" at a second URL that was also never rendered.
+        Nothing in this app rasterises images, so a PNG would be another promise; an SVG is
+        a real image it can produce, and it carries the real link rather than a picture of
+        one.
+        """
+        from modules.growth import share
+        return guard(lambda: share.card(
+            body.get("title", ""), subtitle=body.get("subtitle", ""),
+            link=body.get("link", ""), footer=body.get("footer", "")))
 
     @router.get("/community/ambassadors")
     def get_city_launch_heatmaps_endpoint(request: Request):
@@ -3727,27 +3953,48 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/pioneer-pass")
     def pioneer_pass_ambassador_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        pioneer_number = int(body.get("pioneer_number", 42))
-        return {
-            "pioneer_pass_minted": True,
-            "badge_title": f"City Pioneer #{pioneer_number:03d} · {city}",
-            "perks": ["1 Year Free ConnectOS VIP", "Complimentary Batch Brew @ Partner Roasters", "Founding Crew Voting Rights"],
-            "qr_pass_url": f"https://connectos.app/pioneer/{city.lower()}-{pioneer_number}.pass",
-            "message": f"👑 Pioneer Pass #{pioneer_number:03d} Minted for {city}! 1-Year VIP & Free Coffee perks unlocked."
-        }
+        """How early you were here — a count, with nothing attached to it.
+
+        Minted "City Pioneer #042" with a year of free VIP, complimentary coffee at partner
+        roasters and founding voting rights. The number was whatever the caller sent, and
+        the perks are promises only the operator can make. Being early is a fact about real
+        rows, so it is counted from them.
+        """
+        from modules.growth import share
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: share.standing(_graph(request), _seed_city(body),
+                                            account_id=account_id))
 
     @router.post("/seeding/golden-tickets")
     def viral_golden_tickets_multiplier_endpoint(request: Request, body: dict):
-        outing_title = body.get("outing", "Sunset Catamaran Sailing (€30)").strip()
-        return {
-            "tickets_generated": True,
-            "outing": outing_title,
-            "tickets_count": 3,
-            "share_link": "https://connectos.app/invite/GOLDEN-CREW-8921",
-            "viral_multiplier": "3x Crew Invitations with 1-Tap Apple Pay Split",
-            "message": f"🎟️ 3 Golden Crew Tickets Generated for '{outing_title}'! Shareable 1-tap link ready for WhatsApp/iMessage."
-        }
+        """A handful of single-use invites, one per person you mean to bring.
+
+        Returned three "golden tickets" behind one connectos.app link — the same link every
+        time — advertising a "1-Tap Apple Pay Split" this app cannot perform. Separate
+        single-use links are the real version of the idea: you can hand one to each person
+        and see which were used.
+        """
+        from modules.crews import invites
+        subject = _subject(request, body.get("by"))
+        crew_id = body.get("crew_id", "")
+        try:
+            count = int(body.get("count", 3))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="count must be a number")
+        if not 1 <= count <= 10:
+            raise HTTPException(status_code=400, detail="between 1 and 10 tickets")
+
+        tickets = [guard(lambda: invites.create(_graph(request), crew_id, subject,
+                                                ttl_hours=body.get("ttl_hours", 24 * 7),
+                                                max_uses=1))
+                   for _ in range(count)]
+        return {"tickets": [{"invite_id": t["invite_id"], "token": t["token"],
+                             "invite_path": f"/invite/{t['token']}",
+                             "expires_at": t["expires_at"]} for t in tickets],
+                "count": len(tickets), "single_use_each": True,
+                "crew_name": tickets[0]["crew_name"] if tickets else "",
+                "no_payment": ("There is no Apple Pay split here. These are join links, one "
+                               "person each.")}
 
     @router.post("/seeding/anchor-outings")
     def anchor_weekly_outings_endpoint(request: Request, body: dict):
@@ -4004,18 +4251,24 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/nfc/tap-to-synergy")
     def nfc_tap_to_synergy_handshake_endpoint(request: Request, body: dict):
-        target_peer = body.get("peer", "Catriona (Nomad / Foodie)").strip()
-        return {
-            "handshake_verified": True,
-            "protocol": "NFC & Apple NameDrop Ephemeral Handshake",
-            "peer": target_peer,
-            "synergy_score": 94,
-            "shared_hobbies": ["Specialty Pour-Over Coffee", "35mm Analog Photography", "Trail Ridge Running"],
-            "mutual_connections": 3,
-            "haptic_feedback": "CONFIRM_DOUBLE_PULSE",
-            "zk_card_exchanged": True,
-            "message": f"🪄 Tap-to-Synergy Confirmed! 94% compatibility with {target_peer} (3 shared passions)."
-        }
+        """Swap a short code with somebody standing next to you.
+
+        Claimed an "NFC & Apple NameDrop Ephemeral Handshake", reported 94% compatibility
+        with three shared passions for any peer string sent, and confirmed a "zk card
+        exchanged". A web app cannot speak NFC or NameDrop, nobody was on the other end, and
+        the score was a constant.
+
+        Sending no code shows yours; sending one takes theirs. What comes back is what you
+        have both actually published, or nothing — never a percentage.
+        """
+        from modules.growth import share
+        account_id, handle = _signal_caller(request)
+        code = str(body.get("code", "") or "").strip()
+        if code:
+            return guard(lambda: share.redeem_code(_graph(request), code,
+                                                   account_id=account_id, handle=handle))
+        return guard(lambda: share.open_code(_graph(request), account_id=account_id,
+                                             handle=handle))
 
     @router.post("/ai/culture-bridge-translator")
     def local_culture_and_dialect_bridge_endpoint(request: Request, body: dict):
@@ -4403,34 +4656,78 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/trust/web-of-trust")
     def web_of_trust_verification_endpoint(request: Request, body: dict):
-        target_user = body.get("target_user", "Elena Rostova").strip()
-        return {
-            "trust_verified": True,
-            "user": target_user,
-            "trust_score": "98/100 (Tier-1 Community Vouched)",
-            "vouching_chain": [
-                "Vouched by Marco (Co-Living Host, 14 verified dinners)",
-                "Vouched by Catriona (Ceramic Studio Master, 22 workshops)",
-                "3 Mutual Friends in ConnectOS Web of Trust"
-            ],
-            "privacy_standard": "Zero-Knowledge Proof (No phone number or government ID exposed)",
-            "community_status": "COMMUNITY_VERIFIED_BADGE",
-            "message": f"🤝 Cryptographic Web of Trust Verified for {target_user}! 3 mutual vouches confirm safety and respect without invasive KYC."
-        }
+        """Who has vouched for somebody, by name. Never a score, and never verification.
+
+        Returned `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community
+        Vouched)"` for any name you sent, with a vouching chain naming people who do not
+        exist, a `COMMUNITY_VERIFIED_BADGE`, and a `privacy_standard` of "Zero-Knowledge
+        Proof" describing a scheme implemented nowhere in this repo.
+
+        This was the most dangerous prop left, for the same reason SafeWalk was: somebody
+        who reads "98/100, community verified, three mutual vouches" meets a stranger
+        differently from somebody who knows nothing about them. It said that about everyone.
+
+        A vouch is one named person saying they know another — readable by both, withdrawable,
+        and counted rather than scored.
+        """
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        subject = body.get("subject", "") or body.get("target_user", "")
+        resolved = _named_account(request, subject) if subject else account_id
+        return guard(lambda: trust.about(_graph(request), account_id=account_id,
+                                         subject=resolved))
+
+    @router.post("/trust/vouch")
+    def trust_vouch(request: Request, body: dict):
+        """Say on the record that you know somebody."""
+        from modules.social import trust
+        account_id, handle = _signal_caller(request)
+        for_account = _named_account(request, body.get("for_account", "")
+                                     or body.get("subject", ""))
+        return guard(lambda: trust.vouch(_graph(request), account_id=account_id,
+                                         for_account=for_account, handle=handle,
+                                         note=body.get("note", "")))
+
+    @router.post("/trust/vouch/withdraw")
+    def trust_vouch_withdraw(request: Request, body: dict):
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        for_account = _named_account(request, body.get("for_account", ""))
+        return guard(lambda: trust.withdraw(_graph(request), account_id=account_id,
+                                            for_account=for_account))
+
+    @router.get("/trust/vouches")
+    def trust_vouches_given(request: Request):
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: trust.given(_graph(request), account_id=account_id))
+
+    @router.post("/trust/in-common")
+    def trust_in_common(request: Request, body: dict):
+        """Who has vouched for both of you. Often nobody, which is the useful part."""
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        subject = _named_account(request, body.get("subject", ""))
+        return guard(lambda: trust.in_common(_graph(request), account_id=account_id,
+                                             subject=subject))
 
     @router.post("/atlas/living-memory-map")
     def living_memory_atlas_endpoint(request: Request, body: dict):
-        return {
-            "atlas_active": True,
-            "memory_pins_count": 48,
-            "recent_geo_memories": [
-                {"location": "Calton Hill (Edinburgh)", "memory": "Sunset sketch circle & acoustic jam with Catriona", "date": "Yesterday"},
-                {"location": "Eisbachwelle (Munich)", "memory": "River surfing cheer & Man Versus Machine espresso", "date": "Last Week"},
-                {"location": "Miradouro de Santa Catarina (Lisbon)", "memory": "Sunset Bossa Nova & natural Pet-Nat toast", "date": "Last Month"}
-            ],
-            "time_capsule_status": "1 Time-Capsule Locked @ Arthur's Seat (Unlocks in 342 days when you revisit with Alex)",
-            "message": "🗺️ Living Real-World Memory Atlas Synced! 48 physical moments pinned to Earth with 1 locked time-capsule."
-        }
+        """Places you have actually been, from your own rows.
+
+        Reported 48 pins and three geo memories — a sketch circle on Calton Hill with
+        Catriona, river surfing at the Eisbachwelle — for every account, on an empty
+        database, plus a "Time-Capsule Locked @ Arthur's Seat (Unlocks in 342 days when you
+        revisit with Alex)": a countdown to a place you had never been, with somebody who
+        does not exist, implemented nowhere.
+
+        Check-ins record a place name, not a position — there is no background location in
+        this app — so this is a list of places rather than a map of points.
+        """
+        from modules.personal import atlas
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: atlas.pins(_graph(request), account_id=account_id,
+                                        city=body.get("city", "")))
 
     @router.post("/impact/regenerative-earth")
     def impact_regenerative_endpoint(request: Request, body: dict):
@@ -4478,24 +4775,22 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/os/master-controller")
     def universal_master_controller_endpoint(request: Request, body: dict):
-        active_mode = body.get("mode", "High Growth & Adventure").strip()
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "master_controller_online": True,
-            "city": city,
-            "active_mode": active_mode,
-            "orchestrated_subsystems": {
-                "ai_butler_v4": "Active (Serendipity & Proactive Concierge)",
-                "circadian_vitality": "Synchronized (07:30 AM Lux Window / 09:30 PM Melatonin Shield)",
-                "global_event_radar": "220+ Verified Events Ingested (RA, Luma, Dice)",
-                "payment_gateways": "Stripe + PayPal + Apple Pay 1-Tap Split Ready",
-                "mesh_and_wearables": "BLE 5.3 Mesh P2P + AirPods Spatial Audio Online",
-                "planetary_impact": "Eco-Quests + Zero-Waste Pantry + Intergenerational Guild Synced",
-                "web_of_trust": "Zero-Knowledge Community Verified (98/100)"
-            },
-            "system_health": "100% Operational (898+ Unit/Integration Tests Verified)",
-            "message": f"👑 Universal ConnectOS Master Controller Online! Orchestrating all 50+ subsystems in '{active_mode}' for {city}."
-        }
+        """What is actually configured on this instance.
+
+        Reported `master_controller_online: True` and orchestration of "50+ subsystems" —
+        an AI Butler v4, 220+ verified events, Stripe and Apple Pay ready, BLE 5.3 mesh and
+        spatial audio online, a web of trust "Zero-Knowledge Community Verified (98/100)" —
+        and closed with `system_health: "100% Operational (898+ Tests Verified)"`. Every
+        line was a constant, several described systems that do not exist, and a status page
+        that always says OK is worse than none: it is the one screen whose whole job is to
+        be believed.
+
+        Each line is derived now — a key is set or it is not, a table has rows or it does
+        not — and the things this app genuinely cannot do are listed rather than omitted.
+        """
+        from modules.platform import overview
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: overview.system(_graph(request), account_id=account_id))
 
     @router.post("/seeding/underground-vinyl-radar")
     def underground_vinyl_music_radar_endpoint(request: Request, body: dict):
@@ -4711,64 +5006,31 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/journal/daily-reflection-synthesis")
     def daily_reflection_synthesis_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        date_str = body.get("date", "Today").strip()
-        
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            events_experienced = [
-                "Watched dawn surfers on the Eisbach wave with a hot flat white",
-                "Shared fresh warm sourdough pretzels & obatzda with new local friends",
-                "Explored analog synth sounds & VOID bass at Blitz Club open-air terrace"
-            ]
-            poetic_summary = "A day sculpted by the rush of glacial river rapids, the warmth of shared tables beneath chestnut trees, and the hypnotic pulse of midnight analog sound."
-            gratitude_dividends = [
-                "Lukas sharing the secret telephone booth speakeasy passcode",
-                "The golden sunset reflection off the Monopteros dome",
-                "Deep conversations with zero digital screen distraction"
-            ]
-        elif "edinburgh" in city_lower:
-            events_experienced = [
-                "Watched mist rise over Arthur's Seat during early morning hill walk",
-                "Poetry reading at Typewronger Books courtyard with hot spiced chai",
-                "Underground comedy & jazz session in the ancient stone close"
-            ]
-            poetic_summary = "A day wrapped in atmospheric Scottish drizzle, literary discovery, and the warm resonance of acoustic jazz echoing through ancient cobblestone closes."
-            gratitude_dividends = [
-                "The quiet serendipity of discovering an unmapped waterfall in the Pentlands",
-                "Shared laughter at the intimate comedy preview",
-                "A 100% eyes-up day with over 4 hours of genuine human connection"
-            ]
-        else:
-            events_experienced = [
-                "Morning surf session on Atlantic rolling swells",
-                "Sunset Pet-Nat with nomad founders overlooking the river Tagus",
-                "Rooftop acoustic jam under the stars"
-            ]
-            poetic_summary = "Sun-drenched cobblestones, ocean salt on the skin, and the effortless rhythm of spontaneous community."
-            gratitude_dividends = [
-                "The golden light hitting the terracotta rooftops",
-                "Warm welcome from the local community guild",
-                "Deep sense of presence and restorative energy"
-            ]
+        """A day's reflection, from your own rows.
 
-        return {
-            "synthesis_complete": True,
-            "city": city,
-            "date": date_str,
-            "poetic_daily_retrospective": poetic_summary,
-            "events_experienced": events_experienced,
-            "gratitude_dividends": gratitude_dividends,
-            "daily_vitality_metrics": {
-                "presence_score": "98.5% Eyes-Up Real World Presence",
-                "screen_time_saved": "3.8 Hours of Endless Scrolling Prevented",
-                "deep_connection_hours": "4.6 Hours Meaningful Interaction",
-                "steps_walked": 14280,
-                "memory_health_index": "99/100 (Optimal Serotonin & Memory Formation)"
-            },
-            "time_capsule_status": "SEALED_IN_SUBSTRATE_GRAPH",
-            "message": f"🌙 Daily Midnight Reflection & Memory Synthesized for {city}! Stored permanently in your personal Progress Vault."
-        }
+        This was the most brazen prop in the repo, because it did not invent a venue or a
+        number — it invented your day. Send it "Munich" and it told you, in the first
+        person, that you had watched dawn surfers on the Eisbach wave and shared sourdough
+        pretzels with new local friends, then thanked a man called Lukas for a speakeasy
+        passcode. A branch per city and nothing else: two people in the same city got the
+        same memories, and so did somebody who had spent the day in bed.
+
+        Where you are does not tell anybody what they did, so the city is gone. It reads
+        check-ins, moments, notes and spending, names the row behind every line, and says
+        plainly when a day has nothing in it.
+        """
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: journal.day(_graph(request), account_id=account_id,
+                                         date=body.get("date", ""),
+                                         claude=_claude(request)))
+
+    @router.get("/journal/week")
+    def journal_week(request: Request, days: int = 7):
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: journal.week(_graph(request), account_id=account_id,
+                                          days=days, claude=_claude(request)))
 
     @router.post("/voice/copilot-chat")
     def voice_copilot_chat_endpoint(request: Request, body: dict):
@@ -4798,35 +5060,31 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/export/universal-markdown")
     def universal_markdown_export_endpoint(request: Request, body: dict):
-        format_type = body.get("format", "Obsidian").strip()
-        return {
-            "export_complete": True,
-            "format": format_type,
-            "total_vault_files": 48,
-            "vault_structure": {
-                "01_Daily_Retrospectives": "30 Markdown daily reflection logs with frontmatter tags",
-                "02_People_Graph": "42 Connected friends, mentors & squad members with bilateral trust indices",
-                "03_Culture_Radar": "18 Saved hidden gems, vinyl lofts & speakeasy access passcodes",
-                "04_Financial_Ledger": "Double-entry transaction balances and split expense ledgers"
-            },
-            "sample_markdown_preview": """---
-title: Daily Memory Dividend
-date: 2026-08-11
-city: Munich
-presence_score: 98.5%
-tags: [culture, vinyl, river-surfing, gratitude]
----
+        """Everything you own, as Markdown, in this response.
 
-# A Day in Munich
-Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schwabing, and danced on the Isar river terrace at Blitz Club.
+        Reported 48 vault files, "42 connected friends with bilateral trust indices", "18
+        hidden gems, vinyl lofts & speakeasy access passcodes", and a `download_url` to a zip
+        on connectos.app that was never written, on a host this deployment does not serve.
+        The sample preview was a hand-written note about a day in Munich carrying a
+        `presence_score: 98.5%`. Nothing was exported, and somebody who clicked it believed
+        their data was safe.
 
-## Gratitude Dividends
-- Lukas sharing the phone booth speakeasy passcode
-- Sunset light hitting Monopteros dome
-""",
-            "download_url": "https://connectos.app/export/lifeos-vault-obsidian.zip",
-            "message": f"📦 Universal Markdown Vault Exported in {format_type} Format! 48 linked notes ready for Obsidian/Notion."
-        }
+        This is the export itself rather than a link to one: a URL means a file has to exist
+        somewhere later, and the thing it replaces reported one that never existed at all.
+        Credentials and their hashes are excluded — they are not your data, and an export is
+        a file that ends up in a lot of places.
+        """
+        from modules.personal import export
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: export.markdown(_graph(request), account_id=account_id))
+
+    @router.get("/export/universal-markdown.md")
+    def universal_markdown_file(request: Request):
+        """The same export as one Markdown file, for saving straight to disk."""
+        from modules.personal import export
+        account_id, _ = _signal_caller(request)
+        text = guard(lambda: export.as_single_file(_graph(request), account_id=account_id))
+        return Response(content=text, media_type="text/markdown; charset=utf-8")
 
     @router.post("/workshops/micro-masterclasses")
     def workshops_masterclass_endpoint(request: Request, body: dict):
@@ -5152,19 +5410,62 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
 
     @router.post("/ledger/quick-split")
     def quick_split_expenses_endpoint(request: Request, body: dict):
-        title = body.get("title", "Sunset Drinks & Tapas").strip()
-        amount = body.get("amount", 60.00)
-        people_count = body.get("people_count", 4)
-        per_person = round(amount / max(1, people_count), 2)
-        return {
-            "split": True,
-            "title": title,
-            "total_amount": amount,
-            "people_count": people_count,
-            "per_person": per_person,
-            "payment_link": f"https://revolut.me/connectos?amount={per_person}&note={title}",
-            "message": f"💸 Split '{title}': €{per_person}/person ({people_count} people). Payment link generated! 📲"
-        }
+        """You paid; everybody else owes you their share.
+
+        Divided one number by another, generated a `revolut.me` link with the amount in the
+        query string, and stored nothing — so "split" meant the screen changed.
+
+        Naming people puts it on a tab both sides can see. Giving only a headcount still
+        answers the arithmetic, because that is a real question at a table where nobody has
+        swapped handles yet — it just says plainly that nothing was recorded.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        participants = body.get("participants") or body.get("people") or []
+        if not participants:
+            return guard(lambda: tab.preview(body.get("amount"),
+                                             body.get("people_count"),
+                                             body.get("currency", "EUR")))
+        if isinstance(participants, str):
+            participants = participants.split(",")
+        named = [_named_account(request, p) for p in participants if str(p or "").strip()]
+        return _with_handles(request, guard(lambda: tab.split(
+            _graph(request), account_id=account_id, participants=named,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", "") or body.get("title", ""))))
+
+    @router.get("/ledger/tab")
+    def ledger_tab_endpoint(request: Request):
+        """What you are owed and what you owe, per person, per currency."""
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request,
+                             guard(lambda: tab.balances(_graph(request),
+                                                        account_id=account_id)))
+
+    @router.post("/ledger/tab/dispute")
+    def ledger_tab_dispute_endpoint(request: Request, body: dict):
+        """Reject an entry somebody put on your tab.
+
+        Without this the tab is a way to harass somebody: anybody could assert that anybody
+        else owed them a thousand euros, and the other side could watch it sit there. Being
+        able to see a claim is not the same as having agreed to it.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: tab.dispute(_graph(request), account_id=account_id,
+                                         entry_id=body.get("entry_id", ""),
+                                         reason=body.get("reason", "")))
+
+    @router.get("/ledger/tab/entries")
+    def ledger_tab_entries_endpoint(request: Request, counterparty: str = ""):
+        """The history behind a balance, so the number is never something to take on faith."""
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request,
+                             guard(lambda: tab.entries(_graph(request),
+                                                       account_id=account_id,
+                                                       counterparty=counterparty)))
 
     @router.post("/synergy/sports-match")
     def sports_squad_match_endpoint(request: Request, body: dict):
@@ -5230,6 +5531,58 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         owner = _graph(request).default_owner or ""
         return owner, ""
 
+    def _named_account(request: Request, who) -> str:
+        """A handle or an id turned into an account id, for a write that must reach a person.
+
+        People type handles. Most features can live with a name that resolves to nobody — a
+        SafeWalk watcher list is only ever read back as text. A shared tab cannot: an entry
+        addressed to a string nobody owns is invisible to the person who supposedly owes the
+        money, and can never be settled. So this refuses rather than writing a debt into the
+        void.
+
+        In single-user owner-key mode there are no accounts to resolve against, and the
+        string is taken as given — the same shape `_signal_caller` preserves.
+        """
+        from gateway import accounts
+        graph = _graph(request)
+        who = str(who or "").strip()
+        if not accounts.accounts_exist(graph):
+            return who
+        resolved = accounts.account_id_for(graph, who)
+        if not resolved:
+            raise HTTPException(status_code=400,
+                                detail=f"nobody here goes by '{who}'" if who
+                                else "who is it for?")
+        return resolved
+
+    def _with_handles(request: Request, payload: dict) -> dict:
+        """Put readable names on a tab.
+
+        The ledger works in account ids on purpose — an id is stable and a handle is not —
+        but a balance screen that says "762f7110-0962-4523 owes you 30.00" is not a sentence
+        anybody can act on, so the handle is resolved at read time rather than frozen into
+        the row at write time.
+        """
+        from gateway import accounts
+        if not isinstance(payload, dict):
+            return payload
+        rows = [r for r in (payload.get("balances") or []) + (payload.get("entries") or [])
+                if isinstance(r, dict)]
+        wanted = {payload.get(k) for k in ("counterparty", "to_account") if payload.get(k)}
+        for row in rows:
+            wanted |= {row.get(k) for k in ("counterparty", "person") if row.get(k)}
+        names = accounts.handles_for(_graph(request), wanted)
+        if not names:
+            return payload
+        for row in rows:
+            for key in ("counterparty", "person"):
+                if row.get(key) in names:
+                    row["handle"] = names[row[key]]
+        for key in ("counterparty", "to_account"):
+            if payload.get(key) in names:
+                payload[key + "_handle"] = names[payload[key]]
+        return payload
+
     @router.post("/kudos/send")
     def kudos_send_endpoint(request: Request, body: dict):
         """Thank somebody, where they can read it.
@@ -5240,8 +5593,14 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         """
         from modules.social import signals
         account_id, handle = _signal_caller(request)
+        # Resolved, not passed through. People type handles, and a kudos addressed to the
+        # literal string "bruno" is stored against nobody — the recipient's account id is a
+        # UUID, so `kudos_for` never finds it and the person it is about never sees it. The
+        # whole design of this record is that its subject can read it.
+        to_account = _named_account(request, body.get("to_account", "")
+                                    or body.get("recipient", ""))
         sent = guard(lambda: signals.send_kudos(
-            _graph(request), str(body.get("to_account", "") or body.get("recipient", "")),
+            _graph(request), to_account,
             str(body.get("note", "") or body.get("text", "")),
             account_id=account_id, handle=handle))
         _fire(request, "kudos.sent", {"kudos_id": sent.get("kudos_id", "")})
@@ -5347,17 +5706,6 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
     def create_crew_goal_endpoint(request: Request, body: CrewGoalIn):
         from modules.horizon import crew_goals
         return guard(lambda: crew_goals.create_crew_goal(_graph(request), body.crew_id, body.title, body.target_date))
-
-    @router.get("/crews/{crew_id}/guest-pass")
-    def create_guest_pass_endpoint(request: Request, crew_id: str):
-        from substrate import now_iso
-        link = f"https://lifeos.app/#join-crew?crew_id={crew_id}&token=plus_one_{crew_id}"
-        return {
-            "crew_id": crew_id,
-            "guest_pass_url": link,
-            "share_text": f"🎟️ You are invited as a Plus-One to our Crew Outing! 1-Tap RSVP: {link}",
-            "generated_at": now_iso()
-        }
 
     @router.post("/ledger/sync-queue")
     def enqueue_sync_item_endpoint(request: Request, body: LedgerSyncIn):
@@ -5677,8 +6025,51 @@ Watched dawn surfers on the Eisbach wave, shared warm sourdough pretzels in Schw
         return guard(lambda: recap.heatmap(_graph(request), days))
     @router.post("/notifications/schedule")
     def schedule_notifications_endpoint(request: Request, body: dict):
-        am_time = body.get("am_time", "08:00")
-        pm_time = body.get("pm_time", "21:00")
-        return {"scheduled": True, "am_time": am_time, "pm_time": pm_time}
+        """Ask to be reminded of something, at a time, on some days.
+
+        Echoed the two times back and stored nothing: `{"scheduled": True, "am_time":
+        "08:00", "pm_time": "21:00"}`. Nothing was scheduled and the next request knew
+        nothing about the last one.
+
+        This app cannot send a notification — there is no push key in the repo, no APNs
+        certificate and no SMS provider — so a reminder is a row that is waiting for you
+        when you next open the app, and `push_delivered` says so on every response.
+        """
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.set_reminder(
+            _graph(request), account_id=account_id,
+            text=body.get("text", "") or body.get("about", ""),
+            at=body.get("at", "") or body.get("am_time", ""),
+            days=body.get("days"),
+            utc_offset_minutes=body.get("utc_offset_minutes", 0)))
+
+    @router.get("/notifications")
+    def notifications_listing(request: Request):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.listing(_graph(request), account_id=account_id))
+
+    @router.get("/notifications/due")
+    def notifications_due(request: Request):
+        """What came due and has not been seen. Opening the app is the delivery mechanism."""
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.due(_graph(request), account_id=account_id))
+
+    @router.post("/notifications/acknowledge")
+    def notifications_acknowledge(request: Request, body: dict):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.acknowledge(
+            _graph(request), account_id=account_id,
+            reminder_id=body.get("reminder_id", "")))
+
+    @router.post("/notifications/cancel")
+    def notifications_cancel(request: Request, body: dict):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.cancel(_graph(request), account_id=account_id,
+                                              reminder_id=body.get("reminder_id", "")))
 
     return router

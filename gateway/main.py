@@ -937,6 +937,33 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         html_content = INVITE_HTML.format(crew_name=crew_name, token=token)
         return Response(content=html_content, media_type="text/html")
 
+    @app.get("/calendar/{token}.ics", include_in_schema=False)
+    def crew_calendar_feed(token: str):
+        """A crew's calendar, for a calendar client.
+
+        Unauthenticated on purpose, and the only kind of URL that can work here: a calendar
+        app subscribes by URL, on its own schedule, with no browser and no way to send an
+        `Authorization` header. The `/v1/crews/{id}/export.ics` route sits behind the session
+        bearer token, so offering it as a "subscribe" link was a false claim — it 401s for
+        everything except the signed-in app.
+
+        The URL is therefore the credential. It is read-only, scoped to one crew, stored only
+        as a SHA-256, expiring and revocable — see `modules/calendars/feeds`. An unknown,
+        expired or revoked token gets the same empty calendar as any other, so the URL space
+        cannot be probed for which crews exist.
+        """
+        from modules.calendars import export, feeds
+        from substrate import SYSTEM_OWNER
+        from substrate.graph import Graph
+
+        sys_graph = Graph(graph.conn, bus, default_owner=SYSTEM_OWNER)
+        crew_id = feeds.crew_for(sys_graph, token)
+        if not crew_id:
+            return Response(content=export.generate_ics([], calendar_name="LifeOS"),
+                            media_type="text/calendar")
+        return Response(content=export.export_crew_ics(sys_graph, crew_id),
+                        media_type="text/calendar")
+
     # ---- the app itself --------------------------------------------------
 
     if APP_DIR.exists():

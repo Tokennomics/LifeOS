@@ -19,7 +19,7 @@ def test_api_latency_benchmarks(cfg):
         # the only thing being timed is the gate refusing. Its behaviour is covered in
         # tests/test_dating_meets.py, on a surface that is actually switched on.
         ("POST", "/v1/safety/escort", {"destination": "Home", "eta_mins": 20}),
-        ("POST", "/v1/ledger/quick-split", {"amount": 50}),
+        ("POST", "/v1/ledger/quick-split", {"amount": 50, "people_count": 4}),
         ("POST", "/v1/synergy/sports-match", {"sport": "climbing"}),
         ("POST", "/v1/synergy/nomad-match", {"domain": "tech"}),
         ("POST", "/v1/synergy/ski-match", {"resort": "Alps"}),
@@ -82,6 +82,7 @@ def test_edge_cases_and_null_fallbacks(cfg):
     res3 = client.post("/v1/safety/escort", json={})
     assert res3.status_code == 400
 
+    # An empty body used to split €60 four ways and hand back a payment link, so "split"
+    # meant the screen changed. A split with no amount is not a split.
     res4 = client.post("/v1/ledger/quick-split", json={})
-    assert res4.status_code == 200
-    assert res4.json()["per_person"] > 0
+    assert res4.status_code == 400
