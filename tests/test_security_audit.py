@@ -6,6 +6,7 @@ the module, because that is how they will be read if one of them ever fails agai
 """
 
 import os
+import pathlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -434,3 +435,558 @@ def test_joining_a_crew_you_found_in_the_directory_works(world):
     assert c.post("/v1/crews/join", headers=h["mallory"],
                   json={"crew_id": crew}).status_code == 200
     assert c.get(f"/v1/crews/{crew}", headers=h["ana"]).json()["member_count"] == 2
+
+
+# ---- the deploy would not have worked at all ---------------------------------
+
+@pytest.mark.parametrize("env,expected_host", [
+    ({}, "127.0.0.1"),                              # a laptop stays off the café wifi
+    ({"PORT": "10000"}, "0.0.0.0"),                 # a PaaS sets PORT; loopback is unreachable
+    ({"PORT": "10000", "LIFEOS_HOST": "127.0.0.1"}, "127.0.0.1"),   # explicit wins
+])
+def test_the_launcher_binds_somewhere_reachable(monkeypatch, env, expected_host):
+    """It bound 127.0.0.1 unconditionally. In a container the process starts, the logs look
+    healthy, and nothing outside can reach it — the whole deploy silently does nothing."""
+    from scripts import launch
+    for key in ("PORT", "LIFEOS_PORT", "LIFEOS_HOST"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    host, port = launch.resolve_bind()
+    assert host == expected_host
+    assert port == int(env.get("PORT", 8000))
+
+
+def test_a_junk_port_falls_back_rather_than_crashing(monkeypatch):
+    from scripts import launch
+    monkeypatch.setenv("PORT", "not-a-number")
+    monkeypatch.delenv("LIFEOS_HOST", raising=False)
+    host, port = launch.resolve_bind()
+    assert port == 8000 and host == "0.0.0.0"
+
+
+# ---- no vendor-shaped credentials in the tree --------------------------------
+
+# Assembled at import time rather than written out, so this file does not trip its own scan.
+# Each entry is (vendor, prefix) where the prefix is the part vendors guarantee.
+_VENDOR_PREFIXES = [
+    ("Stripe secret key", "sk_" + "live_"),
+    ("Stripe test key", "sk_" + "test_"),
+    ("Stripe webhook signing secret", "wh" + "sec_"),
+    ("Stripe restricted key", "rk_" + "live_"),
+    ("GitHub personal token", "gh" + "p_"),
+    ("GitHub fine-grained token", "github" + "_pat_"),
+    ("AWS access key id", "AKI" + "A"),
+    ("Slack bot token", "xox" + "b-"),
+    ("Google API key", "AIza" + "Sy"),
+    ("Anthropic API key", "sk-" + "ant-"),
+    ("OpenAI key", "sk-" + "proj-"),
+]
+
+_SCANNED_SUFFIXES = (".py", ".js", ".json", ".yml", ".yaml", ".md", ".html", ".toml", ".sh")
+
+
+def _tracked_files():
+    """git ls-files, so vendored deps and local scratch never enter the scan."""
+    import subprocess
+    root = pathlib.Path(__file__).resolve().parent.parent
+    out = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True)
+    for line in out.stdout.splitlines():
+        path = root / line
+        if path.suffix in _SCANNED_SUFFIXES and path.is_file():
+            yield path
+
+
+def test_no_vendor_credential_prefixes_are_committed():
+    """A GitHub secret-scanning alert fired on `gateway/modules_api.py` for a Stripe webhook
+    signing secret. The value was invented — this repo has never integrated Stripe — but it
+    was spelled in Stripe's namespace, published on a public repo, and handed identically to
+    every caller, which is a broken signing secret quite apart from the alert.
+
+    The lesson is not "remove that one string". It is that code arrives here from several
+    tools, and demo data that *looks* like a credential reads as a real leak to anyone
+    scanning, including GitHub. Catch it in CI, not three days later in an email.
+
+    If this fails on a genuinely fake value: do not add an ignore. Mint it at runtime
+    (`_issued_credential`) or use a prefix that is not some vendor's."""
+    hits = []
+    here = pathlib.Path(__file__).resolve()
+    for path in _tracked_files():
+        if path == here:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for vendor, prefix in _VENDOR_PREFIXES:
+            index = text.find(prefix)
+            if index != -1:
+                line = text.count("\n", 0, index) + 1
+                hits.append(f"{path.name}:{line} looks like a {vendor}")
+    assert hits == [], "credential-shaped literals committed: " + "; ".join(hits)
+
+
+def test_an_issued_credential_is_never_the_same_twice(world):
+    """The whole point of the fix. Two provisioning calls that return one shared string are
+    worse than no secret at all, because callers will trust it to authenticate a webhook."""
+    client, headers = world["c"], world["h"]["ana"]
+    first = client.post("/v1/developers/webhooks", headers=headers,
+                        json={"target_url": "https://a.example/hook",
+                              "events": ["meetup.created"]}).json()
+    second = client.post("/v1/developers/webhooks", headers=headers,
+                         json={"target_url": "https://b.example/hook",
+                               "events": ["meetup.created"]}).json()
+    assert first["signing_secret"] != second["signing_secret"]
+    assert len(first["signing_secret"]) >= 32
+
+    # `api_key` became `secret`, because the credential is now returned exactly once and the
+    # field name should say so. Uniqueness is still the property under test.
+    keys = {client.post("/v1/developers/api-keys", headers=headers,
+                        json={"app_name": f"x{i}"}).json()["secret"] for i in range(3)}
+    assert len(keys) == 3
+
+
+# ---- browser-side hardening --------------------------------------------------
+
+def test_every_response_carries_the_security_headers(cfg):
+    """There were none at all — not on the API, not on the PWA. Checked on `/health`
+    precisely because it is the one route that answers before authentication."""
+    client = TestClient(create_app(cfg))
+    for path in ("/health", "/v1/auth/providers"):
+        headers = client.get(path).headers
+        assert headers["x-content-type-options"] == "nosniff"
+        assert headers["x-frame-options"] == "DENY"
+        assert headers["referrer-policy"] == "no-referrer"
+        assert "content-security-policy" in headers
+
+
+def test_the_csp_blocks_token_exfiltration_and_base_tag_injection(cfg):
+    """The session token lives in localStorage, so the CSP's job here is not to stop a script
+    running — `'unsafe-inline'` has to stay while the PWA has inline handlers — but to stop
+    one *sending anything anywhere* once it does."""
+    csp = TestClient(create_app(cfg)).get("/health").headers["content-security-policy"]
+    directives = dict(part.strip().split(" ", 1) for part in csp.split(";") if " " in part.strip())
+    assert directives["connect-src"] == "'self'", "an injected script must not reach a third party"
+    assert directives["object-src"] == "'none'"
+    assert directives["base-uri"] == "'self'"
+    assert directives["frame-ancestors"] == "'none'"
+    assert "'unsafe-eval'" not in csp
+
+
+def test_the_referrer_policy_covers_invite_tokens(cfg):
+    """Crew invites are `/app/?invite_token=…`. With a default referrer policy, every
+    outbound link and every remote image on that page hands the token to a third party."""
+    assert TestClient(create_app(cfg)).get(
+        "/health").headers["referrer-policy"] == "no-referrer"
+
+
+def test_the_pwa_escapes_every_value_it_renders_from_a_response():
+    """Two render sites interpolated response fields straight into innerHTML. Neither was
+    exploitable — both endpoints return hardcoded demo data — which is exactly why it would
+    have survived until the day those endpoints started returning real names."""
+    import pathlib
+    app_js = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
+    # The first site was the settle-up render, which interpolated `c.name` from a list of
+    # creditors. That handler is gone — it displayed two invented creditors and a Revolut
+    # link — and its successor is the tab, which renders handles typed by other people. The
+    # escaping matters more there than it ever did here, so the check follows the code.
+    assert "function renderTab(res, selector)" in app_js
+    for rendered in ("esc(who(e))", "esc(who(b))", "esc(b.direction)",
+                     "esc(res.counterparty_handle || res.counterparty)",
+                     'data-entry="${esc(e.entry_id)}"',
+                     'data-who="${esc(b.counterparty)}"'):
+        assert rendered in app_js, f"renderTab renders {rendered} unescaped"
+
+    # The second site was the voice-brief render, which interpolated `s.time`, `s.place`
+    # and `s.activity` from a response. That handler is gone: it displayed two hardcoded
+    # Lisbon venues, and the endpoint now reads a real transcript. Its replacement is the
+    # shared `/ai/*` renderer, and the day those fields carry a real place name is the day
+    # the escaping matters — so the check follows the code rather than being dropped.
+    assert "function aiLine(item)" in app_js
+    for rendered in ("esc(String(title))", "esc(extra)", "esc(going)"):
+        assert rendered in app_js, f"aiLine renders {rendered} unescaped"
+
+
+def test_the_pwa_builds_no_link_target_out_of_response_data():
+    """`esc()` stops an attribute breaking out; it does nothing about `javascript:` in an
+    href, because the scheme survives escaping intact. The defence is that no href, src or
+    action is built from server data — the one exception is an <img src>, where a script
+    URL does not execute. If this fails, the new sink needs a scheme allow-list, not esc()."""
+    import pathlib
+    import re
+    app_js = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "app.js").read_text(encoding="utf-8")
+    unguarded = re.findall(r'(?:href|action|formaction)\s*=\s*.\$\{(?!safeUrl\()([^}]*)\}',
+                           app_js)
+    assert unguarded == [], f"a URL attribute skips safeUrl(): {unguarded}"
+
+
+def test_safe_url_passes_links_through_and_defuses_script_urls():
+    """This guard caught two real `<a href="${res.checkout_url}">` sinks the moment they
+    arrived from `main`, which is the whole reason it exists. Both were hardcoded payment
+    URLs, so neither was exploitable — but they were one endpoint change away from being an
+    open redirect and one `javascript:` away from running as the signed-in user.
+
+    The logic is asserted here rather than only in JS, because nothing else in CI runs the
+    PWA. Kept deliberately in step with `safeUrl` in app.js."""
+    from urllib.parse import urlparse
+
+    def safe_url(raw):
+        try:
+            parsed = urlparse(str(raw or "").strip())
+        except ValueError:
+            return "#"
+        return raw if parsed.scheme in ("http", "https") else "#"
+
+    for good in ("https://checkout.stripe.com/c/pay/x", "http://example.com/a?b=c"):
+        assert safe_url(good) == good
+    for bad in ("javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,<script>",
+                "vbscript:msgbox", "", "   ", None):
+        assert safe_url(bad) == "#", bad
+
+
+# ---- endpoints that had never worked ------------------------------------------
+
+@pytest.fixture
+def two_graphs(cfg):
+    """Ana and Mallory as separate owner slices on one database."""
+    from gateway import accounts
+    from substrate.graph import Graph
+    from substrate.migrate import migrate
+    from substrate.bus import Bus
+    from substrate import load_config
+    import substrate
+
+    base = TestClient(create_app(cfg))          # builds and migrates the db
+    root = base.app.state.graph
+    made = {}
+    for name in ("ana", "mallory"):
+        account = accounts.register(root, name, PW)
+        made[name] = Graph(root.conn, root.bus, default_owner=account["owner_id"])
+    return made
+
+
+def test_the_topology_hubs_are_the_callers_own(two_graphs):
+    """`find_topology_hubs` read `SELECT src, dst FROM edges` with no join to entities, then
+    resolved every node's name — on a shared box that is every other user's people, goals
+    and memories by name.
+
+    It was unreachable, because the endpoint called `export_graph_topology`, which does not
+    exist, so it 500'd on every call. That is the trap: the obvious fix is to correct the
+    function name, and correcting the function name alone is what would have shipped the
+    leak."""
+    from substrate import topology
+
+    ana, mallory = two_graphs["ana"], two_graphs["mallory"]
+    session = ana.session("t", {"people:write", "events:write", "people:read"})
+    person = session.create_entity("person", {"name": "Rui-THERAPIST"}, source="t")
+    event = session.create_entity("event", {"title": "Thursday session"}, source="t")
+    session.create_edge(person, event, "attended", source="t")
+
+    mine = topology.find_topology_hubs(ana)
+    assert {hub["name"] for hub in mine} == {"Rui-THERAPIST", "Thursday session"}
+    assert topology.find_topology_hubs(mallory) == [], "another owner's graph is not yours"
+
+
+def test_the_csv_export_is_owner_scoped_and_actually_works(cfg):
+    """`Graph.all_entities()` does not exist, so this 500'd every time — and the PWA has a
+    live Export CSV button wired to it."""
+    client = TestClient(create_app(cfg))
+    heads = {}
+    for name in ("ana", "mallory"):
+        client.post("/v1/auth/register", json={"handle": name, "password": PW})
+        token = client.post("/v1/auth/login",
+                            json={"handle": name, "password": PW}).json()["token"]
+        heads[name] = {"Authorization": f"Bearer {token}"}
+
+    client.post("/v1/people", headers=heads["ana"], json={"name": "Rui-THERAPIST"})
+
+    mine = client.get("/v1/graph/export/csv", headers=heads["ana"])
+    assert mine.status_code == 200 and "Rui-THERAPIST" in mine.text
+    theirs = client.get("/v1/graph/export/csv", headers=heads["mallory"])
+    assert theirs.status_code == 200 and "Rui-THERAPIST" not in theirs.text
+
+
+@pytest.mark.parametrize("payload", ['=HYPERLINK("http://evil.example","x")',
+                                     "+1+1", "-2+3", "@SUM(A1:A9)"])
+def test_the_csv_export_cannot_carry_a_spreadsheet_formula(cfg, payload):
+    """Names are user-typed and this endpoint returns a file people open in Excel. A cell
+    starting `=`, `+`, `-` or `@` is a *formula* there, and `=HYPERLINK(...)` or a DDE
+    payload runs on open — the export is the delivery mechanism."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+    client.post("/v1/people", headers=headers, json={"name": payload})
+
+    import csv
+    import io
+
+    body = client.get("/v1/graph/export/csv", headers=headers).text
+    rows = list(csv.reader(io.StringIO(body)))
+    cells = [cell for row in rows for cell in row]
+
+    # The text survives — defusing must not mean mangling somebody's data.
+    assert any(payload in cell for cell in cells), "the user's own text is preserved"
+    # ...but no cell is handed to the spreadsheet as a formula.
+    assert not any(cell[:1] in ("=", "+", "-", "@") for cell in cells), \
+        f"a live formula cell in {cells}"
+
+
+def test_the_endpoints_that_called_functions_that_do_not_exist(cfg):
+    """Four handlers named functions their module had never defined, so they returned a 500
+    on every call. Found by sweeping all 425 endpoints as a signed-in user, not by a test —
+    nothing in the suite touched them."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for path in ("/v1/graph/topology", "/v1/routines/mindfulness/summary",
+                 "/v1/graph/export/csv", "/v1/people/qr"):
+        assert client.get(path, headers=headers).status_code == 200, path
+
+
+def test_the_vcard_carries_the_callers_own_handle(cfg):
+    """It looked up entity kind `identity`, which is not in KINDS, so every call 400'd."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    card = client.get("/v1/people/qr",
+                      headers={"Authorization": f"Bearer {token}"}).json()
+    assert card["name"] == "ana" and "FN:ana" in card["vcard"]
+
+
+# ---- CRITICAL: any user could destroy the whole instance ----------------------
+
+@pytest.fixture
+def pair(cfg):
+    client = TestClient(create_app(cfg))
+    heads = {}
+    for name in ("ana", "mallory"):
+        client.post("/v1/auth/register", json={"handle": name, "password": PW})
+        token = client.post("/v1/auth/login",
+                            json={"handle": name, "password": PW}).json()["token"]
+        heads[name] = {"Authorization": f"Bearer {token}"}
+    client.post("/v1/people", headers=heads["ana"], json={"name": "Rui-THERAPIST"})
+    client.post("/v1/capture", headers=heads["ana"], json={"text": "Therapy notes"})
+    return client, heads
+
+
+def test_a_signed_in_stranger_cannot_wipe_the_instance(pair):
+    """The worst finding of the fourth audit, demonstrated end to end before it was fixed.
+
+    `POST /v1/graph/restore` is an ordinary authenticated endpoint with no operator gate,
+    and `import_restore` ran `DELETE FROM edges; DELETE FROM observations; DELETE FROM
+    entities` with **no owner predicate anywhere** before inserting `backup_data` — which,
+    for a `{}` body, is nothing. One empty POST from any account destroyed every graph on
+    the box. Accounts are entities too, so the victim could not even log in afterwards."""
+    client, heads = pair
+    before = client.get("/v1/graph", headers=heads["ana"]).json()["entities"]
+    assert before > 0
+
+    attack = client.post("/v1/graph/restore", headers=heads["mallory"], json={})
+    assert attack.status_code == 400
+
+    assert client.get("/v1/graph", headers=heads["ana"]).json()["entities"] == before
+    assert client.post("/v1/auth/login",
+                       json={"handle": "ana", "password": PW}).status_code == 200
+
+
+def test_a_restore_that_puts_nothing_back_is_refused(pair):
+    """Distinct from the wipe above: a well-formed body with an empty entity list is still
+    a request to delete everything and restore nothing, which is never what anyone means."""
+    client, heads = pair
+    refused = client.post("/v1/graph/restore", headers=heads["ana"],
+                          json={"entities": [], "edges": []})
+    assert refused.status_code == 400
+    assert client.get("/v1/graph", headers=heads["ana"]).json()["entities"] > 0
+
+
+def test_a_backup_contains_only_your_own_graph(pair):
+    """`export_backup` was the same hole pointed the other way — raw SQL over the whole
+    entities table, so any login dumped every other user's people and memories."""
+    client, heads = pair
+    mine = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    theirs = client.post("/v1/graph/backup", headers=heads["mallory"]).json()
+
+    assert "Rui-THERAPIST" in repr(mine["entities"])
+    assert theirs["entities"] == [] and theirs["edges"] == []
+
+
+def test_a_backup_restores_your_graph_exactly(pair):
+    """The feature has to still work, or the fix is just a removal."""
+    client, heads = pair
+    saved = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    client.post("/v1/people", headers=heads["ana"], json={"name": "MISTAKE"})
+
+    result = client.post("/v1/graph/restore", headers=heads["ana"], json=saved).json()
+    assert result["restored"] is True and result["entities"] == len(saved["entities"])
+
+    after = repr(client.post("/v1/graph/backup", headers=heads["ana"]).json())
+    assert "Rui-THERAPIST" in after and "MISTAKE" not in after
+    assert client.post("/v1/auth/login",
+                       json={"handle": "ana", "password": PW}).status_code == 200
+
+
+def test_a_crafted_backup_cannot_write_into_another_account(pair):
+    """Every row in a backup carries an `owner_id`, and the file is attacker-controlled. It
+    is ignored in favour of the caller's own — otherwise 'restore' is a write primitive
+    aimed at any slice you can name."""
+    client, heads = pair
+    stolen = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    for entity in stolen["entities"]:
+        entity["attrs"] = {**entity["attrs"], "name": "PLANTED-BY-MALLORY"}
+
+    assert client.post("/v1/graph/restore", headers=heads["mallory"],
+                       json=stolen).status_code == 200
+
+    ana_now = repr(client.post("/v1/graph/backup", headers=heads["ana"]).json())
+    assert "PLANTED-BY-MALLORY" not in ana_now
+    assert "Rui-THERAPIST" in ana_now, "Ana's own rows are untouched"
+
+
+def test_a_restore_writes_provenance_like_every_other_write(pair):
+    """It talked to the connection directly, so restored rows had no observation trail and
+    skipped kind validation. Going through the session API is what makes those automatic."""
+    client, heads = pair
+    saved = client.post("/v1/graph/backup", headers=heads["ana"]).json()
+    client.post("/v1/graph/restore", headers=heads["ana"], json=saved)
+
+    exported = client.get("/v1/export", headers=heads["ana"]).json()
+    owned = {entity["id"] for entity in exported["entities"]}
+    assert exported["observations"], "a restore leaves a provenance trail"
+    assert all(row["entity_id"] in owned for row in exported["observations"])
+
+
+@pytest.mark.parametrize("body", [
+    {"entities": [{"kind": "not_a_kind", "attrs": {}}], "edges": []},
+    {"entities": [{"kind": "person", "attrs": "not a dict"}], "edges": []},
+    {"entities": "nope", "edges": []},
+    {"entities": [{"kind": "person", "attrs": {"name": "ok"}}], "edges": "nope"},
+])
+def test_a_malformed_backup_is_a_400_not_a_500(pair, body):
+    client, heads = pair
+    assert client.post("/v1/graph/restore", headers=heads["ana"],
+                       json=body).status_code in (200, 400)
+    assert client.post("/v1/auth/login",
+                       json={"handle": "ana", "password": PW}).status_code == 200
+
+
+# ---- the last third-party dependencies ----------------------------------------
+
+def test_the_pwa_loads_no_script_from_a_cdn():
+    """Leaflet came from unpkg with no Subresource Integrity hash, into the origin that
+    holds the session token in localStorage — so whatever unpkg returned is what ran, with
+    full access to every graph endpoint. It is vendored now, verified against the sha512
+    npm publishes for 1.9.4 before being committed."""
+    import re
+    www = pathlib.Path(__file__).resolve().parent.parent / "surfaces" / "app" / "www"
+    for path in list(www.glob("*.js")) + list(www.glob("*.html")):
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        remote = re.findall(r'(?:src|href)\s*=\s*["\']?(https?://[^"\'\s>]+)', text)
+        assert remote == [], f"{path.name} loads {remote} from a third party"
+
+
+def test_the_vendored_leaflet_is_actually_there():
+    """A CSP of 'self' plus a missing file is a map that silently never loads."""
+    vendor = (pathlib.Path(__file__).resolve().parent.parent
+              / "surfaces" / "app" / "www" / "vendor")
+    js, css = vendor / "leaflet.js", vendor / "leaflet.css"
+    assert js.is_file() and css.is_file()
+    assert js.stat().st_size > 100_000, "that is not the real leaflet.js"
+    assert "leaflet" in css.read_text(encoding="utf-8", errors="ignore")[:400].lower()
+
+
+def test_the_csp_names_no_external_host(cfg):
+    csp = TestClient(create_app(cfg)).get("/health").headers["content-security-policy"]
+    directives = dict(part.strip().split(" ", 1)
+                      for part in csp.split(";") if " " in part.strip())
+    assert directives["script-src"] == "'self' 'unsafe-inline'"
+    assert "unpkg" not in csp and "cdn" not in csp
+
+
+def test_the_contact_card_reaches_no_third_party(cfg):
+    """`qr_url` embedded the vCard in an api.qrserver.com query string, so rendering your
+    own contact card handed your name and the viewer's IP to a stranger — for a card the
+    PWA never displays."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    card = client.get("/v1/people/qr",
+                      headers={"Authorization": f"Bearer {token}"})
+    assert card.status_code == 200
+    assert "qrserver" not in card.text and "http://" not in card.text
+    assert card.json()["vcard_data_uri"].startswith("data:text/vcard")
+
+
+@pytest.mark.parametrize("handle,leaked", [
+    ("ana\nTEL:+1999", "TEL:+1999"),
+    ("ana;X-EVIL:1", "X-EVIL"),
+])
+def test_a_crafted_handle_cannot_inject_vcard_properties(handle, leaked):
+    """Handles are unrestricted — `_norm_handle` lowercases and truncates, nothing more —
+    and a newline in one adds a property to the card the recipient saves to their phone."""
+    from gateway.modules_api import _vcard
+    card = _vcard(handle)
+    assert card.count("BEGIN:VCARD") == 1
+    property_lines = [line.split(":")[0] for line in card.split("\r\n") if ":" in line]
+    assert leaked.split(":")[0] not in property_lines
+
+
+def test_logging_a_focus_session_works(cfg):
+    """The ninth dead endpoint: `mindfulness.log_focus_session` had never existed. The
+    empty-body sweep only saw a 422 here and stopped; it took sending a *valid* body to
+    reach the 500 underneath."""
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    logged = client.post("/v1/routines/mindfulness/session", headers=headers,
+                         json={"duration_minutes": 30, "distraction_count": 2,
+                               "note": "deep work"})
+    assert logged.status_code == 200 and logged.json()["logged"] is True
+    assert logged.json()["sessions"] == 1 and logged.json()["total_minutes"] == 30
+
+    client.post("/v1/routines/mindfulness/session", headers=headers,
+                json={"duration_minutes": 60, "distraction_count": 1})
+    assert client.post("/v1/routines/mindfulness/session", headers=headers,
+                       json={"duration_minutes": 15, "distraction_count": 0}
+                       ).json()["total_minutes"] == 105
+
+
+@pytest.mark.parametrize("bad", [{"duration_minutes": 0, "distraction_count": 0},
+                                 {"duration_minutes": -5, "distraction_count": 0},
+                                 {"duration_minutes": 99999, "distraction_count": 0},
+                                 {"duration_minutes": 30, "distraction_count": -1}])
+def test_a_nonsense_focus_session_is_a_400(cfg, bad):
+    client = TestClient(create_app(cfg))
+    client.post("/v1/auth/register", json={"handle": "ana", "password": PW})
+    token = client.post("/v1/auth/login",
+                        json={"handle": "ana", "password": PW}).json()["token"]
+    assert client.post("/v1/routines/mindfulness/session",
+                       headers={"Authorization": f"Bearer {token}"},
+                       json=bad).status_code == 400
+
+
+def test_https_is_pinned_once_a_browser_has_seen_it(cfg):
+    """HSTS was simply missing. A browser that has once loaded the app over TLS should
+    refuse to be downgraded to http on a hostile network — which is the exact situation this
+    app is for, since its users are on hotel and cafe wifi.
+
+    No `includeSubDomains` and no `preload`: both are hard to undo and would speak for
+    domains this app does not own. Browsers ignore the header over plain HTTP, so the
+    LAN/NucBox case is unaffected.
+    """
+    headers = TestClient(create_app(cfg)).get("/health").headers
+    hsts = headers.get("strict-transport-security", "")
+    assert hsts.startswith("max-age=")
+    assert int(hsts.split("=")[1].split(";")[0]) >= 15552000     # 180 days
+    assert "preload" not in hsts and "includeSubDomains" not in hsts

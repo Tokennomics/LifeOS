@@ -27,9 +27,41 @@ async function api(path, body) {
   const resp = await fetch(apiBase() + path, opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    throw new Error(err.detail || "gateway error " + resp.status);
+    const problem = new Error(err.detail || "gateway error " + resp.status);
+    // Callers need to tell "your session is gone" from "the wifi dropped". Without the
+    // status they look identical, and treating the second as the first signs people out
+    // of a working session.
+    problem.status = resp.status;
+    throw problem;
   }
   return resp.json();
+}
+
+async function apiDelete(path, body) {
+  const headers = {};
+  const token = localStorage.getItem("lifeos.token");
+  if (token) headers["Authorization"] = "Bearer " + token;
+  const opts = { method: "DELETE", headers };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const resp = await fetch(apiBase() + path, opts);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const problem = new Error(err.detail || "gateway error " + resp.status);
+    problem.status = resp.status;
+    throw problem;
+  }
+  return resp.json();
+}
+
+function whenLabel(iso) {
+  // A meetup is almost always today or tomorrow, and "Fri 19:00" is what somebody deciding
+  // whether to go actually needs — not a full timestamp.
+  const d = new Date(iso);
+  if (isNaN(d)) return iso || "";
+  return d.toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 /* ---------- helpers ---------- */
@@ -44,6 +76,21 @@ function toast(msg) {
 
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// A URL that is safe to put in an href. esc() is NOT enough here: it stops the attribute
+// breaking out, but `javascript:alert(1)` survives escaping completely intact and runs on
+// click. Only http/https get through; anything else — javascript:, data:, vbscript:, or a
+// value we cannot parse — becomes "#". Use this for every href, src or action built from a
+// response, and esc() for everything else.
+function safeUrl(u) {
+  const raw = String(u ?? "").trim();
+  try {
+    const parsed = new URL(raw, window.location.origin);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") ? esc(parsed.href) : "#";
+  } catch (e) {
+    return "#";
+  }
 }
 
 async function act(fn, okMsg) {
@@ -98,7 +145,23 @@ async function refresh() {
   $("#mode-badge").className = "badge" + (state.health.claude ? " ai" : "");
   try {
     if (!state.me && localStorage.getItem("lifeos.token")) {
-      state.me = await api("/v1/auth/me").catch(() => null);
+      // Only a 401 means the session is actually gone. Clearing the token on *any*
+      // failure — which the first version of this did — signs you out of a perfectly
+      // good session the moment a request times out on a train.
+      state.me = await api("/v1/auth/me").catch((e) => {
+        if (e && e.status === 401) localStorage.removeItem("lifeos.token");
+        return null;
+      });
+    }
+    // Every /v1 route needs a session once any account exists, so with no token the whole
+    // screen is a wall of 401s. Ask for the sign-in first instead.
+    if (!state.me && !localStorage.getItem("lifeos.token")) {
+      $("#view").innerHTML =
+        `<div class="card"><h2>Welcome to LifeOS</h2>
+         <p class="hint">Sign in to start capturing, planning and finding your people.</p>
+         <button class="primary" data-act="open-auth" style="margin-top:10px;">Get started</button></div>`;
+      await openAuth();
+      return;
     }
     if (state.tab === "today") {
       [state.today, state.visions, state.admin, state.journal, state.parked, state.rings, state.weekend, state.habitChain, state.energyBalance] = await Promise.all([
@@ -116,8 +179,12 @@ async function refresh() {
     } else if (state.tab === "people") {
       const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms, communityReviews, cityPassport] = await Promise.all([
         api("/v1/people"),
-        api("/v1/crews"),
+        // `/v1/crews` browses your OWN graph, so a crew you joined in somebody else's
+        // account was missing from "Your crews" and every per-crew button with it.
+        api("/v1/crews/mine"),
         api("/v1/feed").catch(() => ({ items: [] })),
+        // Was called with no city against a handler that required one: a 422 on every
+        // page load, swallowed here, so Explore was permanently empty and never looked it.
         api("/v1/venues/explore").catch(() => ({ venues: [] })),
         api("/v1/venues/activity-heatmap").catch(() => null),
         api("/v1/synergy/overlap").catch(() => null),
@@ -137,6 +204,21 @@ async function refresh() {
       if (state.activeChat) {
         await refreshChatMessages();
       }
+    } else if (state.tab === "city") {
+      const city = state.cityRoom || "";
+      const [rooms, room, here, plans] = await Promise.all([
+        api("/v1/city/rooms").catch(() => ({ rooms: [] })),
+        city ? api(`/v1/city/chat?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+        city ? api(`/v1/city/arrival?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+        city ? api(`/v1/city/meetups?city=${encodeURIComponent(city)}`).catch(() => null)
+             : Promise.resolve(null),
+      ]);
+      state.cityRooms = rooms.rooms || [];
+      state.cityChat = room;
+      state.cityArrival = here;
+      state.cityMeetups = plans;
     } else if (state.tab === "map") {
       const c = coords();
       let eventId = "outing_active";
@@ -155,7 +237,9 @@ async function refresh() {
       const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
         api("/v1/vitals"), api("/v1/spaces"), api("/v1/people"),
-        api("/v1/triage/critical").catch(() => null),
+        // The route is `/triage/card`; this asked for `/triage/critical` and 404'd on
+        // every page load, so the emergency card was never displayed and never saved.
+        api("/v1/triage/card").catch(() => null),
         api("/v1/triage/deadman/status").catch(() => null),
         api("/v1/dating/availability").catch(() => null),
         api("/v1/dating/matches").catch(() => ({ matches: [] })),
@@ -187,7 +271,7 @@ async function refresh() {
 
 function render() {
   const view = $("#view");
-  const views = { today: todayView, capture: captureView, people: peopleView, map: mapView, graph: graphView, more: moreView };
+  const views = { today: todayView, capture: captureView, people: peopleView, city: cityView, map: mapView, graph: graphView, more: moreView };
   view.innerHTML = views[state.tab]();
   // Entrance animation only on tab change — never on in-tab updates (no flashing).
   view.classList.toggle("enter", state.enter);
@@ -219,6 +303,7 @@ function render() {
   dock.innerHTML = `
     <button class="dock-btn ${state.tab === "today" ? "active" : ""}" data-dock="today">☀️ Today</button>
     <button class="dock-btn ${state.tab === "people" ? "active" : ""}" data-dock="people">💬 Crews</button>
+    <button class="dock-btn ${state.tab === "city" ? "active" : ""}" data-dock="city">🏙️ City</button>
     <button class="dock-btn ${state.tab === "map" ? "active" : ""}" data-dock="map">🗺️ Radar</button>
     <button class="dock-btn ${state.tab === "graph" ? "active" : ""}" data-dock="graph">💎 Graph</button>
     <button class="dock-btn ${state.tab === "more" ? "active" : ""}" data-dock="more">⚙️ More</button>
@@ -229,7 +314,12 @@ function render() {
       if (state.tab !== target) {
         state.tab = target;
         state.enter = true;
-        render();
+        // `refresh()`, not `render()`. Each tab loads its own data in refresh(); rendering
+        // alone paints the new tab from whatever state was left over, so on a phone — where
+        // this dock covers the nav bar and is the only navigation — every tab showed stale
+        // or empty content until something else happened to trigger a fetch. The top nav
+        // has always called refresh(); the dock never did.
+        refresh();
       }
     });
   });
@@ -326,9 +416,9 @@ function todayView() {
     <div class="row2"><input class="field" id="bc-act" placeholder="Activity (e.g. Specialty Coffee)">
     <input class="field" id="bc-time" placeholder="Timeframe (e.g. 30 mins)" value="30 mins"></div>
     <div class="row2">
-      <button class="primary" data-act="send-squad-beacon">Broadcast Outing Beacon ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, var(--spark), var(--growth));" data-act="instant-synergy-match">AI Instant Match (30 Mins) ☕</button>
+      <button class="primary" style="background:linear-gradient(135deg, var(--spark), var(--growth));" data-act="instant-synergy-match">Who else is up for this? ☕</button>
     </div>
+    <p class="hint" style="margin-top:8px;">Looking for your crew instead? A beacon needs a crew to reach, so it lives on the crew itself — People → your crew → ⚡ Up for it.</p>
     <div id="instant-match-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -338,34 +428,53 @@ function todayView() {
       <h2>🍷 Instant Dating & Evening Drinks Radar</h2>
       <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Next Hour</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Want to meet someone new for drinks tonight in the next hour? Match instantly & set a shared map pin + ETA!</p>
-    <div class="row2"><input class="field" id="dt-vibe" placeholder="Vibe (e.g. drinks tonight)" value="drinks tonight">
-    <input class="field" id="dt-time" placeholder="Timeframe (e.g. next hour)" value="next hour"></div>
-    <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Match Instant Drinks Meetup 🍷</button>
+    <p class="hint" style="margin-bottom:8px;">You can see who is open to meeting here once you are open yourself — nobody browses this list from the outside. Interest stays private unless it is returned.</p>
+    <div class="row2">
+      <input class="field" id="dt-vibe" placeholder="Vibe (e.g. quiet drink)">
+      <input class="field" id="dt-city" placeholder="City (blank = where you said you are)">
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, rgba(236,72,153,1), rgba(168,85,247,1));" data-act="instant-dating-match">Who is open 🍷</button>
+      <button class="ghost" data-act="dating-open-to">I'm open tonight ✋</button>
+    </div>
     <div id="instant-dating-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Universal Multi-Vertical Synergy Matcher ---- */
+  /* ---- Synergy matcher ----
+     The card used to promise "7-Factor Matchmaking: Proximity + Preferences + Heatmap +
+     Popularity + Graph Trust + Energy + Weather" and there were no such factors — the seven
+     were constants and the partner was always Elena R. or Marcus T. It searches real signals
+     now, so the two things it needs are a place to type what you want and a way to publish
+     that you want it. The vertical buttons stay: they fill the box in and search. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌐 Universal 7-Factor Real-World Matchmaking Radar</h2>
-      <span class="badge good" style="font-weight:bold;">All Verticals</span>
+      <h2>🌐 Who else is up for it</h2>
+      <span class="badge good" style="font-weight:bold;">This city</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match on 7 Factors: Proximity + Preferences + Heatmap + Popularity + Graph Trust + Energy + Weather!</p>
+    <p class="hint" style="margin-bottom:8px;">Say what you want to do. This searches people who have said the same thing in the same city — and nothing else.</p>
     <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="match-sports-partner">🏃 Sports Buddy 🧗</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #4f46e5);" data-act="match-nomad-partner">💻 Co-Working Partner ☕</button>
-    </div>
-    <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #d946ef);" data-act="match-creative-partner">🎵 Creative Jam Session 🎸</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="match-dining-partner">🍲 Dining Crew Outing 🍷</button>
+      <input class="field" id="sy-act" placeholder="Bouldering, ramen, techno…">
+      <input class="field" id="sy-city" placeholder="City (blank = where you said you are)">
     </div>
     <div class="row2" style="margin-bottom:6px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #0284c7);" data-act="match-ski-partner">⛷️ Powder Alert Skiing ❄️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="match-surf-partner">🏄 Swell Alert Surfing 🌊</button>
+      <button class="primary" data-act="synergy-search">Find people 🔎</button>
+      <button class="ghost" data-act="synergy-open-to">I'm up for this ✋</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="bouldering">🧗 Sports</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="co-working">💻 Co-working</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="live music">🎵 Music</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="dinner">🍲 Food</button>
+    </div>
+    <div class="row2" style="margin-bottom:6px;">
+      <button class="ghost" data-act="synergy-vertical" data-activity="skiing">⛷️ Skiing</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="surfing">🏄 Surfing</button>
     </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6d28d9);" data-act="match-rave-partner">🪩 Raves & Nightlife 🎶</button>
+      <button class="ghost" data-act="synergy-vertical" data-activity="techno">🪩 Nightlife</button>
+      <button class="ghost" data-act="synergy-mine">What I'm publishing 📋</button>
     </div>
     <div id="vertical-match-output" style="margin-top:10px;"></div>
   </div>`;
@@ -421,7 +530,8 @@ function todayView() {
       ⚡ <strong>Recommendation:</strong> Ideal time for a 4-person Bouldering or Sunset Drinks Crew Outing!
     </div>
     <div class="row2">
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">Mint Proof-of-Presence Badge 🎟️</button>
+      <input class="field" id="pop-place" placeholder="Where were you?" style="margin-bottom:6px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #d97706);" data-act="mint-pop-badge">I was there ✅</button>
     </div>
     <div id="pop-mint-output" style="margin-top:10px;"></div>
   </div>`;
@@ -447,7 +557,7 @@ function todayView() {
         <span class="badge" style="font-size:10px;">310m away · 280° W</span>
       </div>
     </div>
-    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">🤖 AI Social Co-Pilot: Generate Tailored Icebreakers</button>
+    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">Openers for a match ✍️</button>
     <div id="ai-icebreaker-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -496,23 +606,37 @@ function todayView() {
       <h2>🤝 AI Mentorship & Squad Calendar Sync</h2>
       <span class="badge good" style="font-weight:bold;">1-on-1 & Squads</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match walk-and-talk coffee mentors or sync recurring squad outing calendar routines!</p>
-    <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Match Coffee Mentor 🤝</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Sync Squad Calendar 📅</button>
+    <p class="hint" style="margin-bottom:8px;">Mentorship is a mirror: this looks for someone offering what you want to learn, in your city.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="mt-seek" placeholder="I want to learn…">
+      <input class="field" id="mt-offer" placeholder="I can help with… (optional)">
     </div>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="match-mentor">Find a mentor 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="sync-squad-routine">Set a weekly routine 📅</button>
+    </div>
+    <div class="row2" style="margin-top:8px;">
+      <input class="field" id="sq-title" placeholder="What, every week? (dawn patrol)">
+      <input type="time" class="field" id="sq-at" value="07:00">
+    </div>
+    <select class="field" id="sq-day" style="margin-top:6px;">
+      <option value="mon">Mondays</option><option value="tue">Tuesdays</option>
+      <option value="wed" selected>Wednesdays</option><option value="thu">Thursdays</option>
+      <option value="fri">Fridays</option><option value="sat">Saturdays</option>
+      <option value="sun">Sundays</option>
+    </select>
     <div id="mentor-squad-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Outing Ledger Settle-Up & Live Event Photo Wall ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>💸 Crew Ledger Settle-Up & Micro-Quests</h2>
-      <span class="badge good" style="font-weight:bold;">1-Tap Settlement</span>
+      <h2>💸 Crew tab &amp; micro-quests</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">no money moves</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Settle crew outing tab via Revolut/Crypto or generate city discovery micro-quests!</p>
+    <p class="hint" style="margin-bottom:8px;">What you owe and what you are owed, per person. Settling marks it paid between you — the money still changes hands wherever it already does.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="settle-crew-tab">Settle Crew Outing Tab (€22.50) 💸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="settle-crew-tab">Show the tab 💸</button>
       <button class="primary" style="background:linear-gradient(135deg, #eab308, #ec4899);" data-act="gen-city-quest">Generate Micro-Quest (+50 Karma) 🗺️</button>
     </div>
     <div id="ledger-quest-output" style="margin-top:10px;"></div>
@@ -521,12 +645,12 @@ function todayView() {
   /* ---- Algorithmic Transparency & Community Revenue Share ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🛡️ Algorithmic Transparency & Revenue Share</h2>
-      <span class="badge good" style="font-weight:bold;">0% Doomscroll</span>
+      <h2>🛡️ How the feed ranks</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">read from the code</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">You control your feed algorithm parameters! Community Revenue Share: <strong>€145.00 Earned</strong>.</p>
+    <p class="hint" style="margin-bottom:8px;">The actual numbers the ranking uses, imported from the ranking itself — so this page cannot drift away from what the feed does. It is a description, not a control panel: the version this replaces took weights and stored none of them.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="apply-algo-rules">Apply Transparent Algo Rules 🛡️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="apply-algo-rules">Show me the rules 🛡️</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="stack-habit">Stack Growth Habit (+14 Streak) 🌱</button>
     </div>
     <div id="algo-revenue-output" style="margin-top:10px;"></div>
@@ -559,10 +683,15 @@ function todayView() {
       <h2>🎙️ AI Voice Outing Brief & Social Micro-Gifting</h2>
       <span class="badge good" style="font-weight:bold;">Voice & Perks</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Convert 30-sec voice notes into instant outings or gift a specialty coffee to a friend!</p>
+    <p class="hint" style="margin-bottom:8px;">Paste a note you already have in text. There is no speech-to-text here — this reads words, it does not hear them.</p>
+    <input class="field" id="vb-note" placeholder="Coffee at four, then the viewpoint" style="margin-bottom:6px;">
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="gf-name" placeholder="Owe someone a coffee? (handle)">
+      <input class="field" id="gf-item" placeholder="What — coffee, a beer…">
+    </div>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="convert-voice-brief">Convert Voice Brief 🎙️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Gift Coffee to Elena (€3.80) 🎁</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="gift-friend-coffee">Put it on the tab 🎁</button>
     </div>
     <div id="voice-gift-output" style="margin-top:10px;"></div>
   </div>`;
@@ -584,13 +713,14 @@ function todayView() {
   /* ---- Viral Growth & Referral Engine ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>⚡ Viral Growth & Referral Engine</h2>
-      <span class="badge good" style="font-weight:bold;">+100 Karma & Free Coffee</span>
+      <h2>⚡ Invite &amp; share</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">nothing is awarded</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Share 1-tap invite links to earn free coffee vouchers & generate Instagram/TikTok story cards!</p>
+    <p class="hint" style="margin-bottom:8px;">A join link for your crew, and a card you can post. There is no referral reward here — the badge used to promise free coffee for sharing, from a programme that does not exist.</p>
+    <input class="field" id="share-title" placeholder="What are you sharing? (Sunset at the miradouro)" style="margin-bottom:8px;">
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-invite-link">Create Crew Invite Link ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="gen-story-card">Generate Story Card (1080x1920) 📢</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-invite-link">Crew invite link ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="gen-story-card">Make a card 📢</button>
     </div>
     <div id="viral-growth-output" style="margin-top:10px;"></div>
   </div>`;
@@ -640,11 +770,19 @@ function todayView() {
       <h2>✈️ Airport Layover & Gym Spotter Matcher</h2>
       <span class="badge good" style="font-weight:bold;">Solo Travelers & Fitness</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match airport layover coffee buddies, climbing gym spotters, or neighborhood dog park walks!</p>
+    <p class="hint" style="margin-bottom:8px;">An airport is a city for four hours. Same matcher — it searches people who said they are there and open.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="lo-airport" placeholder="Airport code (e.g. LIS)">
+      <input class="field" id="lo-gym" placeholder="Climbing, weights…">
+    </div>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #0ea5e9, #10b981);" data-act="match-layover-buddy">Find Layover Buddy ✈️</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="match-gym-spotter">Match Gym Spotter 🏋️</button>
       <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="match-language-swap">Language Swap 🎓</button>
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <input class="field" id="ls-speak" placeholder="I speak…">
+      <input class="field" id="ls-learn" placeholder="I want to learn…">
     </div>
     <div id="layover-gym-output" style="margin-top:10px;"></div>
   </div>`;
@@ -731,28 +869,29 @@ function todayView() {
       <h2>🌱 City Pioneer & Cold-Start Viral Engine</h2>
       <span class="badge good" style="font-weight:bold;">Day-0 Seeding</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Auto-bootstrap new cities, mint Founding Pioneer Ambassador passes, generate 3x viral golden tickets, and activate weekly anchor crews!</p>
+    <p class="hint" style="margin-bottom:8px;">Bootstrap a city, see how early you were in it, and mint single-use join links. Being early unlocks nothing — the pass used to promise a year of free VIP.</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="seed-city-bootstrap">Bootstrap City (Lisbon) 🗺️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">Mint Pioneer Pass #042 👑</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3x Golden Tickets 🎟️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">How early was I? 👑</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3 single-use links 🎟️</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="activate-anchor-outings">Weekly Anchor Crews ⚓</button>
     </div>
     <div id="seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Universal ConnectOS Master Controller Studio ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(245,158,11,0.22), rgba(99,102,241,0.22), rgba(16,185,129,0.22)); border:1.5px solid rgba(245,158,11,0.5); box-shadow: 0 8px 32px rgba(245,158,11,0.15);">
+  /* ---- What is actually switched on ----
+     Was the "Universal ConnectOS Master Controller", badged "All 50+ Engines Unified",
+     with four mode buttons that stored nothing and a response claiming BLE mesh, spatial
+     audio and Apple Pay were online. Every line was a constant. */
+  html += `<div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2 style="background: linear-gradient(135deg, #f59e0b, #ec4899, #10b981); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">👑 Universal ConnectOS Master Controller</h2>
-      <span class="badge" style="background:#f59e0b; color:#000; font-weight:bold;">All 50+ Engines Unified</span>
+      <h2>⚙️ What is switched on</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">derived, not asserted</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Harmonize AI Butler, Stripe/PayPal, Hardware Whispers, Circadian Vitality, Offline Mesh & Planetary Impact with 1 tap!</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="set-mode-adventure">🚀 High Adventure Mode</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="set-mode-recovery">🧘 Restorative Recovery</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="set-mode-flow">🎨 Creative Flow Mastery</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="set-mode-impact">🌍 Planetary Impact Guild</button>
+    <p class="hint" style="margin-bottom:8px;">Which capabilities this instance actually has, and which it genuinely cannot do. Each line is checked, not claimed.</p>
+    <div class="row2" style="margin-bottom:8px;">
+      <button class="primary" data-act="system-status">Check the system</button>
+      <button class="ghost" data-act="show-feed-rules">How the feed ranks</button>
     </div>
     <div id="master-controller-output" style="margin-top:10px;"></div>
   </div>`;
@@ -830,8 +969,12 @@ function todayView() {
     <p class="hint" style="margin-bottom:8px;">Spatial 3D festival walkie-talkie, NFC physical tap-to-synergy handshake, local dialect translator, and DAO community treasury!</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">NFC Tap-to-Synergy 📳</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">Swap a code 📳</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="field" id="tap-code" placeholder="Their code — or leave empty to show yours" style="margin-bottom:6px;">
+      <input class="field" id="cb-phrase" placeholder="A phrase you heard and didn't get">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="view-dao-treasury">DAO Community Treasury 🏛️</button>
     </div>
     <div id="frontier-social-output" style="margin-top:10px;"></div>
@@ -847,8 +990,12 @@ function todayView() {
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-boredom-quest">I'm Bored (15m Quests) ⚡</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="align-ikigai-compass">Ikigai Fulfillment Compass 🧘</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Screen-Free Flow Lab 🌊</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Deep Dinner Salon 🕊️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="book-flow-mastery">Find a practice partner 🌊</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f43f5e);" data-act="book-meaningful-salon">Find a dinner table 🕊️</button>
+    </div>
+    <div class="row2" style="margin-bottom:8px;">
+      <input class="field" id="fm-skill" placeholder="Skill to practise">
+      <input class="field" id="ms-theme" placeholder="Dinner theme">
     </div>
     <div id="fulfillment-butler-output" style="margin-top:10px;"></div>
   </div>`;
@@ -880,7 +1027,10 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="optimize-circadian-vitality">Circadian Vitality 🧬</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="track-regret-minimization">Regret Minimizer 🌟</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="optimize-life-wealth">Wealth & Memory ROI 💰</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Stoic Presence Mirror 🕊️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981);" data-act="log-stoic-reflection">Write it down 🕊️</button>
+    </div>
+    <div style="margin-bottom:8px;">
+      <input class="field" id="sr-note" placeholder="Something worth remembering (private, never scored)">
     </div>
     <div id="life-value-output" style="margin-top:10px;"></div>
   </div>`;
@@ -921,11 +1071,12 @@ function todayView() {
       <h2>🌐 Ultimate Frontier Capabilities</h2>
       <span class="badge good" style="font-weight:bold;">Final Frontier</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Offline P2P BLE mesh network, smart glasses ambient audio whispers, cryptographic Web of Trust, and 3D living memory atlas!</p>
+    <p class="hint" style="margin-bottom:8px;">Who has vouched for somebody — by name, never a score — and the places you have actually been. This app verifies no identity.</p>
+    <input class="field" id="tw-who" placeholder="Their handle (empty shows your own vouches)" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="sync-offline-mesh">Offline BLE Mesh Sync 📴</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="listen-wearable-whispers">Wearable Audio Whispers 🦻</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="verify-web-of-trust">Web of Trust (ZK) 🤝</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="verify-web-of-trust">Who vouches for them 🤝</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #10b981);" data-act="view-memory-atlas">Living Memory Atlas 🗺️</button>
     </div>
     <div id="ultimate-frontier-output" style="margin-top:10px;"></div>
@@ -1057,9 +1208,9 @@ function todayView() {
       <h2>📦 Universal Data Portability & Obsidian Vault</h2>
       <span class="badge good" style="font-weight:bold;">100% User Owned</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Export your complete memories, social graph & financial ledger into clean linked Markdown for Obsidian, Notion & Apple Notes.</p>
+    <p class="hint" style="margin-bottom:8px;">Everything you have put in, as Markdown you can open anywhere. It is built here and saved from your own browser — nothing is uploaded, and credentials are left out.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #3b82f6); width:100%;" data-act="export-universal-markdown">Export Full Linked Obsidian Markdown Vault (.zip) 📁</button>
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #3b82f6); width:100%;" data-act="export-universal-markdown">Export everything 📁</button>
     </div>
     <div id="markdown-export-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1296,19 +1447,18 @@ function todayView() {
   </div>`;
 
   /* ---- Interactive 3D Real-World Activity Globe ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(6,182,212,0.15)); border:1px solid rgba(16,185,129,0.3);">
+  /* Was a "3D Real-World Activity Globe" whose headline count, four city rows and their
+     temperatures were written straight into the markup — not even fetched — above a button
+     that only fired a toast. `/city/live-globe` counts real rows now, so the card reads it
+     instead of asserting a world that is not there. */
+  html += `<div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🗺️ Interactive 3D Real-World Activity Globe</h2>
-      <span class="badge good" style="font-weight:bold;">115 Active Flares</span>
+      <h2>🗺️ Where anybody actually is</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">counted, not drawn</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Live WebGL Globe: Spatial 3D view of active social flares across global hubs!</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇵🇹 Lisbon:</strong> 14 Flares · 24°C 🌅</div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇯🇵 Tokyo:</strong> 28 Flares · 19°C 🗼</div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇺🇸 New York:</strong> 32 Flares · 22°C 🌆</div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇬🇧 London:</strong> 22 Flares · 18°C 🎡</div>
-    </div>
-    <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" onclick="toast('3D Spatial Globe Canvas Rendered! 🌐');">Expand 3D Spatial Globe 🌐</button>
+    <p class="hint" style="margin-bottom:8px;">Cities this instance has activity in, by how much. No globe and no coordinates — a city here is a name people typed.</p>
+    <button class="primary" data-act="show-globe">Show me</button>
+    <div id="globe-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Nomad Passport & City Teleport ---- */
@@ -1714,16 +1864,11 @@ function peopleView() {
     <button class="primary" data-act="auto-ingest-city">Sync Live Events 🎟️</button></div>
   </div>`;
 
-  /* ---- ZK Anonymous Attribute Verification ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🔐 Zero-Knowledge (ZK) Anonymous Credential Engine</h2>
-      <span class="badge good" style="font-weight:bold;">ZK-SNARKs</span>
-    </div>
-    <p class="hint" style="margin-bottom:8px;">Prove age (>18), local residency, or skill level without revealing identity or DOB!</p>
-    <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="zk-verify-attr">Generate ZK-Proof (>18 Age / Verified Resident) 🔐</button>
-    <div id="zk-proof-output" style="margin-top:10px;"></div>
-  </div>`;
+  /* A "Zero-Knowledge Anonymous Credential Engine" card sat here, offering to prove you
+     were over 18 or a verified resident. Nothing behind it verified anything — the endpoint
+     returned success for any attribute from any caller. Removed rather than restyled: an
+     age claim the app displays as proven is the one piece of theatre that can actually hurt
+     somebody. */
 
   html += `<div class="subhead" style="margin-top:12px;">Publish Public Activity</div>
     <div class="row2"><input class="field" id="fa-title" placeholder="Title (e.g. Sushi & Drinks)">
@@ -1733,19 +1878,11 @@ function peopleView() {
     <button class="primary" data-act="feed-publish">Publish Public Activity</button>
   </div>`;
 
-  /* ---- Weekly Crew Outing Poll ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(236,72,153,0.15)); border:1px solid rgba(234,179,8,0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>📊 Weekly Crew Outing Poll</h2>
-      <span class="badge good" style="font-weight:bold;">Active Poll</span>
-    </div>
-    <p class="hint" style="margin-bottom:10px;">Where should the crew go this Friday night?</p>
-    <div style="display:flex; flex-direction:column; gap:8px;">
-      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Outdoor Bouldering & Craft Beer">🧗 Outdoor Bouldering & Craft Beer <small style="color:var(--muted);">(4 votes)</small></button>
-      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Specialty Coffee Tasting & Walk">☕ Specialty Coffee Tasting & Walk <small style="color:var(--muted);">(2 votes)</small></button>
-      <button class="ghost" style="text-align:left; padding:8px 12px;" data-act="crew-poll-vote" data-opt="Miradouro Sunset Drinks & Pizza">🌅 Miradouro Sunset Drinks & Pizza <small style="color:var(--muted);">(6 votes)</small></button>
-    </div>
-  </div>`;
+  /* The "Weekly Crew Outing Poll" card lived here: three hardcoded options with invented
+     vote counts (4, 2 and 6) that were the same for every account, and a vote button that
+     posted a string to an endpoint which stored nothing. Polls are per-crew and real now —
+     they are opened and read from the crew's own row, where there is a crew id to attach
+     them to. A poll with no crew is what made the old one fictional. */
 
   /* ---- Live Field Reports & Spot Reviews ---- */
   if (state.communityReviews && state.communityReviews.reviews) {
@@ -1795,46 +1932,64 @@ function peopleView() {
       <h2>🛡️ SafeWalk Live Companion & Escort</h2>
       <span class="badge good" style="font-weight:bold;">Safety Radar</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Heading out for an evening date or night outing? Notify your crew & activate live ETA monitoring!</p>
-    <div class="row2"><input class="field" id="sw-dest" placeholder="Destination Spot">
-    <input class="field" id="sw-eta" type="number" placeholder="ETA (mins)" value="15"></div>
-    <button class="primary" data-act="start-safewalk-escort">Activate SafeWalk Escort 🛡️</button>
+    <p class="hint" style="margin-bottom:8px;">Say where you are going and when you should be there. The people you name see it, and see when you are overdue. <strong>This app cannot call anyone</strong> — in an emergency, call your local emergency number.</p>
+    <div class="row2"><input class="field" id="sw-dest" placeholder="Where are you going?">
+    <input class="field" id="sw-eta" type="number" placeholder="Minutes" value="30"></div>
+    <input class="field" id="sw-watchers" placeholder="Who should see it? (handles or ids, comma separated)" style="margin-top:6px;">
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" data-act="start-safewalk-escort">Start the walk 🛡️</button>
+      <button class="ghost" data-act="safewalk-arrived">I got there ✅</button>
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="ghost" data-act="safewalk-mine">My walk</button>
+      <button class="ghost" data-act="safewalk-watching">Who I'm watching</button>
+    </div>
+    <div id="safewalk-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Outing Expense Splitter & Payment Links ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>💸 Outing Expense Splitter & Payment Link</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">1-Tap Payment Link</span>
+      <h2>💸 The tab</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">no money moves</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Split drinks, dinners, or venue fees across outing members & generate 1-tap payment links!</p>
-    <div class="row2"><input class="field" id="qs-title" placeholder="Expense Title (e.g. Sunset Drinks)">
-    <input class="field" id="qs-amount" type="number" step="0.01" placeholder="Total € (e.g. 60.00)">
+    <p class="hint" style="margin-bottom:8px;">You paid, everybody owes you their share. Name people and it goes on a tab you can both see and settle. Leave the names empty and it is just the arithmetic.</p>
+    <div class="row2"><input class="field" id="qs-title" placeholder="What was it? (tapas)">
+    <input class="field" id="qs-amount" type="number" step="0.01" placeholder="Total (60.00)">
     <input class="field" id="qs-people" type="number" placeholder="People" value="4"></div>
-    <button class="primary" data-act="quick-split-expense">Split & Generate Payment Links 💸</button>
+    <input class="field" id="qs-who" placeholder="Who else? (handles, comma separated)" style="margin-top:6px;">
+    <div class="row2" style="margin-top:8px;">
+      <button class="primary" data-act="quick-split-expense">Split it</button>
+      <button class="ghost" data-act="show-tab">Show my tab</button>
+      <button class="ghost" data-act="tab-history">History</button>
+    </div>
     <div id="quick-split-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Strava-Style Kudos & XP Boost ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>👏 Strava-Style Kudos & XP Boost</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">+50 XP</span>
+      <h2>👏 Kudos</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">no score</span>
     </div>
-    <p class="hint" style="margin-bottom:10px;">Celebrate your friends' habit streaks, workouts, and deep work focus sessions!</p>
-    <div class="row2"><input class="field" id="kd-name" placeholder="Friend Name (e.g. Alex)">
-    <button class="primary" data-act="kudos-send">Send Kudos & XP 👏</button></div>
+    <p class="hint" style="margin-bottom:10px;">A short note to somebody, which they can read. No score and no streak — the "+50 XP" this card used to promise was the same number for everyone.</p>
+    <div class="row2" style="margin-bottom:6px;">
+      <input class="field" id="kd-name" placeholder="Their handle">
+      <input class="field" id="kd-note" placeholder="What are you thanking them for?">
+    </div>
+    <button class="primary" data-act="kudos-send">Send it 👏</button>
   </div>`;
 
   /* ---- Buy a Coffee / Micro-Tip Host ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>☕ Buy a Coffee / Micro-Tip Host</h2>
-      <span class="badge good" style="font-weight:bold;">Direct Support</span>
+      <h2>☕ Tip a host</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">recorded, not sent</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Send a 1-tap €3.50 coffee tip to crew organizers and route builders!</p>
-    <div class="row2"><input class="field" id="tp-name" placeholder="Host Name (e.g. Alex)">
-    <button class="primary" data-act="send-micro-tip">Send Coffee Tip (€3.50) ☕</button></div>
+    <p class="hint" style="margin-bottom:8px;">This app moves no money. A tip goes on your tab as owed, where they can see it and either of you can mark it settled.</p>
+    <div class="row2"><input class="field" id="tp-name" placeholder="Their handle">
+    <input class="field" id="tp-amount" type="number" step="0.01" placeholder="3.50"></div>
+    <button class="primary" data-act="send-micro-tip" style="margin-top:6px;">Put it on my tab ☕</button>
   </div>`;
 
   /* ---- Live Audio Crew Space ---- */
@@ -1901,12 +2056,16 @@ function peopleView() {
     </div>`;
   }
 
-  /* ---- Personal vCard QR Code Exchange ---- */
-  html += `<div class="card"><h2>Personal vCard QR Code Exchange</h2>
-    <p class="hint" style="margin-bottom:10px;">Show your QR code to people you meet to instantly share contact info & trust badge.</p>
-    <div style="text-align:center; padding:10px 0;">
-      <img src="https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=BEGIN:VCARD%0AVERSION:3.0%0AFN:LifeOS%20Member%0ANOTE:Verified%20Meeter%0AEND:VCARD" style="width:160px; height:160px; border-radius:12px; border:2px solid var(--spark); padding:6px; background:#fff;">
-    </div>
+  /* ---- Personal contact card ----
+     This was an <img> pointing at api.qrserver.com with a vCard in the query string. Two
+     things were wrong with it: every viewer's IP went to a third party each time the tab
+     rendered, and the card was the hardcoded string "LifeOS Member" — the same QR for
+     everybody, carrying nobody's details. It is built from your own account now, and the
+     file is produced locally. */
+  html += `<div class="card"><h2>Personal contact card</h2>
+    <p class="hint" style="margin-bottom:10px;">A vCard with your handle and trust badge — save it, or send it to someone you meet.</p>
+    <button class="primary" data-act="vcard-download">Get my contact card</button>
+    <div id="vcard-output" style="margin-top:10px;"></div>
   </div>`;
 
   return html;
@@ -1928,9 +2087,12 @@ function crewsView() {
         <button class="pill calm" data-act="chat-crew" data-id="${c.id}" data-name="${esc(c.name)}">Chat</button>
         <button class="pill" data-act="crew-link" data-id="${c.id}">🔗 Invite</button>
         <button class="pill good" data-act="crew-pass" data-id="${c.id}">🎟️ Plus-One Pass</button>
+        <button class="pill" data-act="crew-polls" data-id="${c.id}" data-name="${esc(c.name)}">📊 Polls</button>
+        <button class="pill" data-act="crew-beacons" data-id="${c.id}" data-name="${esc(c.name)}">⚡ Up for it</button>
         <button class="pill" data-act="crew-ics" data-id="${c.id}">📅 .ics</button>
       </div></div>`).join("");
   }
+  html += `<div id="crew-activity-output" style="margin-top:10px;"></div>`;
 
   html += `<div class="subhead" style="margin-top:12px;">Instant Crew Starters (1-Tap)</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:12px;">
@@ -2012,6 +2174,122 @@ function crewsView() {
     <select class="field" multiple id="sp-members">${peopleOpts}</select>
     <button class="primary" data-act="split-expense">Split Expense Equally</button>
   </div>`;
+
+  return html;
+}
+
+function cityView() {
+  const rooms = state.cityRooms || [];
+  const room = state.cityChat;
+  const current = state.cityRoom || "";
+
+  let html = `<div class="card"><h2>City chat</h2>
+    <p class="hint" style="margin-bottom:10px;">One room per city, for people who have just landed. Messages disappear after a week.</p>
+    <div class="row2">
+      <input class="field" id="city-name" placeholder="Which city are you in?" value="${esc(current)}" autocapitalize="words">
+      <button class="primary" style="width:auto; padding:0 16px;" data-act="city-open">Open</button>
+    </div>
+  </div>`;
+
+  const here = state.cityArrival;
+  if (here) {
+    const people = here.around || [];
+    const others = people.filter(p => !p.mine);
+    html += `<div class="card"><h2>${esc(here.label)}</h2>
+      ${here.suggestion ? `<p class="hint">${esc(here.suggestion)}</p>` : ""}
+      <div class="pills" style="margin:8px 0; flex-wrap:wrap;">
+        <span class="badge">${others.length} around</span>
+        <span class="badge">${(here.crews || []).length} crew${(here.crews || []).length === 1 ? "" : "s"}</span>
+        <span class="badge">${(here.events || []).length} event${(here.events || []).length === 1 ? "" : "s"}</span>
+      </div>
+      ${others.length ? others.map(p => `
+        <div class="feed-item">
+          <div class="label">${esc(p.handle)}</div>
+          ${p.note ? `<div>${esc(p.note)}</div>` : ""}
+        </div>`).join("") : ""}
+      ${(here.crews || []).length ? `<div class="subhead" style="margin-top:10px;">Crews here</div>
+        ${(here.crews || []).map(c => `<div class="feed-item"><div class="label">${esc(c.name || "")}</div></div>`).join("")}` : ""}
+      ${(here.places || []).length ? `<div class="subhead" style="margin-top:10px;">Places on the map</div>
+        <p class="hint" style="margin-bottom:6px;">${here.place_count} in ${esc(here.label)}, from OpenStreetMap. The one thing a city has before anybody arrives.</p>
+        ${(here.places || []).slice(0, 8).map(pl => `
+          <div class="feed-item">
+            <div class="label">${esc(pl.name)}</div>
+            <div class="hint">${esc(pl.category)}${pl.street ? ` · ${esc(pl.street)}` : ""}${pl.opening_hours ? ` · ${esc(pl.opening_hours)}` : ""}</div>
+          </div>`).join("")}
+        <p class="hint" style="margin-top:6px;">© OpenStreetMap contributors</p>` : ""}
+      <div style="margin-top:10px;">
+        ${here.you_are_here
+          ? `<button class="ghost" data-act="city-hide">You are listed as here — take it down</button>`
+          : `<div class="row2">
+               <input class="field" id="city-note" placeholder="Optional: what you are up for">
+               <button class="primary" style="width:auto; padding:0 16px;" data-act="city-here">I'm here</button>
+             </div>
+             <p class="hint" style="margin-top:6px;">Tells other travellers you are in ${esc(here.label)} for the next few days. Nobody sees anything finer than the city, and you can take it down at any moment.</p>`}
+      </div>
+    </div>`;
+  }
+
+  if (rooms.length) {
+    html += `<div class="card"><div class="subhead">Rooms with people in them</div>
+      <div class="pills" style="margin-top:8px; flex-wrap:wrap;">
+        ${rooms.map(r => `<button class="pill" data-act="city-open" data-city="${esc(r.label || r.city)}">${esc(r.label || r.city)} · ${r.voices} ${r.voices === 1 ? "voice" : "voices"}</button>`).join("")}
+      </div></div>`;
+  }
+
+  const plans = state.cityMeetups;
+  if (plans && current) {
+    const list = plans.meetups || [];
+    html += `<div class="card"><h2>What's on</h2>
+      ${list.length ? list.map(m => `
+        <div class="feed-item">
+          <div class="label">${esc(m.title)}</div>
+          <div style="font-size:13px;">${esc(whenLabel(m.starts_at))}${m.place ? ` · ${esc(m.place)}` : ""}</div>
+          ${m.note ? `<div class="hint">${esc(m.note)}</div>` : ""}
+          <div class="hint" style="margin-top:4px;">${esc(m.organiser_handle)} organising · ${m.going_count} going${m.going.length ? `: ${m.going.map(p => esc(p.handle)).join(", ")}` : ""}</div>
+          <div class="pills" style="margin-top:6px;">
+            ${m.you_are_going
+              ? `<button class="pill" data-act="meetup-leave" data-id="${esc(m.meetup_id)}">${m.yours ? "Call it off" : "Can't make it"}</button>`
+              : `<button class="pill good" data-act="meetup-join" data-id="${esc(m.meetup_id)}">I'm in</button>`}
+          </div>
+        </div>`).join("")
+        : `<p class="hint">Nothing planned here yet. Propose something — a walk, a coffee, a swim.</p>`}
+
+      <div class="subhead" style="margin-top:12px;">Propose something</div>
+      <input class="field" id="mu-title" placeholder="What is it? (e.g. Sunset at the viewpoint)">
+      <div class="row2" style="margin-top:6px;">
+        <input class="field" id="mu-place" placeholder="Where (a public place)">
+        <input class="field" id="mu-when" type="datetime-local">
+      </div>
+      <button class="primary" style="margin-top:6px;" data-act="meetup-create">Put it up</button>
+      <p class="hint" style="margin-top:8px;">${esc(plans.safety_note || "")}</p>
+    </div>`;
+  }
+
+  if (room) {
+    const lines = (room.messages || []).map(m => `
+      <div class="feed-item" style="display:flex; justify-content:space-between; gap:8px; align-items:flex-start;">
+        <div>
+          <div class="label">${esc(m.author_handle)}${m.mine ? " (you)" : ""}</div>
+          <div>${esc(m.text)}</div>
+        </div>
+        <div class="pills" style="flex-shrink:0;">
+          ${m.mine
+            ? `<button class="pill bad" data-act="city-remove" data-id="${esc(m.message_id)}">Delete</button>`
+            : `<button class="pill" data-act="city-mute" data-id="${esc(m.author_id)}">Mute</button>
+               <button class="pill warm" data-act="city-report" data-id="${esc(m.message_id)}">Report</button>`}
+        </div>
+      </div>`).join("");
+
+    html += `<div class="card"><h2>${esc(current || room.city)}</h2>
+      ${lines || `<p class="hint">Nobody has said anything yet. Be the first — say where you are and what you are up for.</p>`}
+      ${room.muted ? `<p class="hint" style="margin-top:8px;">${room.muted} message${room.muted === 1 ? "" : "s"} hidden from people you muted.</p>` : ""}
+      <div class="row2" style="margin-top:10px;">
+        <input class="field" id="city-say" placeholder="Say something to the room">
+        <button class="primary" style="width:auto; padding:0 16px;" data-act="city-say">Send</button>
+      </div>
+      <p class="hint" style="margin-top:8px;">Anyone signed in can read this, and posting says you are in ${esc(current || room.city)}. Your handle is shown — never your email.</p>
+    </div>`;
+  }
 
   return html;
 }
@@ -2212,7 +2490,9 @@ function moreView() {
       : `<p class="empty">No shared spaces yet.</p>`}</div>`;
 
   /* ---- Critical Medical ID Card ---- */
-  const crit = m.critical || {};
+  // `/triage/card` answers `{configured, card: {...}}`, so reading the fields off the
+  // envelope left every box empty even once the URL was right.
+  const crit = (m.critical && m.critical.card) || {};
   html += `<div class="card"><h2>Critical Medical ID Card</h2>
     <div class="row2"><input class="field" id="cr-name" placeholder="Full Name" value="${esc(crit.full_name || "")}">
     <input class="field" id="cr-blood" placeholder="Blood Type (e.g. O+)" value="${esc(crit.blood_type || "")}"></div>
@@ -2413,6 +2693,8 @@ function moreView() {
         </div></div>
       `).join("")}
     ` : ""}
+  </div>`;
+
   /* ---- Developer Platform & Open API Keys ---- */
   const devKeys = [
     { id: "key_live_9921", name: "Zapier Automation Key", created_at: "2026-08-05T19:30:00Z", status: "active" },
@@ -2437,16 +2719,26 @@ function moreView() {
     <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
       <a href="/docs" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📚 Interactive OpenAPI Docs (/docs)</a>
       <a href="/redoc" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📘 ReDoc API Spec (/redoc)</a>
-      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (`sdk/lifeos.py`)</span>
+      <span class="badge spark" style="font-weight:bold;">🐍 Official Python SDK (sdk/lifeos.py)</span>
     </div>
   </div>`;
 
-  /* ---- Diurnal Push Notification Scheduler ---- */
-  html += `<div class="card"><h2>Diurnal Push Notification Scheduler</h2>
-    <p class="hint" style="margin-bottom:10px;">Schedule device push triggers for Morning Intent lock and Evening Sunset reflection.</p>
-    <div class="row2"><label class="hint" style="margin-top:4px;">Morning Intent (AM): <input type="time" class="field" id="nt-am" value="08:00"></label>
-    <label class="hint" style="margin-top:4px;">Evening Sunset (PM): <input type="time" class="field" id="nt-pm" value="21:00"></label></div>
-    <button class="primary" style="margin-top:8px;" data-act="nt-save">Schedule Daily Notifications 🔔</button>
+  /* ---- Reminders ----
+     Was "Diurnal Push Notification Scheduler", which promised device push triggers. This
+     app has no push key, no APNs certificate and no SMS provider: a reminder is here
+     waiting when you next open it, and the card says so rather than implying a buzz. */
+  html += `<div class="card"><h2>Reminders</h2>
+    <p class="hint" style="margin-bottom:10px;">Nothing is pushed — this app cannot buzz your phone. A reminder waits here for you to open it.</p>
+    <div class="row2">
+      <input class="field" id="nt-text" placeholder="Remind me to…">
+      <input type="time" class="field" id="nt-at" value="08:00">
+    </div>
+    <input class="field" id="nt-days" placeholder="Days (mon,wed,fri) — empty means every day" style="margin-top:6px;">
+    <div class="row2" style="margin-top:8px;">
+      <button class="primary" data-act="nt-save">Remind me 🔔</button>
+      <button class="ghost" data-act="nt-list">What is waiting</button>
+    </div>
+    <div id="reminders-output" style="margin-top:10px;"></div>
   </div>`;
 
   return html;
@@ -2460,8 +2752,27 @@ function selectedPeople(eventId) {
 }
 
 function wire(root) {
-  const on = (selector, handler) => root.querySelectorAll(selector).forEach((el) =>
-    el.addEventListener("click", () => handler(el)));
+  // `on` binds listeners to the elements that exist *now*. Anything a renderer writes into
+  // the page afterwards with innerHTML therefore has no listener at all: the button appears,
+  // looks live, and does nothing when tapped. Every dynamic result card in this file has
+  // that shape, so `on` also records the handler by action name and `bindLater` attaches it
+  // to markup added after the fact.
+  const acts = {};
+  const on = (selector, handler) => {
+    const named = selector.match(/^\[data-act=([^\]]+)\]$/);
+    if (named) acts[named[1]] = handler;
+    root.querySelectorAll(selector).forEach((el) =>
+      el.addEventListener("click", () => handler(el)));
+  };
+  const bindLater = (container) => {
+    if (!container) return;
+    container.querySelectorAll("[data-act]").forEach((el) => {
+      const handler = acts[el.dataset.act];
+      if (!handler || el.dataset.bound) return;
+      el.dataset.bound = "1";
+      el.addEventListener("click", () => handler(el));
+    });
+  };
 
   on("[data-act=vision]", () => act(async () => {
     const text = $("#vision-text").value.trim();
@@ -2850,7 +3161,7 @@ function wire(root) {
     const blood_type = $("#cr-blood").value.trim();
     const allergies = $("#cr-allergies").value.trim();
     const notes = $("#cr-notes").value.trim();
-    await api("/v1/triage/critical", { full_name, blood_type, allergies, notes });
+    await api("/v1/triage/card", { full_name, blood_type, allergies, notes });
     await refresh();
   }, "Critical info saved ✔"));
 
@@ -2932,7 +3243,9 @@ function wire(root) {
   on("[data-act=ics-import]", () => act(async () => {
     const content = $("#ics-content").value.trim();
     if (!content) return toast("Paste .ics content to import.");
-    await api("/v1/calendar/import-ics", { ics_content: content });
+    // The route is `/calendar/sync-import`; this asked for `/calendar/import-ics`, which
+    // does not exist — so every paste of a calendar feed 404'd and imported nothing.
+    await api("/v1/calendar/sync-import", { ics_content: content });
     $("#ics-content").value = "";
     await refresh();
   }, "iCalendar feed imported ✔"));
@@ -3090,10 +3403,13 @@ function wire(root) {
   }, "Event URL imported to discovery feed! 🎟️"));
 
   on("[data-act=crew-pass]", (el) => act(async () => {
-    const res = await api(`/v1/crews/${el.dataset.id}/guest-pass`);
-    const shareText = res.share_text || "🎟️ Plus-One Pass to our Crew Outing!";
-    await navigator.clipboard.writeText(shareText).catch(() => {});
-    toast("Plus-One Guest Pass link copied to clipboard! 🎟️ Send to a friend.");
+    // Copied a link to lifeos.app carrying `token=plus_one_<crew id>` — a token this
+    // deployment never issued, on a host it does not serve. It is a real single-use invite
+    // now, and the link points at wherever this app is actually running.
+    const res = await api(`/v1/crews/${el.dataset.id}/guest-pass`, {});
+    const link = location.origin + res.invite_path;
+    await navigator.clipboard.writeText(link).catch(() => {});
+    toast("Plus-one link copied — one person, expires in a day. 🎟️");
   }));
 
   on("[data-act=mindfulness-start]", () => act(async () => {
@@ -3170,11 +3486,59 @@ function wire(root) {
     toast(`API Key Created! Secret copied to clipboard: ${secret.slice(0, 12)}... 🔑`);
   }));
 
+  /* It echoed two times back, stored nothing, and toasted "Daily Push Notifications
+     Scheduled". Nothing was scheduled and nothing could ever have been pushed. */
+  function renderReminders(res) {
+    const out = $("#reminders-output");
+    if (!out) return;
+    const dueList = res.due || [];
+    const set = res.reminders || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${dueList.map(r => `<div style="font-size:13px; margin-bottom:4px;">
+            <strong>${esc(r.text)}</strong> — due ${esc(r.at)}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="nt-ack" data-id="${esc(r.reminder_id)}">Got it</button>
+          </div>`).join("")}
+        ${set.map(r => `<div style="font-size:13px; margin-bottom:4px;">
+            ${esc(r.text)} · ${esc(r.at)} · ${esc((r.days || []).join(", "))}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="nt-cancel" data-id="${esc(r.reminder_id)}">Stop</button>
+          </div>`).join("")}
+        ${(dueList.length || set.length) ? "" : `<div style="font-size:13px; color:var(--muted);">Nothing set.</div>`}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.delivery_note || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
+
+  const showReminders = async () => {
+    const [due, set] = await Promise.all([api("/v1/notifications/due"),
+                                          api("/v1/notifications")]);
+    renderReminders({ ...set, due: due.due, delivery_note: set.delivery_note });
+  };
+
   on("[data-act=nt-save]", () => act(async () => {
-    const am_time = $("#nt-am").value || "08:00";
-    const pm_time = $("#nt-pm").value || "21:00";
-    await api("/v1/notifications/schedule", { am_time, pm_time });
-    toast(`Daily Push Notifications Scheduled for ${am_time} AM & ${pm_time} PM 🔔`);
+    const text = $("#nt-text").value.trim();
+    if (!text) { toast("Remind you of what?"); return; }
+    const days = $("#nt-days").value.split(",").map(d => d.trim()).filter(Boolean);
+    // The wall-clock time is what was typed; the offset says where the person is standing,
+    // so "08:00" stays eight in the morning after they fly somewhere else.
+    await api("/v1/notifications/schedule", {
+      text, at: $("#nt-at").value || "08:00", days,
+      utc_offset_minutes: -new Date().getTimezoneOffset(),
+    });
+    $("#nt-text").value = "";
+    await showReminders();
+  }));
+
+  on("[data-act=nt-list]", () => act(showReminders));
+
+  on("[data-act=nt-ack]", (el) => act(async () => {
+    await api("/v1/notifications/acknowledge", { reminder_id: el.dataset.id });
+    await showReminders();
+  }));
+
+  on("[data-act=nt-cancel]", (el) => act(async () => {
+    await api("/v1/notifications/cancel", { reminder_id: el.dataset.id });
+    await showReminders();
   }));
 
   /* ---- Ambient Focus & Sleep Audio Synthesizer ---- */
@@ -3244,10 +3608,16 @@ function wire(root) {
   }, "Trip activities added to Smart Calendar! 📅"));
 
   on("[data-act=kudos-send]", () => act(async () => {
-    const recipient = $("#kd-name").value.trim() || "Alex";
-    const res = await api("/v1/kudos/send", { recipient });
-    $("#kd-name").value = "";
-    toast(res.message || `Kudos & +50 XP sent to ${recipient}! 👏`);
+    /* Posted `{recipient}` with no note, defaulting the name to "Alex" — so it 400'd on
+       every click (a kudos needs something to say), and had it succeeded it would have
+       been addressed to a string nobody owns. */
+    const recipient = $("#kd-name").value.trim();
+    const note = $("#kd-note").value.trim();
+    if (!recipient) { toast("Who is it for?"); return; }
+    if (!note) { toast("What are you thanking them for?"); return; }
+    await api("/v1/kudos/send", { to_account: recipient, note });
+    $("#kd-name").value = ""; $("#kd-note").value = "";
+    toast("Sent — they can read it.");
   }));
 
   on("[data-act=find-tomorrow-am]", () => act(async () => {
@@ -3289,10 +3659,101 @@ function wire(root) {
     `;
   }, "Matched New Local Friends! 🤝"));
 
+  /* Crew polls and beacons.
+
+     The poll card was three hardcoded options with invented vote counts; the beacon
+     endpoint returned "broadcasted" and reached nobody. Both are per-crew objects now, so
+     both render from the crew's own row where a crew id exists. */
+  const crewPanel = () => $("#crew-activity-output");
+
+  function renderPolls(res, crewId, crewName) {
+    const out = crewPanel();
+    if (!out) return;
+    const polls = res.polls || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:8px;">📊 ${esc(crewName || "Polls")}</div>
+        ${polls.map(p => `
+          <div style="margin-bottom:10px;">
+            <div style="font-size:13px; font-weight:600;">${esc(p.question)}</div>
+            <div style="font-size:11px; color:var(--muted); margin-bottom:4px;">${esc(p.opened_by_handle)} asked · ${p.total_votes} vote${p.total_votes === 1 ? "" : "s"}${p.you_voted ? " · you voted" : ""}</div>
+            ${p.options.map((o, i) => `<button class="ghost" style="text-align:left; padding:6px 10px; font-size:12px; margin:2px 2px 0 0;" data-act="crew-poll-vote" data-poll="${esc(p.poll_id)}" data-index="${i}" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">${esc(o)}</button>`).join("")}
+          </div>`).join("")}
+        ${polls.length ? "" : `<div style="font-size:13px; color:var(--muted); margin-bottom:8px;">No open polls.</div>`}
+        <input class="field" id="poll-q" placeholder="Ask the crew something" style="margin-top:6px;">
+        <input class="field" id="poll-opts" placeholder="Options, comma separated" style="margin-top:6px;">
+        <button class="primary" style="margin-top:6px;" data-act="crew-poll-open" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">Open the poll</button>
+      </div>`;
+    bindLater(out);
+  }
+
+  function renderBeacons(res, crewId, crewName) {
+    const out = crewPanel();
+    if (!out) return;
+    const live = res.beacons || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:8px;">⚡ ${esc(crewName || "Up for it")}</div>
+        ${live.map(b => `
+          <div style="margin-bottom:8px;">
+            <div style="font-size:13px;"><strong>${esc(b.handle)}</strong> — ${esc(b.activity)}${b.place ? ` at ${esc(b.place)}` : ""}</div>
+            <div style="font-size:11px; color:var(--muted);">${b.minutes_left} min left${b.coming_count ? ` · ${b.coming.map(esc).join(", ")} coming` : ""}</div>
+            ${b.mine ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="crew-beacon-down" data-beacon="${esc(b.beacon_id)}" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">Cancel</button>`
+                     : `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="crew-beacon-join" data-beacon="${esc(b.beacon_id)}" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">${b.you_are_in ? "You are in" : "I'm in"}</button>`}
+          </div>`).join("")}
+        ${live.length ? "" : `<div style="font-size:13px; color:var(--muted); margin-bottom:8px;">${esc(res.suggestion || "Nothing live.")}</div>`}
+        <input class="field" id="bcn-act" placeholder="Up for what, right now?" style="margin-top:6px;">
+        <input class="field" id="bcn-mins" type="number" placeholder="For how many minutes" value="60" style="margin-top:6px;">
+        <button class="primary" style="margin-top:6px;" data-act="crew-beacon-raise" data-crew="${esc(crewId)}" data-name="${esc(crewName || "")}">Raise it</button>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.delivery_note || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
+
+  const showPolls = (id, name) => api(`/v1/crews/${id}/polls`).then(r => renderPolls(r, id, name));
+  const showBeacons = (id, name) => api(`/v1/crews/${id}/beacons`).then(r => renderBeacons(r, id, name));
+
+  on("[data-act=crew-polls]", (el) => act(async () => {
+    await showPolls(el.dataset.id, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacons]", (el) => act(async () => {
+    await showBeacons(el.dataset.id, el.dataset.name);
+  }));
+
+  on("[data-act=crew-poll-open]", (el) => act(async () => {
+    const question = $("#poll-q").value.trim();
+    const options = $("#poll-opts").value.split(",").map(o => o.trim()).filter(Boolean);
+    if (!question) { toast("What are you asking?"); return; }
+    if (options.length < 2) { toast("A poll needs at least two options."); return; }
+    await api("/v1/crews/polls", { crew_id: el.dataset.crew, question, options });
+    await showPolls(el.dataset.crew, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacon-raise]", (el) => act(async () => {
+    const activity = $("#bcn-act").value.trim();
+    if (!activity) { toast("Up for what?"); return; }
+    const minutes = parseInt($("#bcn-mins").value, 10) || 60;
+    await api("/v1/crews/beacon", { crew_id: el.dataset.crew, activity, minutes });
+    await showBeacons(el.dataset.crew, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacon-join]", (el) => act(async () => {
+    await api("/v1/crews/beacon/join", { beacon_id: el.dataset.beacon });
+    await showBeacons(el.dataset.crew, el.dataset.name);
+  }));
+
+  on("[data-act=crew-beacon-down]", (el) => act(async () => {
+    await api("/v1/crews/beacon/stand-down", { beacon_id: el.dataset.beacon });
+    await showBeacons(el.dataset.crew, el.dataset.name);
+  }));
+
   on("[data-act=crew-poll-vote]", (el) => act(async () => {
-    const option = el.dataset.opt || "Outing";
-    const res = await api("/v1/crews/polls/vote", { option });
-    toast(res.message || `Voted for '${option}'! 📊`);
+    // Voted by posting a display string with no poll attached, and defaulted it to
+    // "Outing" when the button had none. It votes by index into a real poll now.
+    await api("/v1/crews/polls/vote", { poll_id: el.dataset.poll,
+                                        option: Number(el.dataset.index) });
+    await showPolls(el.dataset.crew, el.dataset.name);
   }));
 
   on("[data-act=post-venue-review]", () => act(async () => {
@@ -3306,193 +3767,260 @@ function wire(root) {
   }));
 
   on("[data-act=send-micro-tip]", () => act(async () => {
-    const recipient = $("#tp-name").value.trim() || "Alex";
-    const res = await api("/v1/ledger/tip", { recipient, amount: 3.50, currency: "EUR" });
+    /* Toasted "Sent €3.50 to Alex" for a recipient it invented when the field was empty,
+       and no money went anywhere. It is an IOU now, and it needs a real handle. */
+    const recipient = $("#tp-name").value.trim();
+    if (!recipient) { toast("Who is it for?"); return; }
+    const amount = parseFloat($("#tp-amount") ? $("#tp-amount").value : "") || 3.50;
+    const res = await api("/v1/ledger/tip", { recipient, amount, currency: "EUR" });
     $("#tp-name").value = "";
-    toast(res.message || `Sent €3.50 Coffee Tip to ${recipient}! ☕`);
-  }));
-
-  on("[data-act=send-squad-beacon]", () => act(async () => {
-    const activity = $("#bc-act").value.trim() || "Coffee & Quick Bouldering";
-    const timeframe = $("#bc-time").value.trim() || "30 mins";
-    const res = await api("/v1/crews/beacon", { activity, timeframe });
-    $("#bc-act").value = "";
-    toast(res.message || `⚡ Outing Squad Beacon broadcasted!`);
+    toast(`Recorded: you owe ${recipient} €${Number(res.amount).toFixed(2)}. Nothing was sent.`);
   }));
 
   on("[data-act=instant-synergy-match]", () => act(async () => {
-    const interest = $("#bc-act").value.trim() || "specialty coffee";
-    const timeframe = $("#bc-time").value.trim() || "30 mins";
-    const res = await api("/v1/synergy/instant-match", { interest, timeframe });
-    const out = $("#instant-match-output");
+    const interest = $("#bc-act").value.trim();
+    if (!interest) { toast("Up for what?"); return; }
+    const res = await api("/v1/synergy/instant-match", { interest });
+    renderMatch(res, "#instant-match-output");
+  }));
+
+  /* ---- /ai/*: one renderer, because there was only ever one shape ----
+     Twenty handlers each pulled different invented keys out of a literal — Elena R.'s
+     icebreakers, a negotiation across five calendars, a fulfilment score of 87. They all
+     answer the same question now ("what is actually here?"), so they share a renderer that
+     shows the records, the empty state, and whether a model wrote the wording. */
+
+  const AI_LISTS = ["openers", "stops", "quests", "plans", "options", "matches", "people",
+                    "overlaps", "splits", "recent", "goals"];
+
+  function aiLine(item) {
+    if (typeof item === "string") return esc(item);
+    const title = item.what || item.title || item.name || item.handle || item.note
+                  || item.activity || "";
+    const when = item.when || item.starts_at || item.day || item.open_until || "";
+    const where = item.where || item.place || item.city_label || item.city || "";
+    const extra = [where, when ? whenLabel(when) : ""].filter(Boolean).join(" · ");
+    const going = item.going_count !== undefined ? `${item.going_count} going` : "";
+    return `<div><strong>${esc(String(title))}</strong></div>` +
+           (extra ? `<div style="font-size:11px; color:var(--muted);">${esc(extra)}</div>` : "") +
+           (going ? `<div style="font-size:11px; color:var(--muted);">${esc(going)}</div>` : "");
+  }
+
+  function renderAI(res, targetId, heading) {
+    const out = $(targetId);
     if (!out) return;
+    if (res.available === false) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Not available</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.reason || "")}</div>
+      </div>`;
+      bindLater(out);
+      return;
+    }
+    const key = AI_LISTS.find((k) => Array.isArray(res[k]) && res[k].length);
+    const items = key ? res[key] : [];
+    const notes = ["no_score", "no_roi", "no_mood_detection", "why_not", "next_step",
+                   "suggestion", "safety_note"]
+      .map((k) => res[k]).filter(Boolean);
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">☕ AI Instant Match Found (${res.match_score}% Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♂️ <strong>${esc(res.partner_name)}</strong> is also free in the next ${esc(res.timeframe)} for ${esc(res.interest)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 Suggested Venue: <strong>${esc(res.suggested_venue)}</strong></div>
-        <div style="font-size:13px; margin-bottom:6px;">🎟️ Event: <strong>${esc(res.event_name)}</strong></div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('☕ Hey ${esc(res.partner_name)}! Down to meet up at ${esc(res.suggested_venue)} in 30 mins for coffee?'); toast('Invite copied to clipboard! 📲');">Text ${esc(res.partner_name)} on WhatsApp 📲</button>
-      </div>
-    `;
-  }, "Instant Synergy Outing Matched! ☕"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(heading || "")}</div>
+        ${items.map((item) => `<div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">${aiLine(item)}</div>`).join("")}
+        ${notes.map((n) => `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(n)}</div>`).join("")}
+        ${res.assisted === false ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">Assembled from your graph — no model key set.</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  const aiCity = () => (($("#sy-city") && $("#sy-city").value.trim())
+                        || ($("#dt-city") && $("#dt-city").value.trim()) || "");
+
+  /* ---- Dating: discovery, then a two-sided agreement ----
+     The old card ran a "7-Factor Match Engine" over seven constants and handed back Elena
+     R., 1.2 km away, then let you "Both Agree" with her — a confirmed meeting, an ETA and
+     PIN 4892, with nobody on the other end. Both halves are real now, and the second one
+     cannot fire without an account id that came from the first. */
+
+  function datingCity() {
+    const box = $("#dt-city");
+    return box ? box.value.trim() : "";
+  }
+
+  function renderDatingOpen(res) {
+    const out = $("#instant-dating-output");
+    if (!out) return;
+    if (res.needs_city) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(res.suggestion || "Which city?")}</div>`;
+      bindLater(out);
+      return;
+    }
+    if (!res.you_are_open) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:13px; margin-bottom:8px;">${esc(res.suggestion || "")}</div>
+          <button class="ghost" style="font-size:12px; padding:6px 12px;" data-act="dating-open-to">I'm open tonight ✋</button>
+        </div>`;
+      bindLater(out);
+      return;
+    }
+    const people = res.people || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">Open in ${esc(res.city_label || res.city)}</div>
+        ${people.length ? "" : `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>`}
+        ${people.map(p => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(p.handle)}</strong></div>
+            ${p.vibe ? `<div style="font-size:12px; color:var(--muted);">${esc(p.vibe)}</div>` : ""}
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="agree-dating-meet" data-target="${esc(p.account_id)}">I'd meet them</button>
+          </div>`).join("")}
+        ${res.next_step ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.next_step)}</div>` : ""}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
 
   on("[data-act=instant-dating-match]", () => act(async () => {
-    const vibe = $("#dt-vibe").value.trim() || "drinks tonight";
-    const timeframe = $("#dt-time").value.trim() || "next hour";
-    const c = coords();
-    const res = await api("/v1/dating/instant-meet", { vibe, timeframe, lat: c ? c.lat : 38.711, lon: c ? c.lon : -9.139 });
-    const out = $("#instant-dating-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <div style="font-size:14px; font-weight:700; color:var(--spark);">🍷 Instant Dating Match (${res.match_score}% 7-Factor Score)</div>
-          <span class="badge good" style="font-size:11px;">📍 ${bd.proximity_km || 1.2} km away</span>
-        </div>
-        <div style="font-size:13px; margin-bottom:4px;">🙋‍♀️ <strong>${esc(res.partner_name)}</strong> is free in the ${esc(res.timeframe)} for ${esc(res.vibe)}!</div>
-        <div style="font-size:11px; color:var(--muted); margin-bottom:6px; display:flex; gap:6px; flex-wrap:wrap;">
-          <span>🎯 Preference: ${bd.preference_match || 95}%</span> ·
-          <span>🔥 Heatmap: ${bd.heatmap_density_pct || 88}%</span> ·
-          <span>⭐ Popularity: ${bd.venue_popularity_score || 94}%</span> ·
-          <span>🤝 Trust Index: ${bd.trust_index || 96}%</span> ·
-          <span>⚡ Energy: ${bd.energy_balance || 90}%</span> ·
-          <span>🌤️ Weather: ${bd.weather_score || 95}%</span>
-        </div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Suggested Spot: <strong>${esc(res.suggested_venue)}</strong> (${esc(res.venue_address)})</div>
-        <div style="display:flex; gap:8px; margin-top:8px;">
-          <button class="primary" style="font-size:12px; padding:6px 14px;" data-act="agree-dating-meet" data-partner="${esc(res.partner_name)}" data-venue="${esc(res.suggested_venue)}">Both Agree & Set Map Pin 🥂</button>
-          <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Chat opened with ${esc(res.partner_name)}! 💬');">Native In-App Chat 💬</button>
-        </div>
-      </div>
-    `;
-  }, "Instant Drinks Meetup Matched! 🍷"));
+    renderDatingOpen(await api("/v1/dating/instant-meet", { city: datingCity() }));
+  }));
+
+  on("[data-act=dating-open-to]", () => act(async () => {
+    const vibe = $("#dt-vibe") ? $("#dt-vibe").value.trim() : "";
+    await api("/v1/dating/open-to-meeting", { city: datingCity(), vibe });
+    renderDatingOpen(await api("/v1/dating/instant-meet", { city: datingCity() }));
+  }, "You're listed for a few hours — it expires on its own ✋"));
 
   on("[data-act=agree-dating-meet]", (el) => act(async () => {
-    const partner_name = el.dataset.partner || "Elena R.";
-    const venue = el.dataset.venue || "Miradouro Rooftop";
-    const res = await api("/v1/dating/agree-meet", { partner_name, venue });
+    const res = await api("/v1/dating/agree-meet",
+                          { target_account_id: el.dataset.target, activity_id: "meet" });
     const out = $("#instant-dating-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🥂 Confirmed! Meeting Pin Set at ${esc(res.venue)}:</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Shared Map Pin:</strong> Live ETA ${res.eta_mins} mins</div>
-        <div style="font-size:13px; margin-bottom:6px;">🛡️ <strong>Safety Pin Code:</strong> ${res.pin_code}</div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="toast('Connected in native in-app chatroom! 💬');">Launch Native Chatroom 💬</button>
-      </div>
-    `;
-  }, "Meetup Confirmed! Pin & Live ETA set 📍"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${res.agreed ? "You're both in 🥂" : "Noted, privately"}</div>
+        <div style="font-size:13px; margin-bottom:6px;">${esc(res.message || "")}</div>
+        ${res.meeting_code ? `<div style="font-size:13px;">Say this out loud when you meet: <strong>${esc(res.meeting_code)}</strong></div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note || "")}</div>
+      </div>`;
+  }));
 
-  on("[data-act=match-sports-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/sports-match", { sport: "bouldering", timeframe: "next 45 mins" });
+  /* ---- Synergy: one renderer for every activity ----
+     Seven near-identical handlers used to live here, each pulling `res.partner_name` and
+     `res.match_score` out of a literal the server made up. There is one now, because there
+     was only ever one feature. The empty state is the important half: an honest "nobody yet"
+     plus the button that fixes it beats a stranger who does not exist. */
+
+  function synergyActivity(fallback) {
+    const box = $("#sy-act");
+    const typed = box ? box.value.trim() : "";
+    return typed || fallback || "";
+  }
+
+  function synergyCity() {
+    const box = $("#sy-city");
+    return box ? box.value.trim() : "";
+  }
+
+  function matchPerson(p) {
+    const shared = (p.shared_terms || []).join(", ");
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div><strong>${esc(p.handle)}</strong>${p.activity ? ` — ${esc(p.activity)}` : ""}</div>
+        ${p.note ? `<div style="font-size:12px; color:var(--muted);">${esc(p.note)}</div>` : ""}
+        ${shared ? `<div style="font-size:11px; color:var(--muted);">matched on: ${esc(shared)}</div>` : ""}
+        ${p.open_until ? `<div style="font-size:11px; color:var(--muted);">open until ${esc(whenLabel(p.open_until))}</div>` : ""}
+      </div>`;
+  }
+
+  function matchMeetup(m) {
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div>📅 <strong>${esc(m.title)}</strong>${m.place ? ` · ${esc(m.place)}` : ""}</div>
+        <div style="font-size:11px; color:var(--muted);">${esc(whenLabel(m.starts_at))} · ${m.going_count} going</div>
+        <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="meetup-join" data-id="${esc(m.meetup_id)}">Join</button>
+      </div>`;
+  }
+
+  function renderMatch(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    const people = res.people || [];
+    const meets = res.meetups || [];
+    const events = res.events || [];
+    const where = res.city_label || res.city || "";
+
+    if (!res.matched) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:13px; margin-bottom:6px;">Nobody yet${where ? ` in ${esc(where)}` : ""}.</div>
+          <div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "")}</div>
+          ${res.you_are_open ? "" : `<button class="ghost" style="font-size:12px; padding:6px 12px; margin-top:8px;" data-act="synergy-open-to">I'm up for this ✋</button>`}
+        </div>`;
+      bindLater(out);
+      return;
+    }
+
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(res.category || "Match")}${where ? ` · ${esc(where)}` : ""}</div>
+        ${people.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${people.length} ${people.length === 1 ? "person" : "people"} open right now</div>` : ""}
+        ${people.map(matchPerson).join("")}
+        ${meets.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">Already on the board</div>` : ""}
+        ${meets.map(matchMeetup).join("")}
+        ${events.map(e => `<div style="font-size:12px; margin-bottom:4px;">🎟️ ${esc(e.title || "")}</div>`).join("")}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  async function synergySearch(activity, targetId) {
+    const res = await api("/v1/synergy/instant-match",
+                          { interest: activity, city: synergyCity() });
+    renderMatch(res, targetId || "#vertical-match-output");
+    return res;
+  }
+
+  on("[data-act=synergy-search]", () => act(async () => {
+    await synergySearch(synergyActivity(""));
+  }));
+
+  on("[data-act=synergy-vertical]", (el) => act(async () => {
+    const activity = synergyActivity(el.dataset.activity);
+    const box = $("#sy-act");
+    if (box && !box.value.trim()) box.value = activity;
+    await synergySearch(activity);
+  }));
+
+  on("[data-act=synergy-open-to]", () => act(async () => {
+    const activity = synergyActivity("");
+    if (!activity) { toast("Up for what?"); return; }
+    await api("/v1/synergy/open-to", { activity, city: synergyCity() });
+    await synergySearch(activity);
+  }, "You're on the list — anyone searching for that will find you ✋"));
+
+  on("[data-act=synergy-mine]", () => act(async () => {
+    const res = await api("/v1/synergy/open-to");
     const out = $("#vertical-match-output");
     if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🧗 Sports Match Found (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🏃 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready for ${esc(res.sport)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Skill Match: ${bd.skill_match_pct}% · Crag Heatmap: ${bd.venue_heatmap_pct}% · Rating: ${bd.venue_rating}★</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Spot: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Invite sent to ${esc(res.partner_name)} on native chat! 💬');">Meet at Crag on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Sports Partner Matched! 🧗"));
+    const signals = res.signals || [];
+    out.innerHTML = signals.length ? `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">You are publishing</div>
+        ${signals.map(s => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(s.activity)}</strong> · ${esc(s.city_label || s.city)}</div>
+            <div style="font-size:11px; color:var(--muted);">until ${esc(whenLabel(s.expires_at))}</div>
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="synergy-close" data-activity="${esc(s.activity)}" data-city="${esc(s.city_label || s.city)}">Take it down</button>
+          </div>`).join("")}
+      </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px; color:var(--muted);">Nothing published. Nobody can match you until you say what you are up for.</div>`;
+    bindLater(out);
+  }));
 
-  on("[data-act=match-nomad-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/nomad-match", { domain: "tech & design", timeframe: "next 30 mins" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">💻 Nomad Match Found (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">👩‍💻 <strong>${esc(res.partner_name)}</strong> is ${bd.proximity_km}km away & ready to co-work!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Domain Match: ${bd.domain_match_pct}% · Wi-Fi: ${bd.wifi_speed_mbps} Mbps · Noise: ${esc(bd.noise_level)}</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Work Hub: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected with ${esc(res.partner_name)} on native chat! 💬');">Meet at Work Hub on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Nomad Co-Working Partner Matched! 💻"));
-
-  on("[data-act=match-creative-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/creative-match", { genre: "acoustic jam" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">🎵 Creative Jam Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎸 <strong>${esc(res.partner_name)}</strong> is ready for an ${esc(res.genre)} session!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Venue: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected on native chat for Jam Session! 🎸');">Connect on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Creative Jam Matched! 🎸"));
-
-  on("[data-act=match-dining-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/dining-match", { cuisine: "seafood & tapas" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🍲 Dining Crew Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🍷 <strong>${esc(res.partner_name)}</strong> are meeting for ${esc(res.cuisine)} tonight!</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Food Hall: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Dining Crew chat! 🍷');">Join Dining Crew Chat 💬</button>
-      </div>
-    `;
-  }, "Dining Crew Matched! 🍷"));
-
-  on("[data-act=match-ski-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/ski-match", { resort: "Serra da Estrela / Alpine Slopes", snow_depth_cm: 45 });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">❄️ Powder Alert Skiing Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">⛷️ <strong>${esc(res.partner_name)}</strong> is ready for fresh powder!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Snow Condition: 100% · Proximity: ${bd.proximity_km}km · Resort Heatmap: ${bd.resort_heatmap}%</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Resort: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Ski Trip on Native Chat! ⛷️');">Plan Ski Trip on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Powder Alert Ski Match Found! ⛷️"));
-
-  on("[data-act=match-rave-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/rave-match", { subgenre: "techno & house" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:6px;">🪩 Nightlife Rave Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎶 <strong>${esc(res.partner_name)}</strong> are going to ${esc(res.subgenre)} set tonight!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Subgenre Match: ${bd.subgenre_match_pct}% · Club Capacity: ${bd.club_heatmap_capacity}% · Sound Rating: ${bd.sound_system_rating}★</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Warehouse: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Joined Rave Squad Chatroom! 🪩');">Join Rave Squad Chatroom 💬</button>
-      </div>
-    `;
-  }, "Nightlife Rave Match Found! 🪩"));
-
-  on("[data-act=match-surf-partner]", () => act(async () => {
-    const res = await api("/v1/synergy/surf-match", { spot: "Carcavelos Beach", swell_m: 2.2, period_s: 14, wind: "11kt Offshore NNE" });
-    const out = $("#vertical-match-output");
-    if (!out) return;
-    const bd = res.breakdown || {};
-    const tel = res.telemetry || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
-        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:6px;">🏄 Swell Alert Surf Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">🌊 <strong>${esc(res.partner_name)}</strong> is heading to ${esc(res.suggested_venue)}!</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Swell: ${tel.swell_height_m}m @ ${tel.wave_period_sec}s · Wind: ${esc(tel.wind_conditions)} · Marine Score: ${bd.marine_weather_score}%</div>
-        <div style="font-size:13px; margin-bottom:6px;">📍 Surf Spot: <strong>${esc(res.suggested_venue)}</strong></div>
-        <button class="ghost" style="font-size:12px; padding:6px 12px;" onclick="toast('Connected for Surf Session on Native Chat! 🏄');">Plan Surf Session on Native Chat 💬</button>
-      </div>
-    `;
-  }, "Swell Alert Surf Match Found! 🏄"));
+  on("[data-act=synergy-close]", (el) => act(async () => {
+    await apiDelete("/v1/synergy/open-to",
+                    { activity: el.dataset.activity, city: el.dataset.city });
+  }, "Taken down"));
 
   on("[data-act=register-dev-plugin]", () => act(async () => {
     const name = $("#dp-name").value.trim() || "Kitesurf Wind Radar";
@@ -3503,68 +4031,18 @@ function wire(root) {
     toast(res.message || `Published '${name}' to ConnectOS Developer Hub! 🚀`);
   }));
 
-  on("[data-act=gen-ai-icebreakers]", () => act(async () => {
-    const res = await api("/v1/ai/copilot-icebreaker", { partner_name: "Elena R.", shared_hobby: "Specialty Coffee & Bouldering" });
-    const out = $("#ai-icebreaker-output");
-    if (!out) return;
-    const ibs = res.icebreakers || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:6px;">🤖 Tailored Icebreakers for ${esc(res.partner_name)}:</div>
-        ${ibs.map(ib => `
-          <div style="font-size:12px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; align-items:center;">
-            <span>${esc(ib)}</span>
-            <button class="ghost" style="font-size:10px; padding:2px 8px; margin-left:6px;" onclick="navigator.clipboard.writeText('${esc(ib.replace(/'/g, "\\'"))}'); toast('Icebreaker copied! 💬');">Copy 📲</button>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }, "AI Social Co-Pilot Icebreakers Generated! 🤖"));
-
+  on("[data-act=gen-ai-icebreakers]", (el) => act(async () => {
+    const target = el.dataset.target || "";
+    renderAI(await api("/v1/ai/copilot-icebreaker", { target_account_id: target, city: aiCity() }),
+             "#ai-icebreaker-output", "Openers");
+  }));
   on("[data-act=launch-squad-agent]", () => act(async () => {
-    const res = await api("/v1/ai/squad-agent", { crew_id: "crw-001", activity: "Sunset Tapas & Bouldering" });
-    const out = $("#squad-agent-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🤖 Autonomous Squad Agent Confirmed:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.activity)}</strong> (${esc(res.time_slot)})</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Members Confirmed: ${res.confirmed_members.join(", ")}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Spot: ${esc(res.reservation_status)} · Split: ${esc(res.expense_split)}</div>
-      </div>
-    `;
-  }, "Autonomous Squad Agent Negotiated Outing! 🤖"));
-
-  on("[data-act=zk-verify-attr]", () => act(async () => {
-    const res = await api("/v1/zk/verify-attribute", { attribute: "AGE_OVER_18" });
-    const out = $("#zk-proof-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔐 ZK-SNARK Proof Verified!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Attribute: <strong>${esc(res.attribute)}</strong> · Zero Identity Disclosed</div>
-        <div style="font-size:11px; color:var(--muted);">ZK Proof: ${esc(res.zk_proof)}</div>
-      </div>
-    `;
-  }, "ZK-SNARK Proof Verified! 🔐"));
-
+    renderAI(await api("/v1/ai/squad-agent", {}), "#squad-agent-output", "Your crew's plans");
+  }));
   on("[data-act=gen-micro-itinerary]", () => act(async () => {
-    const res = await api("/v1/ai/micro-itinerary", { city: "Lisbon", vibe: "Coffee to Sunset Drinks & Rave" });
-    const out = $("#karma-concierge-output");
-    if (!out) return;
-    const stops = res.stops || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:6px;">🗺️ Spontaneous Micro-Itinerary (${esc(res.total_duration)}):</div>
-        ${stops.map(st => `
-          <div style="font-size:12.5px; margin-bottom:4px; color:var(--text);">
-            <strong>Stop ${st.step} (${esc(st.time)}):</strong> ${esc(st.activity)} @ <em>${esc(st.venue)}</em>
-          </div>
-        `).join("")}
-      </div>
-    `;
-  }, "Spontaneous Micro-Itinerary Generated! 🗺️"));
-
+    renderAI(await api("/v1/ai/micro-itinerary", { city: aiCity() }),
+             "#karma-concierge-output", "Next day and a half");
+  }));
   on("[data-act=trigger-sos]", () => act(async () => {
     const res = await api("/v1/safety/emergency-sos", { location: "Miradouro Rooftop, Lisbon" });
     const out = $("#karma-concierge-output");
@@ -3579,43 +4057,49 @@ function wire(root) {
   }, "Emergency SOS Location Broadcast Active! ⚡"));
 
   on("[data-act=match-mentor]", () => act(async () => {
-    const res = await api("/v1/synergy/mentor-match", { domain: "AI & Startup Founders" });
-    const out = $("#mentor-squad-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🤝 Mentorship Match (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Mentor: <strong>${esc(res.mentor_name)}</strong> · ${esc(res.domain)}</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Format: ${esc(res.suggested_format)} @ <strong>${esc(res.suggested_venue)}</strong></div>
-      </div>
-    `;
-  }, "Mentorship Synergy Match Found! 🤝"));
+    const seeking = $("#mt-seek") ? $("#mt-seek").value.trim() : "";
+    const offering = $("#mt-offer") ? $("#mt-offer").value.trim() : "";
+    if (!seeking) { toast("What do you want to learn?"); return; }
+    const res = await api("/v1/synergy/mentor-match", { seeking, offering });
+    renderMatch(res, "#mentor-squad-output");
+  }));
 
   on("[data-act=sync-squad-routine]", () => act(async () => {
-    const res = await api("/v1/routines/squad-sync", { routine_name: "Wednesday Dawn Patrol Surf Crew" });
+    /* Reported "Weekly on Wednesdays @ 7:00 AM" whatever you asked for, claimed it was
+       synced to 5 crew calendars, and linked an .ics on connectos.app. The rule is real
+       now and its occurrences join the crew's own feed, which this deployment serves. */
+    const crew_id = firstCrewId();
+    if (!crew_id) { toast("A routine belongs to a crew — make one first."); return; }
+    const title = $("#sq-title") ? $("#sq-title").value.trim() : "";
+    if (!title) { toast("What is the routine?"); return; }
+    const res = await api("/v1/routines/squad-sync", {
+      crew_id, title, day: ($("#sq-day") ? $("#sq-day").value : "wed"),
+      at: ($("#sq-at") ? $("#sq-at").value : "07:00"),
+    });
+    // A subscribe URL a calendar app can actually fetch. `res.ics_path` needs the session
+    // bearer token, which a calendar client cannot send — offering that as "Subscribe"
+    // would be a link that 401s for everything except this app.
+    const link = await api(`/v1/crews/${crew_id}/calendar-link`, {});
+    const url = location.origin + link.subscribe_path;
     const out = $("#mentor-squad-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📅 Squad Routine Synced:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Routine: <strong>${esc(res.routine_name)}</strong> (${esc(res.recurrence)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Synced across ${res.synced_calendars} crew calendars · ICS: ${esc(res.ics_link)}</div>
-      </div>
-    `;
-  }, "Squad Calendar Routine Synced! 📅"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${esc(res.title)} — ${esc(res.recurrence)}</div>
+        ${res.upcoming.map(d => `<div style="font-size:12px;">${esc(new Date(d).toDateString())}</div>`).join("")}
+        <div style="font-size:12px; margin-top:6px;">Subscribe in your calendar app:</div>
+        <div style="font-size:11px; word-break:break-all;">${esc(url)}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.sync_note)} ${esc(link.warning)}</div>
+      </div>`;
+    bindLater(out);
+  }));
 
   on("[data-act=settle-crew-tab]", () => act(async () => {
-    const res = await api("/v1/ledger/settle-up", { amount: 22.50 });
-    const out = $("#ledger-quest-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">💸 Crew Outing Tab Settled:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Net Owed: <strong>€${res.net_owed.toFixed(2)}</strong> · Creditors: ${res.creditors.map(c => `${c.name} (€${c.amount.toFixed(2)})`).join(", ")}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Revolut Link: ${esc(res.settlement_link)}</div>
-      </div>
-    `;
-  }, "Outing Tab Settled via Revolut! 💸"));
+    /* Reported €22.50 owed to Elena R. and Alex M. on an account that had split nothing,
+       and offered a Revolut link nobody had connected. Shows the real tab instead, with a
+       Settle button against each balance you actually owe. */
+    renderTab(await api("/v1/ledger/tab"), "#ledger-quest-output");
+  }));
 
   on("[data-act=gen-city-quest]", () => act(async () => {
     const res = await api("/v1/quests/city-discovery", { city: "Lisbon" });
@@ -3631,18 +4115,30 @@ function wire(root) {
     `;
   }, "City Discovery Quest Generated! 🗺️"));
 
+  /* Claimed to *apply* a real_world_weight of 0.85 and a proximity_bias of 0.90, stored
+     neither, and reported "Doomscroll Protection Active" — describing a ranking this app
+     does not implement, while calling itself transparency. The real numbers are imported
+     from the ranking code, so this page cannot drift away from it. */
+  function renderFeedRules(res) {
+    return `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:12px; margin-bottom:6px;">${esc(res.explanation)}</div>
+        ${res.parts.map(p => `
+          <div style="font-size:12px; margin-bottom:4px;">
+            <strong>${esc(p.part)}</strong> — ${esc(p.how)}
+            <div style="font-size:11px; color:var(--muted);">${Object.entries(p.weights).map(([k, v]) => `${esc(k)}: ${v}`).join(" · ")}</div>
+          </div>`).join("")}
+        <div style="font-size:12px; font-weight:700; margin-top:6px;">Never shown</div>
+        ${res.excluded.map(e => `<div style="font-size:11px; color:var(--muted);">· ${esc(e)}</div>`).join("")}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_advertising)} ${esc(res.no_engagement_optimisation)}</div>
+      </div>`;
+  }
+
   on("[data-act=apply-algo-rules]", () => act(async () => {
-    const res = await api("/v1/feed/transparent-rules", { real_world_weight: 0.85, proximity_bias: 0.90 });
     const out = $("#algo-revenue-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🛡️ 100% Transparent Feed Algorithm Applied!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Real-World Outings Weight: <strong>85%</strong> · Proximity Bias: <strong>90%</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Status: Ad-Free & 0% Engagement Bait (Doomscroll Protection Active)</div>
-      </div>
-    `;
-  }, "Transparent Algorithm Applied! 🛡️"));
+    out.innerHTML = renderFeedRules(await api("/v1/feed/transparent-rules", {}));
+  }));
 
   on("[data-act=stack-habit]", () => act(async () => {
     const res = await api("/v1/growth/habit-stacking", { anchor_habit: "Morning Espresso", new_habit: "20-Min Deep Reading" });
@@ -3673,31 +4169,20 @@ function wire(root) {
   }, "Explorer Pro Subscription Active (€9.99/mo)! 💳"));
 
   on("[data-act=convert-voice-brief]", () => act(async () => {
-    const res = await api("/v1/ai/voice-brief", { transcript: "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!" });
-    const out = $("#voice-gift-output");
-    if (!out) return;
-    const stops = res.extracted_stops || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎙️ AI Voice Outing Brief Created:</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">"${esc(res.transcript)}"</div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth);">Stops Extracted: ${stops.map(s => `${s.time} @ ${s.place} (${s.activity})`).join(" ➔ ")}</div>
-      </div>
-    `;
-  }, "AI Voice Brief Converted to Outing Card! 🎙️"));
-
+    const transcript = $("#vb-note") ? $("#vb-note").value.trim() : "";
+    if (!transcript) { toast("Paste or type the note first."); return; }
+    renderAI(await api("/v1/ai/voice-brief", { transcript }), "#voice-gift-output", "Stops in that note");
+  }));
   on("[data-act=gift-friend-coffee]", () => act(async () => {
-    const res = await api("/v1/ledger/gift-coffee", { recipient: "Elena R.", item: "Specialty Flat White", amount: 3.80 });
-    const out = $("#voice-gift-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎁 Gift Voucher Sent to ${esc(res.recipient)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Item: <strong>${esc(res.item)}</strong> (€${res.amount_eur.toFixed(2)})</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Voucher Code: ${esc(res.voucher_code)}</div>
-      </div>
-    `;
-  }, "Specialty Coffee Gifted to Elena! 🎁"));
+    /* Sent a voucher code — the same one every time, `GIFT-FLATWHITE-99`, redeemable
+       nowhere — to a hardcoded "Elena R.". The promise is the real part: an IOU for a
+       coffee, which needs no amount and clears when you actually buy it. */
+    const recipient = $("#gf-name") ? $("#gf-name").value.trim() : "";
+    if (!recipient) { toast("Who are you buying one for?"); return; }
+    const item = ($("#gf-item") ? $("#gf-item").value.trim() : "") || "coffee";
+    renderTab(await api("/v1/ledger/gift-coffee", { recipient, item }),
+              "#voice-gift-output");
+  }));
 
   on("[data-act=b2b-team-signup]", () => act(async () => {
     const res = await api("/v1/monetization/b2b-team-tier", { company_name: "Acme AI Corp", seats: 25 });
@@ -3725,31 +4210,45 @@ function wire(root) {
     `;
   }, "Venue Commission Breakdown Loaded! 📊"));
 
+  /* An invite link for a crew you actually administer.
+
+     It read `res.invite_url` (a connectos.app address this deployment does not serve) and
+     `res.bonus_karma` — 100 points and a free-coffee voucher from a rewards programme that
+     does not exist. Both fields are gone; the link is real. */
+  const firstCrewId = () => (state.crews && state.crews.length ? state.crews[0].id : "");
+
   on("[data-act=gen-invite-link]", () => act(async () => {
-    const res = await api("/v1/viral/invite-crew", { crew_name: "Lisbon Specialty Coffee & Tech" });
+    const crew_id = firstCrewId();
+    if (!crew_id) { toast("Make a crew first — a link has to let somebody into something."); return; }
+    const res = await api("/v1/viral/invite-crew", { crew_id });
+    const link = location.origin + res.invite_path;
+    await navigator.clipboard.writeText(link).catch(() => {});
     const out = $("#viral-growth-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">⚡ Crew Invite Link Generated!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Link: <strong>${esc(res.invite_url)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: +${res.bonus_karma} Karma Points & Free Coffee Voucher for both of you!</div>
-      </div>
-    `;
-  }, "Crew Viral Invite Link Generated! ⚡"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Invite link for ${esc(res.crew_name)}</div>
+        <div style="font-size:12px; word-break:break-all; margin-bottom:4px;">${esc(link)}</div>
+        <div style="font-size:11px; color:var(--muted);">Copied. Good for ${res.max_uses} people. Nothing is awarded for sharing it.</div>
+      </div>`;
+  }));
 
   on("[data-act=gen-story-card]", () => act(async () => {
-    const res = await api("/v1/viral/social-share", { title: "Lisbon Sunset Rooftop Outing" });
+    /* Showed a URL to a PNG that nothing ever rendered. The card is drawn server-side as an
+       SVG now, so it can simply be displayed — there is no file to fetch. */
+    const title = $("#share-title") ? $("#share-title").value.trim() : "";
+    if (!title) { toast("What are you sharing?"); return; }
+    const res = await api("/v1/viral/social-share", { title, subtitle: state.city || "" });
     const out = $("#viral-growth-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">📢 Instagram/TikTok Story Card Generated:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Format: ${esc(res.format)} · URL: <strong>${esc(res.story_card_url)}</strong></div>
-        <div style="font-size:12px; color:var(--spark);">Embedded QR Code: ${esc(res.embedded_qr_code)}</div>
-      </div>
-    `;
-  }, "Social Share Story Card Generated! 📢"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${esc(res.format)}</div>
+        <img alt="share card" style="width:150px; border-radius:8px; display:block;"
+             src="data:image/svg+xml;utf8,${encodeURIComponent(res.svg)}">
+        <div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.note)}</div>
+      </div>`;
+  }));
 
   on("[data-act=trigger-auto-ingestion]", () => act(async () => {
     const res = await api("/v1/city/sync-live-events", { city: "Lisbon" });
@@ -3819,43 +4318,25 @@ function wire(root) {
   }, "Festival Stage Flare Dropped! 🚩"));
 
   on("[data-act=match-layover-buddy]", () => act(async () => {
-    const res = await api("/v1/travel/layover-buddy", { airport_code: "LIS (Lisbon Airport Terminal 1)", layover_mins: 120 });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0ea5e9;">
-        <div style="font-size:14px; font-weight:700; color:#0ea5e9; margin-bottom:4px;">✈️ Layover Buddy Found (${esc(res.airport)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Buddy: <strong>${esc(res.buddy_name)}</strong> · ${res.layover_mins} Mins Layover</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Meeting Spot: ${esc(res.suggested_spot)}</div>
-      </div>
-    `;
-  }, "Airport Layover Coffee Buddy Matched! ✈️"));
+    const airport_code = $("#lo-airport") ? $("#lo-airport").value.trim() : "";
+    if (!airport_code) { toast("Which airport?"); return; }
+    renderMatch(await api("/v1/travel/layover-buddy", { airport_code }),
+                "#layover-gym-output");
+  }));
 
   on("[data-act=match-gym-spotter]", () => act(async () => {
-    const res = await api("/v1/sports/gym-spotter", { activity: "Bouldering & Lead Climbing", gym: "Vertical Wall Lisbon" });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏋️ Bouldering Spotter Matched (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Spotter: <strong>${esc(res.spotter_name)}</strong> @ ${esc(res.gym_name)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Activity: ${esc(res.activity)}</div>
-      </div>
-    `;
-  }, "Bouldering Spotter Matched! 🏋️"));
+    const activity = $("#lo-gym") ? $("#lo-gym").value.trim() : "";
+    renderMatch(await api("/v1/sports/gym-spotter",
+                          { activity, city: synergyCity() }), "#layover-gym-output");
+  }));
 
   on("[data-act=match-language-swap]", () => act(async () => {
-    const res = await api("/v1/synergy/language-swap", { speak: "English", learn: "Portuguese" });
-    const out = $("#layover-gym-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎓 Language Swap Matched (${res.match_score}% Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Partner: <strong>${esc(res.partner_name)}</strong> (Native ${esc(res.learn_lang)} Speaker)</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Format: ${esc(res.suggested_format)} @ ${esc(res.suggested_venue)}</div>
-      </div>
-    `;
-  }, "Language Swap Coffee Partner Matched! 🎓"));
+    const speak = $("#ls-speak") ? $("#ls-speak").value.trim() : "";
+    const learn = $("#ls-learn") ? $("#ls-learn").value.trim() : "";
+    if (!speak || !learn) { toast("What do you speak, and what do you want to learn?"); return; }
+    const res = await api("/v1/synergy/language-swap", { speak, learn });
+    renderMatch(res, "#layover-gym-output");
+  }));
 
   on("[data-act=match-coliving]", () => act(async () => {
     const res = await api("/v1/housing/co-living-match", { city: "Lisbon", budget: "€900/mo" });
@@ -4056,19 +4537,8 @@ function wire(root) {
   }, "Creator Residency Awarded! 💎"));
 
   on("[data-act=gen-ai-blueprint]", () => act(async () => {
-    const res = await api("/v1/ai/outing-butler", { weekend: "Saturday & Sunday" });
-    const out = $("#ai-butler-output");
-    if (!out) return;
-    const schedule = (res.curated_schedule || []).map((s) => `• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} (with ${s.crew.join(", ")})`).join("<br>");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
-        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:6px;">🤖 Perfect Weekend Blueprint Generated (${esc(res.weekend)}):</div>
-        <div style="font-size:12.5px; line-height:1.5; margin-bottom:6px;">${schedule}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Est. Cost: ${esc(res.estimated_cost)}</div>
-      </div>
-    `;
-  }, "AI Weekend Blueprint Generated! 🤖"));
-
+    renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#ai-butler-output", "What's on");
+  }));
   on("[data-act=settle-one-tap-split]", () => act(async () => {
     const res = await api("/v1/payments/one-tap-settle", { bill_total: "€84.00", members_count: 4 });
     const out = $("#ai-butler-output");
@@ -4258,19 +4728,8 @@ function wire(root) {
   }, "Global Edge Mesh Replicated! 🌍"));
 
   on("[data-act=negotiate-ai-agents]", () => act(async () => {
-    const res = await api("/v1/ai/agent-negotiator", { topic: "Weekend Sunset Surf & Dinner" });
-    const out = $("#frontier-stack-output");
-    if (!out) return;
-    const agents = res.participating_agents || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 Multi-Agent Consensus Confirmed (${agents.length} Agents):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Slot: <strong>${esc(res.unanimous_slot)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Venue: ${esc(res.selected_venue)} · Split: ${esc(res.split_agreement)}</div>
-      </div>
-    `;
-  }, "AI Multi-Agent Consensus Reached! 🤖"));
-
+    renderAI(await api("/v1/ai/agent-negotiator", {}), "#frontier-stack-output", "Your crew's plans");
+  }));
   on("[data-act=seed-city-bootstrap]", () => act(async () => {
     const res = await api("/v1/seeding/city-bootstrap", { city: "Lisbon" });
     const out = $("#seeding-output");
@@ -4286,31 +4745,39 @@ function wire(root) {
   }, "City Bootstrapped with Zero Cold Start! 🗺️"));
 
   on("[data-act=mint-pioneer-pass]", () => act(async () => {
-    const res = await api("/v1/seeding/pioneer-pass", { city: "Lisbon", pioneer_number: 42 });
+    /* Minted "City Pioneer #042" with a year of free VIP and complimentary coffee at
+       partner roasters — the number came from the request body and the perks from nowhere.
+       Being early is a real count now, and it unlocks nothing. */
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/seeding/pioneer-pass", { city });
     const out = $("#seeding-output");
     if (!out) return;
-    const perks = res.perks || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Pioneer Ambassador Pass Minted:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Title: <strong>${esc(res.badge_title)}</strong></div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Perks: ${perks.join(" · ")}</div>
-      </div>
-    `;
-  }, "City Pioneer Ambassador Pass Minted! 👑"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; margin-bottom:4px;">${res.you_are_here
+          ? `You were <strong>#${res.your_position}</strong> of ${res.people_here} here.`
+          : esc(res.note || "You are not in the count here yet.")}</div>
+        <div style="font-size:11px; color:var(--muted);">${esc(res.no_perks)}</div>
+      </div>`;
+  }));
 
   on("[data-act=gen-golden-tickets]", () => act(async () => {
-    const res = await api("/v1/seeding/golden-tickets", { outing: "Sunset Catamaran Sailing (€30)" });
+    /* Three "golden tickets" behind one connectos.app link — the same link every time —
+       advertising a 1-tap Apple Pay split this app cannot perform. Separate single-use
+       links are the real version: one per person, and you can see which were used. */
+    const crew_id = firstCrewId();
+    if (!crew_id) { toast("Tickets let people into a crew — make one first."); return; }
+    const res = await api("/v1/seeding/golden-tickets", { crew_id, count: 3 });
     const out = $("#seeding-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ 3x Golden Crew Tickets Generated:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Outing: <strong>${esc(res.outing)}</strong> (${esc(res.viral_multiplier)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Invite Link: ${esc(res.share_link)} (WhatsApp / iMessage)</div>
-      </div>
-    `;
-  }, "3x Golden Tickets Ready to Share! 🎟️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${res.count} single-use links for ${esc(res.crew_name)}</div>
+        ${res.tickets.map(t => `<div style="font-size:11px; word-break:break-all; margin-bottom:4px;">${esc(location.origin + t.invite_path)}</div>`).join("")}
+        <div style="font-size:11px; color:var(--muted);">One person each. No payment is involved.</div>
+      </div>`;
+  }));
 
   on("[data-act=activate-anchor-outings]", () => act(async () => {
     const res = await api("/v1/seeding/anchor-outings", { city: "Lisbon" });
@@ -4337,7 +4804,7 @@ function wire(root) {
         <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💳 Stripe Checkout Ready (€${res.amount.toFixed(2)}):</div>
         <div style="font-size:13px; margin-bottom:4px;">Session ID: <strong style="font-family:monospace;">${esc(res.session_id)}</strong></div>
         <div style="font-size:12px; color:var(--growth); font-weight:700;">Methods: ${methods.join(" · ")}</div>
-        <a href="${res.checkout_url}" target="_blank" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
+        <a href="${safeUrl(res.checkout_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
       </div>
     `;
   }, "Stripe Checkout Session Created! 💳"));
@@ -4350,7 +4817,7 @@ function wire(root) {
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0070ba;">
         <div style="font-size:14px; font-weight:700; color:#0070ba; margin-bottom:4px;">🅿️ PayPal Order Created (€${res.amount.toFixed(2)}):</div>
         <div style="font-size:13px; margin-bottom:4px;">Order ID: <strong style="font-family:monospace;">${esc(res.order_id)}</strong> (${esc(res.intent)})</div>
-        <a href="${res.approval_url}" target="_blank" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
+        <a href="${safeUrl(res.approval_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
       </div>
     `;
   }, "PayPal Order Created! 🅿️"));
@@ -4538,20 +5005,8 @@ function wire(root) {
   }, "Lisbon Festas & Web Summit Radar Synced! 🐟"));
 
   on("[data-act=sync-ai-butler-landmarks]", () => act(async () => {
-    const res = await api("/v1/ai/outing-butler", { weekend: "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting" });
-    const out = $("#landmark-radar-output");
-    if (!out) return;
-    const sched = res.curated_schedule || [];
-    const items = sched.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.time)}</strong>: ${esc(s.activity)} @ <em>${esc(s.venue)}</em></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🤖 AI Outing Butler Landmark Blueprint (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Cost: ${esc(res.estimated_cost)} · Group Split Synchronized</div>
-      </div>
-    `;
-  }, "AI Outing Butler Synced with Landmark Festivals! 🤖"));
-
+    renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#landmark-radar-output", "What's on");
+  }));
   on("[data-act=open-voice-huddle]", () => act(async () => {
     const res = await api("/v1/voice/crew-huddle", { event_name: "Edinburgh Festival Fringe Crowds" });
     const out = $("#frontier-social-output");
@@ -4569,34 +5024,41 @@ function wire(root) {
   }, "Spatial Audio Crew Huddle Connected! 🎙️"));
 
   on("[data-act=trigger-nfc-tap]", () => act(async () => {
-    const res = await api("/v1/nfc/tap-to-synergy", { peer: "Catriona (Nomad / Foodie)" });
+    /* Claimed an "NFC & Apple NameDrop Ephemeral Handshake", 94% compatibility with a
+       hardcoded stranger and a "ZK Contact Card Exchanged with Double Haptic Pulse". A web
+       app speaks none of that. Two people in a room can still swap six characters: leaving
+       the box empty shows yours, typing theirs takes it. */
+    const code = $("#tap-code") ? $("#tap-code").value.trim() : "";
+    const res = await api("/v1/nfc/tap-to-synergy", code ? { code } : {});
     const out = $("#frontier-social-output");
     if (!out) return;
-    const hobbies = res.shared_hobbies || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">📳 NFC Tap-to-Synergy Confirmed (${res.synergy_score}% Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Connected with: <strong>${esc(res.peer)}</strong> (${res.mutual_connections} Mutual Friends)</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shared Passions: ${hobbies.join(" · ")}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">ZK Contact Card Exchanged with Double Haptic Pulse</div>
-      </div>
-    `;
-  }, "NFC Tap-to-Synergy Handshake Verified! 📳"));
+    out.innerHTML = res.paired
+      ? `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:13px; margin-bottom:4px;">Paired with <strong>${esc(res.peer_handle)}</strong></div>
+           <div style="font-size:12px; margin-bottom:4px;">${res.shared.length ? `Both up for: ${res.shared.map(esc).join(", ")}` : "Nothing published in common yet."}</div>
+           <div style="font-size:11px; color:var(--muted);">${esc(res.no_score)}</div>
+         </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:28px; font-weight:800; letter-spacing:4px; margin-bottom:4px;">${esc(res.code)}</div>
+           <div style="font-size:12px; margin-bottom:4px;">${esc(res.instructions)}</div>
+           <div style="font-size:11px; color:var(--muted);">${esc(res.no_nfc)}</div>
+         </div>`;
+  }));
 
   on("[data-act=translate-local-culture]", () => act(async () => {
-    const res = await api("/v1/ai/culture-bridge-translator", { city: "Edinburgh" });
+    const phrase = $("#cb-phrase") ? $("#cb-phrase").value.trim() : "";
+    if (!phrase) { toast("Which phrase?"); return; }
+    const res = await api("/v1/ai/culture-bridge-translator", { phrase, city: aiCity() });
     const out = $("#frontier-social-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🗣️ Culture & Dialect Bridge (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Phrase: <em>"${esc(res.original_phrase)}"</em></div>
-        <div style="font-size:13px; font-weight:700; color:var(--growth); margin-bottom:4px;">➔ ${esc(res.translation)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Etiquette Tip: ${esc(res.cultural_etiquette_tip)}</div>
-      </div>
-    `;
-  }, "Local Culture & Dialect Translated! 🗣️"));
-
+    out.innerHTML = res.available
+      ? `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+           <div style="font-size:13px; margin-bottom:6px;">${esc(res.translation)}</div>
+           ${res.etiquette ? `<div style="font-size:12px; color:var(--muted);">${esc(res.etiquette)}</div>` : ""}
+           ${Object.entries(res.glossary || {}).map(([k, v]) => `<div style="font-size:12px;"><strong>${esc(k)}</strong> — ${esc(v)}</div>`).join("")}
+         </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:12px; color:var(--muted);">${esc(res.reason)}</div>`;
+  }));
   on("[data-act=view-dao-treasury]", () => act(async () => {
     const res = await api("/v1/dao/community-treasury", { city: "Edinburgh" });
     const out = $("#frontier-social-output");
@@ -4613,183 +5075,49 @@ function wire(root) {
   }, "Community DAO Treasury Synced! 🏛️"));
 
   on("[data-act=trigger-boredom-quest]", () => act(async () => {
-    const res = await api("/v1/ai/spontaneous-quests", { city: "Edinburgh", time_available: "Right Now (Next 15 Mins)" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const quests = res.anti_boredom_quests || [];
-    const items = quests.map(q => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(q.title)}</strong> (${esc(q.eta)})<br><span style="font-size:11px; color:var(--growth);">Host: ${esc(q.host)} · Crew: ${q.crew_size} ready</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">⚡ Instant 15-Min Anti-Boredom Quests (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "3 Instant Spontaneous Quests Ready! ⚡"));
-
+    renderAI(await api("/v1/ai/spontaneous-quests", { city: aiCity() }),
+             "#fulfillment-butler-output", "Happening soon");
+  }));
   on("[data-act=align-ikigai-compass]", () => act(async () => {
-    const res = await api("/v1/ai/ikigai-compass", {});
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const sched = res.recommended_weekly_purpose_schedule || [];
-    const items = sched.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.day)}</strong>: ${esc(s.focus)} (<em>${esc(s.vibe)}</em>)</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Ikigai Purpose Compass (${res.fulfillment_score}% Alignment):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: Screen-free, deep-flow weekly fulfillment blueprint active</div>
-      </div>
-    `;
-  }, "Ikigai Purpose Blueprint Activated! 🧘"));
-
+    renderAI(await api("/v1/ai/ikigai-compass", {}), "#fulfillment-butler-output", "What you have been doing");
+  }));
   on("[data-act=book-flow-mastery]", () => act(async () => {
-    const res = await api("/v1/ai/flow-mastery", { skill: "Ceramics Wheel Throwing & Glaze Chemistry" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌊 Screen-Free Flow Lab Scheduled (${esc(res.duration)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Skill: <strong>${esc(res.skill)}</strong> with ${esc(res.flow_partner)}</div>
-        <div style="font-size:12px; margin-bottom:4px;">Creation: ${esc(res.hands_on_creation)} @ ${esc(res.venue)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.screen_free_guarantee)}</div>
-      </div>
-    `;
-  }, "Screen-Free Flow Lab Booked! 🌊"));
-
+    const skill = $("#fm-skill") ? $("#fm-skill").value.trim() : "";
+    renderMatch(await api("/v1/ai/flow-mastery", { skill, city: aiCity() }), "#fulfillment-butler-output");
+  }));
   on("[data-act=book-meaningful-salon]", () => act(async () => {
-    const res = await api("/v1/ai/meaningful-salons", { theme: "Courage, Transition & The Next Chapter" });
-    const out = $("#fulfillment-butler-output");
-    if (!out) return;
-    const prompts = res.table_prompts || [];
-    const items = prompts.map(p => `<div style="margin-top:2px; font-style:italic;">"${esc(p)}"</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ ${esc(res.format)}:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> @ ${esc(res.venue)}</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Anti-Small-Talk Prompts:<br>${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Host: ${esc(res.host)} · Split: ${esc(res.split)}</div>
-      </div>
-    `;
-  }, "Meaningful Conversation Salon Booked! 🕊️"));
-
+    const theme = $("#ms-theme") ? $("#ms-theme").value.trim() : "";
+    renderMatch(await api("/v1/ai/meaningful-salons", { theme, city: aiCity() }), "#fulfillment-butler-output");
+  }));
   on("[data-act=predict-serendipity]", () => act(async () => {
-    const res = await api("/v1/ai/serendipity-engine", { user: "Robert" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    const friend = res.nearby_friend || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">🔮 Proactive Serendipity Opportunity:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Window: <strong>${esc(res.opportunity_window)}</strong> (${esc(res.weather_condition)})</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Friend Proximity: <strong>${esc(friend.name)}</strong> (${esc(friend.distance)}) · ${esc(friend.availability)}</div>
-        <div style="font-size:12px; font-style:italic;">Suggestion: ${esc(res.proactive_suggestion)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Action: ${esc(res.one_tap_action)}</div>
-      </div>
-    `;
-  }, "Proactive Serendipity Predicted! 🔮"));
-
+    renderAI(await api("/v1/ai/serendipity-engine", {}), "#butler-4-output", "Overlaps right now");
+  }));
   on("[data-act=tune-empathy-vibe]", () => act(async () => {
-    const res = await api("/v1/ai/empathy-vibe-tuner", { vibe: "Slightly Overstimulated & Reflective" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧠 Empathy Vibe Tuner (${esc(res.detected_state)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Environment: <strong>${esc(res.tailored_environment)}</strong> @ ${esc(res.venue)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.social_battery_protection)} · Companion: ${esc(res.companion_match)}</div>
-        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Restorative Activity: ${esc(res.soothing_activity)}</div>
-      </div>
-    `;
-  }, "Empathy Vibe Tuned! 🧠"));
-
+    renderAI(await api("/v1/ai/empathy-vibe-tuner", { city: aiCity(), max_group: 4 }),
+             "#butler-4-output", "Small enough to be quiet");
+  }));
   on("[data-act=auto-group-concierge]", () => act(async () => {
-    const res = await api("/v1/ai/group-concierge", { group: "Weekend Lisbon Crew (4 People)" });
-    const out = $("#butler-4-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🗺️ Group Concierge Negotiation Complete:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Time: <strong>${esc(res.mutually_free_slot)}</strong> @ <strong>${esc(res.booked_venue)}</strong></div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">Dietary Consensus: ${esc(res.dietary_consensus)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Pre-Authorized Split: ${esc(res.apple_pay_split_pre_authorized)} · Calendar Invites Sent</div>
-      </div>
-    `;
-  }, "Autonomous Group Dining Booked! 🗺️"));
-
+    renderAI(await api("/v1/ai/group-concierge", {}), "#butler-4-output", "Your crew's plans");
+  }));
   on("[data-act=view-friendship-vault]", () => act(async () => {
-    const res = await api("/v1/ai/friendship-compounding", {});
-    const out = $("#butler-4-output");
-    if (!out) return;
-    const stones = res.meaningful_milestones || [];
-    const items = stones.map(s => `<div style="margin-top:3px;">• <strong>${esc(s.friend)}</strong>: ${esc(s.note)} ➔ <span style="color:var(--growth); font-weight:bold;">${esc(s.nudge)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Friendship Compounding Vault (${res.compounding_score}% Score):</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:4px;">Privacy: ${esc(res.privacy)}</div>
-      </div>
-    `;
-  }, "Friendship Vault Synced! 🌱"));
-
+    renderAI(await api("/v1/ai/friendship-compounding", {}), "#butler-4-output", "Not seen in a while");
+  }));
   on("[data-act=optimize-circadian-vitality]", () => act(async () => {
-    const res = await api("/v1/ai/vitality-circadian-flow", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const c = res.circadian_rhythm_sync || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧬 Circadian Vitality Flow (${res.longevity_score}% Longevity Score):</div>
-        <div style="font-size:12px; margin-bottom:2px;">☀️ Morning Lux: ${esc(c.morning_lux_window)}</div>
-        <div style="font-size:12px; margin-bottom:2px;">🏃 Zone-2 Movement: ${esc(c.optimal_zone2_window)}</div>
-        <div style="font-size:12px; margin-bottom:2px;">🌙 Melatonin Wind-Down: ${esc(c.melatonin_wind_down)} ➔ ${esc(c.recommended_sleep_time)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Sauna Contrast: ${esc(res.weekly_contrast_therapy)}</div>
-      </div>
-    `;
-  }, "Circadian Vitality Protocol Optimized! 🧬"));
-
+    renderAI(await api("/v1/ai/vitality-circadian-flow", {}), "#life-value-output", "Sleep and rhythm");
+  }));
   on("[data-act=track-regret-minimization]", () => act(async () => {
-    const res = await api("/v1/ai/regret-minimization", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const quests = res.top_aspirational_quests || [];
-    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.quest)}</strong> <span class="badge good" style="font-size:10px;">${esc(q.status)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(q.milestone)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌟 Regret Minimization Framework (${res.life_vision_score}% Vision):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">"${esc(res.be_present_reminder)}"</div>
-      </div>
-    `;
-  }, "Regret Minimization Quests Synced! 🌟"));
-
+    renderAI(await api("/v1/ai/regret-minimization", {}), "#life-value-output", "Your goals");
+  }));
   on("[data-act=optimize-life-wealth]", () => act(async () => {
-    const res = await api("/v1/ai/wealth-value-optimizer", {});
-    const out = $("#life-value-output");
-    if (!out) return;
-    const allocs = res.optimized_allocations || [];
-    const items = allocs.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.category)}</strong>: <span style="color:var(--growth); font-weight:bold;">${esc(a.roi || a.savings)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💰 Wealth & Memory ROI Optimizer:</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.total_annual_memory_dividends)}</div>
-      </div>
-    `;
-  }, "Wealth & Memory ROI Optimized! 💰"));
-
+    renderAI(await api("/v1/ai/wealth-value-optimizer", {}), "#life-value-output", "What outings cost");
+  }));
   on("[data-act=log-stoic-reflection]", () => act(async () => {
-    const res = await api("/v1/ai/stoic-presence-mirror", { moment: "Sunset tea with good friends overlooking the sea", gratitude: "Health & genuine companionship" });
-    const out = $("#life-value-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Stoic Daily Presence Mirror (#${res.lifetime_gratitude_count}):</div>
-        <div style="font-size:13px; margin-bottom:2px;">Daily Peak Moment: <strong>"${esc(res.daily_peak_moment)}"</strong></div>
-        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Gratitude Anchor: ${esc(res.gratitude_anchor)}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">Wisdom: "${esc(res.stoic_wisdom)}" (${esc(res.privacy)})</div>
-      </div>
-    `;
-  }, "Stoic Reflection Logged! 🕊️"));
-
+    const note = $("#sr-note") ? $("#sr-note").value.trim() : "";
+    const res = await api("/v1/ai/stoic-presence-mirror", note ? { note } : {});
+    if ($("#sr-note")) $("#sr-note").value = "";
+    renderAI({ recent: res.recent || [], suggestion: res.privacy || "", assisted: true },
+             "#life-value-output", res.logged ? `Written down (${res.total})` : "Yours so far");
+  }));
   on("[data-act=crawl-zero-user-events]", () => act(async () => {
     const res = await api("/v1/seeding/zero-user-event-crawler", { city: "Edinburgh" });
     const out = $("#zero-user-seeding-output");
@@ -4931,36 +5259,51 @@ function wire(root) {
     `;
   }, "Wearable Audio Whispers Active! 🦻"));
 
-  on("[data-act=verify-web-of-trust]", () => act(async () => {
-    const res = await api("/v1/trust/web-of-trust", { target_user: "Elena Rostova" });
+  /* The web of trust.
+
+     It read `res.trust_score` ("98/100 (Tier-1 Community Vouched)"), a `vouching_chain`
+     naming people who do not exist, and a `privacy_standard` of "Zero-Knowledge Proof" for
+     a scheme implemented nowhere — about "Elena Rostova", hardcoded. Somebody who reads
+     that about a stranger meets them differently, which is why none of those fields exist
+     any more. What is here is who vouched, by name, and the fact that this app verifies
+     nobody. */
+  on("[data-act=verify-web-of-trust]", (el) => act(async () => {
+    const subject = $("#tw-who") ? $("#tw-who").value.trim() : "";
+    const res = await api("/v1/trust/web-of-trust", subject ? { subject } : {});
     const out = $("#ultimate-frontier-output");
     if (!out) return;
-    const chain = res.vouching_chain || [];
-    const items = chain.map(c => `<div style="margin-top:2px;">• ${esc(c)}</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤝 Cryptographic Web of Trust (${esc(res.user)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Trust Score: <strong>${esc(res.trust_score)}</strong> <span class="badge good" style="font-size:10px;">${esc(res.community_status)}</span></div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth);">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Privacy: ${esc(res.privacy_standard)}</div>
-      </div>
-    `;
-  }, "Web of Trust Verified! 🤝"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${res.count} vouch${res.count === 1 ? "" : "es"}${res.you_vouched ? " · including yours" : ""}</div>
+        ${res.vouchers.map(v => `<div style="font-size:12px;">· <strong>${esc(v.handle)}</strong>${v.note ? ` — ${esc(v.note)}` : ""}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+        ${subject ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:6px;" data-act="trust-vouch" data-who="${esc(subject)}">I know them</button>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.disclaimer)}</div>
+      </div>`;
+    bindLater(out);
+  }));
+
+  on("[data-act=trust-vouch]", (el) => act(async () => {
+    await api("/v1/trust/vouch", { for_account: el.dataset.who });
+    if ($("#tw-who")) $("#tw-who").value = el.dataset.who;
+    document.querySelector("[data-act=verify-web-of-trust]").click();
+  }));
 
   on("[data-act=view-memory-atlas]", () => act(async () => {
+    /* Reported 48 pins, three memories in three cities nobody had been to, and a time
+       capsule counting down 342 days. Pins are your own check-ins, reviews and moments;
+       there is no capsule, because nothing implements one. */
     const res = await api("/v1/atlas/living-memory-map", {});
     const out = $("#ultimate-frontier-output");
     if (!out) return;
-    const mems = res.recent_geo_memories || [];
-    const items = mems.map(m => `<div style="margin-top:3px;">• <strong>${esc(m.location)}</strong>: "${esc(m.memory)}" (<em>${esc(m.date)}</em>)</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Living Real-World Memory Atlas (${res.memory_pins_count} Pinned Moments):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(res.time_capsule_status)}</div>
-      </div>
-    `;
-  }, "Living Memory Atlas Loaded! 🗺️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${res.count} place${res.count === 1 ? "" : "s"}${res.cities.length ? ` · ${res.cities.map(esc).join(", ")}` : ""}</div>
+        ${res.pins.map(p => `<div style="font-size:12px;">· <strong>${esc(p.place)}</strong> — ${p.times} time${p.times === 1 ? "" : "s"}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.note)}</div>
+      </div>`;
+  }));
 
   on("[data-act=view-eco-quests]", () => act(async () => {
     const res = await api("/v1/impact/regenerative-earth", { city: "Edinburgh" });
@@ -5022,25 +5365,44 @@ function wire(root) {
     `;
   }, "Intergenerational Mentorship Guild Synced! 🕊️"));
 
-  const handleMasterMode = (modeName) => act(async () => {
-    const res = await api("/v1/os/master-controller", { mode: modeName, city: "Edinburgh" });
+  /* Reported "50+ subsystems" online — an AI Butler v4, BLE 5.3 mesh, AirPods spatial
+     audio, Apple Pay ready, a web of trust at 98/100 — and closed with `system_health:
+     "100% Operational (898+ Tests Verified)"`. Every line was a constant. A status page
+     that always says OK is worse than none. */
+  on("[data-act=system-status]", () => act(async () => {
+    const res = await api("/v1/os/master-controller", {});
     const out = $("#master-controller-output");
     if (!out) return;
-    const subs = res.orchestrated_subsystems || {};
-    const items = Object.entries(subs).map(([k, v]) => `<div style="margin-top:2px;">• <strong style="color:var(--spark);">${esc(k.replace(/_/g, " ").toUpperCase())}</strong>: ${esc(v)}</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">👑 Master Controller Mode Active: "${esc(res.active_mode)}" (${esc(res.city)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:bold; margin-bottom:4px;">System Health: ${esc(res.system_health)}</div>
-        <div style="font-size:11px; background:rgba(0,0,0,0.25); padding:8px; border-radius:6px; margin-top:4px;">${items}</div>
-      </div>
-    `;
-  }, `ConnectOS Mode set to: ${modeName}! 👑`);
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${res.configured} of ${res.of} configured</div>
+        ${res.capabilities.map(c => `<div style="font-size:12px;">${c.available ? "✓" : "—"} ${esc(c.name)}${c.needs && !c.available ? ` <span style="color:var(--muted);">(needs ${esc(c.needs)})</span>` : ""}</div>`).join("")}
+        <div style="font-size:12px; font-weight:700; margin-top:8px;">Cannot do</div>
+        ${res.unavailable.map(u => `<div style="font-size:11px; color:var(--muted);">· ${esc(u.name)} — ${esc(u.why)}</div>`).join("")}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${Object.entries(res.counts).map(([k, v]) => `${v} ${esc(k)}`).join(" · ")}</div>
+      </div>`;
+  }));
 
-  on("[data-act=set-mode-adventure]", () => handleMasterMode("High Growth & Adventure")());
-  on("[data-act=set-mode-recovery]", () => handleMasterMode("Restorative Deep Recovery")());
-  on("[data-act=set-mode-flow]", () => handleMasterMode("Creative Flow Mastery")());
-  on("[data-act=set-mode-impact]", () => handleMasterMode("Planetary Impact Guild")());
+  on("[data-act=show-globe]", () => act(async () => {
+    const res = await api("/v1/city/live-globe");
+    const out = $("#globe-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${res.cities.map(c => `<div style="font-size:13px; margin-bottom:4px;">
+             <strong>${esc(c.label || c.city)}</strong> — ${c.total} ${c.total === 1 ? "thing" : "things"}
+             <span style="color:var(--muted); font-size:11px;">${Object.entries(c.counts).map(([k, v]) => `${v} ${esc(v === 1 ? k.replace(/s$/, "") : k)}`).join(" · ")}</span>
+           </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+      </div>`;
+  }));
+
+  on("[data-act=show-feed-rules]", () => act(async () => {
+    const res = await api("/v1/feed/transparent-rules", {});
+    const out = $("#master-controller-output");
+    if (!out) return;
+    out.innerHTML = renderFeedRules(res);
+  }));
 
   on("[data-act=view-vinyl-radar]", () => act(async () => {
     const res = await api("/v1/seeding/underground-vinyl-radar", { city: "Edinburgh" });
@@ -5232,55 +5594,107 @@ function wire(root) {
     `;
   }, "Pre-Game Squad Matched! 🍻"));
 
+  /* ---- City chat ---- */
+  on("[data-act=city-open]", (el) => act(async () => {
+    const city = (el.dataset.city || ($("#city-name") || {}).value || "").trim();
+    if (!city) throw new Error("Which city?");
+    state.cityRoom = city;
+    localStorage.setItem("lifeos.city", city);
+    await refresh();
+  }));
+
+  on("[data-act=meetup-create]", () => act(async () => {
+    const title = ($("#mu-title").value || "").trim();
+    const place = ($("#mu-place").value || "").trim();
+    const when = ($("#mu-when").value || "").trim();
+    if (!title) throw new Error("What is the plan?");
+    if (!when) throw new Error("When?");
+    await api("/v1/city/meetups", { city: state.cityRoom, title, place, starts_at: when });
+    await refresh();
+  }, "It's up — people can join now"));
+
+  on("[data-act=meetup-join]", (el) => act(async () => {
+    await api("/v1/city/meetups/join", { meetup_id: el.dataset.id });
+    await refresh();
+  }, "You're in. Meet somewhere public the first time."));
+
+  on("[data-act=meetup-leave]", (el) => act(async () => {
+    await api("/v1/city/meetups/leave", { meetup_id: el.dataset.id });
+    await refresh();
+  }));
+
+  on("[data-act=city-here]", () => act(async () => {
+    const note = (($("#city-note") || {}).value || "").trim();
+    await api("/v1/city/around", { city: state.cityRoom, note, days: 3 });
+    await refresh();
+  }, "You are listed as here"));
+
+  on("[data-act=city-hide]", () => act(async () => {
+    await apiDelete("/v1/city/around", { city: state.cityRoom });
+    await refresh();
+  }, "Taken down"));
+
+  on("[data-act=city-say]", () => act(async () => {
+    const box = $("#city-say");
+    const text = (box.value || "").trim();
+    if (!text) throw new Error("Say something first");
+    await api("/v1/city/chat", { city: state.cityRoom, text });
+    box.value = "";
+    await refresh();
+  }, "Sent"));
+
+  on("[data-act=city-remove]", (el) => act(async () => {
+    await apiDelete(`/v1/city/chat/message/${encodeURIComponent(el.dataset.id)}`);
+    await refresh();
+  }, "Message removed"));
+
+  on("[data-act=city-mute]", (el) => act(async () => {
+    await api("/v1/city/chat/mute", { target_id: el.dataset.id });
+    await refresh();
+  }, "Muted — they are not told"));
+
+  on("[data-act=city-report]", (el) => act(async () => {
+    const reason = prompt("What is wrong with this message? Only the operator sees this.");
+    if (!reason) return;
+    await api("/v1/city/chat/report", { message_id: el.dataset.id, reason });
+  }, "Reported to the operator"));
+
+  on("[data-act=vcard-download]", () => act(async () => {
+    const res = await api("/v1/people/qr");
+    const out = $("#vcard-output");
+    if (!out) return;
+    // `vcard_data_uri` is built by the gateway from your own handle, escaped per RFC 6350.
+    // safeUrl() would reject it — it only passes http/https — and that is correct for
+    // response-supplied links; this one is a data: URI we generated, so it is set through
+    // the DOM rather than interpolated into markup.
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; margin-bottom:6px;">Contact card for <strong>${esc(res.name)}</strong></div>
+        <a class="btn" id="vcard-link" download="lifeos-contact.vcf">Save .vcf</a>
+      </div>
+    `;
+    const link = $("#vcard-link");
+    if (link) link.href = res.vcard_data_uri;
+  }, "Contact card ready"));
   on("[data-act=synthesize-daily-journal]", () => act(async () => {
-    const res = await api("/v1/journal/daily-reflection-synthesis", { city: "Munich", date: "Today" });
+    /* Read `res.poetic_daily_retrospective`, `res.events_experienced` and
+       `res.gratitude_dividends` — a hardcoded day per city. Send "Munich" and it told you,
+       in the first person, that you had watched dawn surfers on the Eisbach wave and
+       thanked a man called Lukas. None of those fields exist now: a day is built from
+       your own check-ins, notes and moments, and an empty day says so. */
+    const res = await api("/v1/journal/daily-reflection-synthesis", {});
     const out = $("#journal-synthesis-output");
     if (!out) return;
-    const vm = res.daily_vitality_metrics || {};
-    const events = (res.events_experienced || []).map(e => `<li>${esc(e)}</li>`).join("");
-    const grats = (res.gratitude_dividends || []).map(g => `<li>${esc(g)}</li>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:14px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:15px; font-weight:700; color:#6366f1; margin-bottom:6px;">🌙 Daily Midnight Reflection (${esc(res.city)} · ${esc(res.date)}):</div>
-        <div style="font-style:italic; font-size:13px; color:var(--growth); line-height:1.4; margin-bottom:8px; padding:8px; background:rgba(0,0,0,0.2); border-radius:8px;">"${esc(res.poetic_daily_retrospective)}"</div>
-        <div style="font-size:12px; font-weight:bold; color:var(--text); margin-bottom:2px;">📍 Moments Experienced:</div>
-        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:var(--muted);">${events}</ul>
-        <div style="font-size:12px; font-weight:bold; color:#10b981; margin-bottom:2px;">✨ Gratitude Dividends:</div>
-        <ul style="margin:0 0 8px 18px; padding:0; font-size:11px; color:#10b981;">${grats}</ul>
-        <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--spark); border-top:1px solid var(--line-soft); padding-top:6px; margin-top:6px;">
-          <span>🏃 Steps: <strong>${vm.steps_walked || 14280}</strong></span>
-          <span>👀 Presence: <strong>${esc(vm.presence_score)}</strong></span>
-          <span>🔒 Capsule: <strong>${esc(res.time_capsule_status)}</strong></span>
-        </div>
-      </div>
-    `;
-  }, "Midnight Memory Synthesized! 🌙"));
-
-  /* ---- Voice Copilot Handlers ---- */
-  async function triggerVoiceQuery(query) {
-    const res = await api("/v1/voice/copilot-chat", { query: query, city: "Munich" });
-    const out = $("#voice-copilot-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #3b82f6;">
-        <div style="font-size:12px; color:var(--muted); font-style:italic;">🗣️ "${esc(res.user_query)}"</div>
-        <div style="font-size:14px; font-weight:700; color:#3b82f6; margin-top:4px;">🎙️ AI Voice Copilot:</div>
-        <div style="font-size:13px; color:var(--text); line-height:1.4; margin-top:4px;">${esc(res.voice_reply_text)}</div>
-      </div>
-    `;
-    if ("speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(res.voice_reply_text);
-        utterance.rate = 1.05;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.warn("SpeechSynthesis error:", e);
-      }
-    }
-  }
-
+      <div style="background:var(--surface-2s); padding:14px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(res.date)}</div>
+        ${res.summary ? `<div style="font-size:13px; margin-bottom:8px;">${esc(res.summary)}</div>` : ""}
+        ${res.did.map(d => `<div style="font-size:12px;">· ${esc(d)}</div>`).join("")}
+        ${res.notes.map(n => `<div style="font-size:12px; color:var(--growth);">“${esc(n)}”</div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_score)}${res.sources.length ? ` · built from ${res.sources.length} of your own entries` : ""}</div>
+      </div>`;
+  }));
   on("[data-act=voice-ask-nightlife]", () => act(async () => {
     await triggerVoiceQuery("What are the best vinyl clubs and parties tonight?");
   }, "Spoken Nightlife Query Sent! 🔊"));
@@ -5333,22 +5747,26 @@ function wire(root) {
 
   /* ---- Universal Markdown Export Handler ---- */
   on("[data-act=export-universal-markdown]", () => act(async () => {
-    const res = await api("/v1/export/universal-markdown", { format: "Obsidian" });
+    /* Reported 48 vault files and offered a .zip on connectos.app that was never written,
+       on a host this deployment does not serve. The export is the response now, and the
+       download is a Blob built from it here — no file has to exist on any server. */
+    const res = await api("/v1/export/universal-markdown", {});
+    const text = Object.entries(res.documents)
+      .map(([name, body]) => `\n\n<!-- ${name} -->\n\n${body}`).join("").trim() + "\n";
     const out = $("#markdown-export-output");
     if (!out) return;
+    const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">📦 Obsidian / Notion Vault Export Ready (${res.total_vault_files} Notes):</div>
-        <div style="font-size:11px; color:var(--text);">• 01_Daily_Retrospectives: ${esc(res.vault_structure["01_Daily_Retrospectives"])}</div>
-        <div style="font-size:11px; color:var(--text);">• 02_People_Graph: ${esc(res.vault_structure["02_People_Graph"])}</div>
-        <div style="font-size:11px; color:var(--text);">• 03_Culture_Radar: ${esc(res.vault_structure["03_Culture_Radar"])}</div>
-        <div style="margin-top:8px;">
-          <a href="${esc(res.download_url)}" download="lifeos-vault-obsidian.zip" class="primary" style="display:inline-block; background:linear-gradient(135deg, #8b5cf6, #3b82f6); padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px; color:#fff; font-weight:bold;">⬇️ Download Obsidian Vault .zip</a>
-        </div>
-      </div>
-    `;
-  }, "Obsidian Markdown Vault Generated! 📦"));
-
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${res.files} file${res.files === 1 ? "" : "s"} · ${res.rows} entr${res.rows === 1 ? "y" : "ies"}</div>
+        ${Object.keys(res.documents).map(n => `<div style="font-size:11px; color:var(--muted);">${esc(n)}</div>`).join("")}
+        <a id="md-export-link" class="primary" style="display:inline-block; margin-top:8px; padding:6px 14px; font-size:12px; text-decoration:none; border-radius:8px;" download="lifeos-export.md">⬇️ Save it</a>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.note)} ${esc(res.excluded_reason)}</div>
+      </div>`;
+    const link = $("#md-export-link");
+    if (link) link.href = url;      // a Blob built in this tab, not a URL to somebody's server
+    bindLater(out);
+  }));
   on("[data-act=gen-dev-apikey]", () => act(async () => {
     const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
     const out = $("#developer-output");
@@ -5543,41 +5961,151 @@ function wire(root) {
   }, "VIP Fast-Track Pass Verified! 🎟️"));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
-    const res = await api("/v1/gamification/mint-presence", { event_name: "Lisbon Rooftop Sunset Meet", location: "Miradouro Rooftop" });
+    const place = $("#pop-place") ? $("#pop-place").value.trim() : "";
+    if (!place) { toast("Where were you?"); return; }
+    const res = await api("/v1/gamification/mint-presence", { event_name: place });
     const out = $("#pop-mint-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🎟️ Proof-of-Presence Minted!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Token ID: <strong>${esc(res.token_id)}</strong> · ${esc(res.badge_name)}</div>
-        <div style="font-size:11px; color:var(--muted);">Tx Hash: ${esc(res.tx_hash)} (Verified on Blockchain ⛓️)</div>
-      </div>
-    `;
-  }, "Proof-of-Presence Badge Minted! 🎟️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Noted: ${esc(place)}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.note || "")}</div>
+      </div>`;
+  }, "Check-in recorded"));
+
+  /* ---- SafeWalk ----
+     The old handler posted a destination and toasted "Crew notified & ETA timer set". No
+     message left the building, and the escort code was the same eight digits for every walk
+     in the world. Somebody who believes their crew is watching walks home differently from
+     somebody who knows nobody is, so this screen says exactly who can see the walk. */
+
+  function renderWalk(res) {
+    const out = $("#safewalk-output");
+    if (!out) return;
+    const walks = res.walks || [];
+    const overdue = res.overdue || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${res.watching ? `
+          <div style="font-size:13px; font-weight:700; margin-bottom:4px;">Walking to ${esc(res.destination)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${res.can_see_it} ${res.can_see_it === 1 ? "person" : "people"} can see this · ${esc(res.delivery_note || "")}</div>` : ""}
+        ${overdue.length ? `<div style="font-size:13px; font-weight:700; color:var(--warm); margin-bottom:6px;">${overdue.length} overdue</div>` : ""}
+        ${walks.map(w => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(w.handle)}</strong> → ${esc(w.destination)}${w.severity === "sos" ? " · SOS" : ""}</div>
+            <div style="font-size:11px; color:${w.overdue ? "var(--warm)" : "var(--muted)"};">${w.overdue ? `${w.overdue_minutes} min overdue` : `due ${esc(whenLabel(w.due_at))}`}</div>
+          </div>`).join("")}
+        ${!res.watching && !walks.length ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "Nothing active.")}</div>` : ""}
+        ${res.disclaimer ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.disclaimer)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  const walkWatchers = () => ($("#sw-watchers") ? $("#sw-watchers").value : "")
+    .split(",").map(w => w.trim()).filter(Boolean);
 
   on("[data-act=start-safewalk-escort]", () => act(async () => {
-    const destination = $("#sw-dest").value.trim() || "Miradouro Rooftop Bar";
-    const eta_mins = parseInt($("#sw-eta").value, 10) || 15;
-    const res = await api("/v1/safety/escort", { destination, eta_mins });
-    $("#sw-dest").value = "";
-    toast(res.message || "SafeWalk Live Escort active! 🛡️");
+    const destination = $("#sw-dest").value.trim();
+    if (!destination) { toast("Where are you going?"); return; }
+    const eta_mins = parseInt($("#sw-eta").value, 10) || 30;
+    renderWalk(await api("/v1/safety/escort",
+                         { destination, eta_mins, watchers: walkWatchers() }));
   }));
 
-  on("[data-act=quick-split-expense]", () => act(async () => {
-    const title = $("#qs-title").value.trim() || "Sunset Drinks & Tapas";
-    const amount = parseFloat($("#qs-amount").value) || 60.00;
-    const people_count = parseInt($("#qs-people").value, 10) || 4;
-    const res = await api("/v1/ledger/quick-split", { title, amount, people_count });
-    const out = $("#quick-split-output");
+  on("[data-act=safewalk-arrived]", () => act(async () => {
+    await api("/v1/safety/escort/arrived", {});
+    renderWalk(await api("/v1/safety/escort"));
+  }, "Good. Watch cleared ✅"));
+
+  on("[data-act=safewalk-mine]", () => act(async () => {
+    renderWalk(await api("/v1/safety/escort"));
+  }));
+
+  on("[data-act=safewalk-watching]", () => act(async () => {
+    renderWalk(await api("/v1/safety/watching"));
+  }));
+
+  /* The tab — who owes whom.
+
+     The old handler read `res.per_person`, `res.total_amount` and `res.payment_link`, none
+     of which exist any more: the payment link went to a revolut.me page for an account
+     nobody had connected, and the split was never written down. Both renderers below take
+     the shapes the server actually returns now. */
+  function renderTab(res, selector) {
+    const out = $(selector || "#quick-split-output");
     if (!out) return;
+    const money = (n, c) => `${Number(n).toFixed(2)}${c ? " " + esc(c) : ""}`;
+    // The server addresses people by account id and resolves the handle for display; an id
+    // on screen is not a sentence anybody can act on.
+    const who = (row) => row.handle || row.counterparty || row.person || "someone";
+    let body = "";
+    if (res.entries && res.split) {
+      body = `<div style="font-size:13px; margin-bottom:6px;">Split ${money(res.total, res.currency)} ${res.people} ways · <strong>your share ${money(res.your_share, res.currency)}</strong></div>`
+        + res.entries.map(e => `<div style="font-size:13px;">${esc(who(e))} owes you ${money(e.owes_you, e.currency)}</div>`).join("");
+    } else if (res.entries && res.total !== undefined) {
+      body = res.entries.length
+        ? res.entries.map(e => `<div style="font-size:13px; margin-bottom:4px; ${e.disputed ? "opacity:0.55; text-decoration:line-through;" : ""}">
+             ${esc(who(e))} · ${e.you_owe ? "you owe" : "owes you"} ${e.amount ? money(e.amount, e.currency) : esc(e.item || "")}${e.note ? ` — ${esc(e.note)}` : ""}
+             ${e.yours_to_dispute ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="tab-dispute" data-entry="${esc(e.entry_id)}">Not mine</button>` : ""}
+           </div>`).join("")
+        : `<div style="font-size:13px; color:var(--muted);">Nothing on your tab yet.</div>`;
+    } else if (res.recorded === false && res.each !== undefined) {
+      body = `<div style="font-size:13px; margin-bottom:4px;"><strong>${money(res.each, res.currency)} each</strong> · your share ${money(res.your_share, res.currency)}</div>`;
+    } else if (res.balances) {
+      body = res.balances.length
+        ? res.balances.map(b => `<div style="font-size:13px; margin-bottom:4px;">
+             <strong>${esc(who(b))}</strong> — ${esc(b.direction)} ${money(b.net, b.currency)}
+             ${b.they_owe_you ? "" : `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-left:6px;" data-act="settle-with" data-who="${esc(b.counterparty)}" data-cur="${esc(b.currency)}">Settle</button>`}
+           </div>`).join("")
+        : `<div style="font-size:13px; color:var(--muted);">Nothing on your tab.</div>`;
+    } else if (res.settled) {
+      body = `<div style="font-size:13px;">Settled ${money(res.amount, res.currency)} with ${esc(res.counterparty_handle || res.counterparty)}${res.clear ? " — all clear" : ` · ${money(res.still_owed, res.currency)} left`}</div>`;
+    } else if (res.recorded) {
+      body = `<div style="font-size:13px;">You owe ${esc(res.to_account_handle || res.to_account)}${res.amount ? " " + money(res.amount, res.currency) : ""}${res.item ? ` (${esc(res.item)})` : ""}</div>`;
+    }
+    const footer = res.no_money || res.note || "";
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:4px;">💸 Expense Split: ${esc(res.title)}</div>
-        <div style="font-size:13px; margin-bottom:4px;">Total: €${res.total_amount.toFixed(2)} · <strong>€${res.per_person.toFixed(2)} / person</strong> (${res.people_count} members)</div>
-        <button class="ghost" style="margin-top:6px; font-size:12px; padding:6px 12px;" onclick="window.open('${esc(res.payment_link)}', '_blank'); toast('Payment link opened! 📲');">1-Tap Revolut Payment Link 📲</button>
-      </div>
-    `;
-  }, "Expense Split & Payment Link Generated! 💸"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${body}
+        ${footer ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(footer)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  on("[data-act=quick-split-expense]", () => act(async () => {
+    const amount = parseFloat($("#qs-amount").value);
+    if (!(amount > 0)) { toast("How much was it?"); return; }
+    const note = $("#qs-title").value.trim();
+    const who = $("#qs-who").value.split(",").map(w => w.trim()).filter(Boolean);
+    // Named people go on a tab; a bare headcount is only ever the arithmetic, and the
+    // response says which of the two happened rather than implying it wrote something.
+    const res = who.length
+      ? await api("/v1/ledger/quick-split", { amount, note, participants: who })
+      : await api("/v1/ledger/quick-split",
+                  { amount, note, people_count: parseInt($("#qs-people").value, 10) || 4 });
+    renderTab(res);
+  }));
+
+  on("[data-act=show-tab]", () => act(async () => {
+    renderTab(await api("/v1/ledger/tab"), "#quick-split-output");
+  }));
+
+  on("[data-act=tab-history]", () => act(async () => {
+    renderTab(await api("/v1/ledger/tab/entries"), "#quick-split-output");
+  }));
+
+  /* Anybody can write a debt against anybody. Being able to see a claim is not the same as
+     having agreed to it, so the side it counts against can reject it. */
+  on("[data-act=tab-dispute]", (el) => act(async () => {
+    await api("/v1/ledger/tab/dispute", { entry_id: el.dataset.entry });
+    renderTab(await api("/v1/ledger/tab/entries"), "#quick-split-output");
+  }));
+
+  on("[data-act=settle-with]", (el) => act(async () => {
+    renderTab(await api("/v1/ledger/settle-up",
+                        { counterparty: el.dataset.who, currency: el.dataset.cur }),
+              "#quick-split-output");
+  }));
 
   on("[data-act=start-audio-space]", () => act(async () => {
     const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";
@@ -5706,6 +6234,14 @@ document.querySelectorAll("nav .tab").forEach((b) => b.addEventListener("click",
 $("#settings-btn").addEventListener("click", () => {
   $("#set-base").value = localStorage.getItem("lifeos.base") || "";
   $("#set-token").value = localStorage.getItem("lifeos.token") || "";
+  const who = $("#set-account");
+  if (who) {
+    who.textContent = state.me
+      ? `Signed in as ${state.me.handle}`
+      : "Not signed in.";
+  }
+  const out = $("#set-signout");
+  if (out) out.hidden = !state.me;
   $("#settings").showModal();
 });
 $("#set-save").addEventListener("click", () => {
@@ -5718,18 +6254,24 @@ $("#set-close").addEventListener("click", () => $("#settings").close());
 $("#set-export").addEventListener("click", () => window.open(apiBase() + "/v1/export", "_blank"));
 
 let leafletLoaded = false;
+// Served from our own origin, not unpkg. A CDN script loaded into this page runs with full
+// access to the session token in localStorage and to every graph endpoint, and unpkg was
+// loaded with no Subresource Integrity hash — so whatever it happened to return, we ran.
+// The files in vendor/ are Leaflet 1.9.4 extracted from the npm tarball, verified against
+// the sha512 that npm publishes for that release before being committed.
 async function loadLeaflet() {
   if (leafletLoaded || window.L) return;
   leafletLoaded = true;
   return new Promise((resolve) => {
     const link = document.createElement("link");
     link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    link.href = "vendor/leaflet.css";
     document.head.appendChild(link);
 
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.src = "vendor/leaflet.js";
     script.onload = () => resolve();
+    script.onerror = () => resolve();     // the map degrades; the page must not hang
     document.head.appendChild(script);
   });
 }
@@ -5821,36 +6363,127 @@ window.addEventListener("keydown", (evt) => {
   }
 });
 
-/* ---- Passkey & WebAuthn SSO Listener ---- */
-const passkeyBtn = $("#set-passkey");
-if (passkeyBtn) {
-  passkeyBtn.addEventListener("click", async () => {
-    if (window.PublicKeyCredential) {
-      toast("Authenticating with WebAuthn Passkey (Fingerprint / FaceID)... 🔑");
-      setTimeout(() => toast("Passkey Authenticated! Device paired to gateway. ✓"), 1200);
-    } else {
-      toast("WebAuthn Passkey fallback: Using Gateway Bearer Token");
-    }
-  });
+/* ---- Signing in ------------------------------------------------------------
+   The gateway has had register / login / email-code / OIDC since the accounts work
+   landed, and the PWA had no screen for any of it: the only route to a session was
+   pasting a bearer token into the developer field in Settings. What stood here instead
+   was a "1-Tap Social SSO" block whose buttons called /v1/auth/social-sso — an endpoint
+   that returns a made-up user id, no token, no session — and then toasted
+   "Authenticated! Cloud Sync Active". Telling someone they are signed in when nothing
+   happened is worse than offering nothing at all, so that is gone and this is real. */
+
+let authMode = "register";
+state.cityRoom = localStorage.getItem("lifeos.city") || "";
+
+function authError(message) {
+  const el = $("#auth-error");
+  if (!el) return;
+  el.textContent = message || "";
+  el.hidden = !message;
 }
 
-/* ---- 1-Tap Social SSO & Magic Link Listener ---- */
-document.querySelectorAll("[data-sso]").forEach((btn) => {
-  btn.addEventListener("click", async () => {
-    const provider = btn.dataset.sso;
-    const res = await api("/v1/auth/social-sso", { provider }).catch(() => null);
-    toast(res ? res.message : `Signed in via ${provider.toUpperCase()}! Cloud Sync Active ✓`);
-  });
+function setSession(result) {
+  if (!result || !result.token) throw new Error("the gateway did not return a session");
+  localStorage.setItem("lifeos.token", result.token);
+  state.me = null;
+  $("#auth").close();
+  authError("");
+  toast(`Signed in as ${result.handle || "you"}`);
+  refresh();
+}
+
+async function openAuth() {
+  if ($("#auth").open) return;
+  authError("");
+  // Only offer what this deployment can actually deliver. An email box that mints a code
+  // nobody can receive, or a Google button with no client id, is the same lie in a
+  // different shape.
+  const providers = await api("/v1/auth/providers").catch(() => null);
+  const emailBlock = $("#auth-email-block");
+  if (emailBlock) emailBlock.hidden = !(providers && providers.email && providers.email.available);
+
+  const oidc = $("#auth-oidc-block");
+  if (oidc) {
+    const usable = ((providers && providers.providers) || []).filter((p) => p.configured);
+    oidc.hidden = usable.length === 0;
+    oidc.innerHTML = usable.length
+      ? `<p class="hint">${usable.map((p) => esc(p.provider)).join(" and ")} sign-in is configured on this server — use the button your device offers.</p>`
+      : "";
+  }
+  $("#auth").showModal();
+}
+
+function applyAuthMode() {
+  const registering = authMode === "register";
+  $("#auth-title").textContent = registering ? "Welcome to LifeOS" : "Welcome back";
+  $("#auth-sub").textContent = registering
+    ? "Create an account to keep your graph across devices."
+    : "Sign in to pick up where you left off.";
+  $("#auth-submit").textContent = registering ? "Create account" : "Sign in";
+  $("#auth-toggle").textContent = registering ? "I already have one" : "I need an account";
+  $("#auth-pass").setAttribute("autocomplete", registering ? "new-password" : "current-password");
+  authError("");
+}
+
+$("#auth-toggle").addEventListener("click", () => {
+  authMode = authMode === "register" ? "login" : "register";
+  applyAuthMode();
 });
 
-const magicBtn = $("#sso-magic");
-if (magicBtn) {
-  magicBtn.addEventListener("click", async () => {
-    const identifier = $("#sso-email").value.trim() || "user@example.com";
-    const res = await api("/v1/auth/social-sso", { provider: "email", identifier }).catch(() => null);
-    toast(`Magic Link sent to ${identifier}! ✉️ Check your inbox to complete sign-in.`);
-  });
-}
+$("#auth-submit").addEventListener("click", async () => {
+  const handle = $("#auth-handle").value.trim();
+  const password = $("#auth-pass").value;
+  if (!handle || !password) return authError("A handle and a password, please.");
+  try {
+    if (authMode === "register") {
+      await api("/v1/auth/register", { handle, password });
+    }
+    setSession(await api("/v1/auth/login", { handle, password }));
+  } catch (e) {
+    authError(e.message || "That did not work.");
+  }
+});
+
+$("#auth-email-send").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim();
+  if (!email) return authError("Which address should the code go to?");
+  try {
+    const res = await api("/v1/auth/email/code", { email });
+    $("#auth-code-row").hidden = false;
+    authError("");
+    toast(res.delivered ? `Code sent to ${email}` : "Email is not configured on this server");
+  } catch (e) {
+    authError(e.message || "Could not send a code.");
+  }
+});
+
+$("#auth-code-verify").addEventListener("click", async () => {
+  const email = $("#auth-email").value.trim();
+  const code = $("#auth-code").value.trim();
+  if (!code) return authError("Enter the code from your email.");
+  try {
+    setSession(await api("/v1/auth/email/verify", { email, code }));
+  } catch (e) {
+    authError(e.message || "That code is not valid.");
+  }
+});
+
+$("#set-signout").addEventListener("click", async () => {
+  await api("/v1/auth/logout", {}).catch(() => null);
+  localStorage.removeItem("lifeos.token");
+  state.me = null;
+  $("#settings").close();
+  toast("Signed out");
+  refresh();
+});
+
+applyAuthMode();
+
+document.addEventListener("click", (evt) => {
+  // The welcome card is written straight into #view and so never goes through wire(),
+  // which is where every other data-act is bound.
+  if (evt.target.closest("[data-act=open-auth]")) openAuth();
+});
 
 /* ---- Settings Dialog & Universal Markdown Vault Export ---- */
 const settingsDlg = $("#settings");
@@ -5888,20 +6521,25 @@ if (setSaveBtn && settingsDlg) {
 if (setExportBtn) {
   setExportBtn.addEventListener("click", async () => {
     try {
-      toast("Generating Universal Markdown Vault (.zip)... 📦");
-      const res = await api("/v1/export/universal-markdown", { format: "Obsidian" });
-      if (res && res.download_url) {
-        const a = document.createElement("a");
-        a.href = res.download_url;
-        a.download = res.filename || "lifeos_obsidian_vault.zip";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        const count = res.total_vault_files || res.exported_notes_count || (res.files ? Object.keys(res.files).length : 1);
-        toast(`Exported ${count} notes to ${a.download}! 🚀`);
-      } else {
-        toast("Export failed: no download url returned");
-      }
+      toast("Building your export…");
+      /* This gated on `res.download_url`, which the endpoint returns as null on purpose —
+         a URL means a file has to exist on a server, and the version that reported one
+         never wrote it. So the button said "Export failed" every time. The bytes come back
+         in the response; the download is built here, in this tab, and nothing is uploaded
+         anywhere. */
+      const res = await api("/v1/export/universal-markdown", {});
+      const text = Object.entries(res.documents)
+        .map(([name, body]) => `\n\n<!-- ${name} -->\n\n${body}`).join("").trim() + "\n";
+      const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "lifeos-export.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      // `files` and `rows` are counts, because they were produced by counting.
+      toast(`Exported ${res.rows} entr${res.rows === 1 ? "y" : "ies"} across ${res.files} files.`);
     } catch (err) {
       toast("Export error: " + err.message);
     }

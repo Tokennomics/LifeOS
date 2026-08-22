@@ -90,11 +90,23 @@ def main(args_list: list[str] | None = None, graph: Graph | None = None) -> int:
         return 0
 
     elif parsed.command == "synthesize":
-        from modules.journal import daily_synthesis
-        res = daily_synthesis.synthesize_daily_reflection(graph)
-        print(f"[LifeOS CLI] Daily Reflection Synthesized (Memory ID: {res['memory_id']}):")
-        print(f"  * Summary: {res['poetic_daily_retrospective']}")
-        print(f"  * Gratitude: {res['gratitude_dividends']}")
+        # Pointed at `personal.journal`, which reads your own check-ins, moments and notes.
+        # The module this replaced branched on the city name — "Munich" produced dawn surfers
+        # on the Eisbach and gratitude to a man called Lukas — and then *wrote that day into
+        # the graph* as a sealed memory with a presence score. A fabricated day that is
+        # merely displayed is bad; one that is persisted becomes indistinguishable from a
+        # real one on every screen that reads memories afterwards.
+        from modules.personal import journal
+        res = journal.day(graph)
+        if res["empty"]:
+            print("[LifeOS CLI] Nothing recorded today. " + res["suggestion"])
+            return 0
+        print(f"[LifeOS CLI] {res['date']} — {res['summary']}")
+        for line in res["did"]:
+            print(f"  · {line}")
+        for note in res["notes"]:
+            print(f"  \u201c{note}\u201d")
+        print(f"  ({len(res['sources'])} entries of your own)")
         return 0
 
     else:

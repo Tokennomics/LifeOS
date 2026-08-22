@@ -13,7 +13,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **874 passing**.
+explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1098 passing**.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -401,6 +401,268 @@ cannot be aimed at another handle, identities cannot be stolen or unlinked acros
 errors leak no internals, and `/health` plus `/v1/auth/providers` are the only routes that
 answer without a token.
 
+## READ THIS TOO: 41% of the app returns invented data
+
+`python3 tools/audit_props.py` — **183 of 447 handlers return a dict literal**, never
+touching the graph. That is fine for a sketch and fatal for a first impression, and it is
+the biggest single obstacle to launching with something people value.
+
+Measured, not guessed. A brand-new account with an empty graph was being told:
+
+- **12 real-world meetups, 34 kudos, 48.5 focus hours** this month
+- a **"Crag Pioneer" badge** and eight stamps in Lisbon
+- an **82% social battery**, "OPTIMAL_FLOW"
+
+...and two different accounts got *byte-identical* "personal" statistics, because the numbers
+were literals in the handler. `/v1/synergy/instant-match` returns Elena R. at Fabrica whether
+you ask it for climbing or knitting.
+
+**The three that fabricated the user's own history are fixed** (`modules/personal/recap.py`):
+monthly recap, city passport and social battery are computed from the caller's graph, and
+zero is a real answer — an empty month says so and offers no share button, because handing
+somebody a share button for a month in which they did nothing is the app asking them to
+advertise its own emptiness.
+
+Two things found on the way in, both worth remembering:
+
+- **There were two `/wrapped/monthly` handlers.** FastAPI matches the first registered, so a
+  graph-backed implementation further down the file had never run once. There is now a test
+  that no route is defined twice — the failure is invisible in review and silent at runtime.
+- **A test asserted `battery_pct == 82`.** Same shape as the backup test that asserted the
+  instance wipe returns 200: a test that pins a prop in place is how the prop survives
+  review. Both are rewritten.
+
+**The remaining ~180 are a triage decision, not a code task.** For each: make it real, or
+delete it. Anything that states a fact about *the user* is the urgent class; a demo panel
+that clearly shows what a feature would look like is far less harmful. This is the highest
+-value pre-launch work in the repo.
+
+## Meetups — the object that turns talk into meeting
+
+`modules/city/meetups.py`, in the City tab above the chat. Researched against Hostelworld,
+who call these Linkups and have had them for years: their city rooms sit next to browsable,
+traveller-made plans with an attendee list. We had the room and not the plans, so the most
+useful sentence anybody types — "sunset at the viewpoint around seven, anyone?" — scrolled
+away, could only be answered with "me too", and told you nothing about who else was coming.
+
+A meetup is deliberately small: a thing, a place, a time, and who is going. Not an event with
+tickets, not a crew with a membership lifecycle — both of those already exist here and
+neither fits a stranger proposing a walk.
+
+- **The organiser is counted as going.** An attendee list starting at zero reads as an idea
+  nobody backs.
+- **The organiser leaving cancels it.** A plan whose author is not coming is not a plan, and
+  letting the others discover that at the viewpoint is worse.
+- **`SAFETY_NOTE` travels with every meetup** — created, listed and joined — rather than
+  living in a settings page. "Meet somewhere public the first time" is the first line of
+  every solo-travel safety guide, and the moment it is useful is the moment somebody is
+  deciding to go.
+- **Place is free text, never coordinates.** City granularity is the promise the whole city
+  surface makes, and this is exactly where it would be tempting to break it.
+- A naive timestamp is read as UTC rather than refused — rejecting a missing suffix means
+  rejecting half the world's date pickers.
+
+**The next thing to build is not another feature.** The research note
+(`Cheap to Run, Hard to Fill`) concluded that cold start is the thing most likely to kill
+this: location-based products die by spreading thin everywhere and reaching critical mass
+nowhere. LifeOS lets anyone open a room in any city on earth. **Pick one city and seed it.**
+
+## Arrival — the app's first thirty seconds
+
+`modules/city/arrival.py`, `GET /v1/city/arrival?city=X`. A new instance shows a signed-in
+user an empty week, an empty feed and an empty directory — the honest state of the data, and
+the moment most people close the app for good. Arrival answers "I just landed in X, what is
+here?" in **one request** (six round trips on hotel wifi is the difference between a product
+and a spinner), composing the city room, the crew directory, published events and venue
+feeds. Every part degrades on its own: an empty city is the normal case, not an error, and
+one raising module must not blank the screen. When there is genuinely nothing, it says what
+to do rather than showing a void.
+
+It adds one new primitive: **an explicit, expiring "I'm around" marker.** `discover.set_intent`
+already existed but is owner-scoped and therefore private — a standing wish nobody can see
+connects nobody. So announcing is deliberately public, and therefore deliberately narrow:
+
+- **Opt-in per city and never implied.** Reading the room does not announce you; posting does
+  not announce you. "Is this person in this city right now" is a different question from "did
+  this person say something", and it is the one a stalker asks.
+- **It expires** (`DEFAULT_DAYS`, capped at `MAX_DAYS`) and withdraws instantly.
+- **City granularity only** — no coordinates, no venue, no "online now". That is what makes
+  it safe, and a finer one is not a request to accept casually.
+- **The chat mute list applies.** Muting means "not in my experience", not "not their chat".
+
+One bug worth remembering: `days or DEFAULT_DAYS` silently turned an explicit `0` into 3 —
+publishing a presence the caller had asked not to create. A *missing* value takes the
+default; a value that is present and wrong is refused.
+
+## City chat — the first public room
+
+`modules/city/chat.py` + a City tab. One room per city, for the traveller who lands somewhere
+knowing nobody. Every other social feature starts from a connection you already have; this is
+the one that starts from none.
+
+**It is the first genuinely public space in the app, and the design is shaped around that**
+rather than around the happy path. Messages are system-owned (owner-scoped rows would mean
+everybody talking to themselves — the bug that made every dating match `is_mutual: False`).
+They expire after `RETENTION_DAYS`, because a room that remembers forever is a record of
+where somebody was on a given night. Muting is personal, one-sided and silent — the muted
+person is never told, since being told is what turns "I would rather not" into a
+confrontation. Reports go to the operator queue and never to the room.
+
+Deliberately absent: no DMs to strangers (a stranger's inbox is a harassment surface), no
+editing (an edited message above a reply rewrites someone else's context), and no presence
+list, which is a map of who is in a city tonight.
+
+Two bugs found while walking it in a browser, both worth knowing:
+- `DELETE /v1/city/chat/mute` was matched by `DELETE /v1/city/chat/{message_id}` with
+  `message_id="mute"`, so unmuting silently failed. Route order would have fixed it and
+  stayed one reorder from breaking again; the path is `/city/chat/message/{id}` now.
+- **The mobile dock called `render()` and never `refresh()`.** The dock covers the top nav on
+  a phone, so it is the only navigation there — and every tab reached through it painted from
+  stale state without ever fetching. That is pre-existing and affected every tab, not just
+  this one.
+
+## READ THIS FIRST: the app was dead in the browser for a week
+
+**`app.js` did not parse from 2026-08-05 to 2026-08-12.** A generated commit
+(`f6365b4`, "Integrate Developer Platform & Open API Keys management") added a card without
+closing the template literal above it; a second put backticks inside a template literal.
+Either is a `SyntaxError`, and a `SyntaxError` means the browser runs **none** of the file.
+The PWA served its shell and nothing else — no capture, no crews, no weekend, no sign-in.
+
+It survived seven days and roughly forty commits, every one of them with a green suite,
+because **nothing in this repo had ever run the front end.** A thousand passing Python tests
+said the product worked while the product did not start. `tests/test_pwa_syntax.py` now runs
+`node --check` over every script (CI already installs node for the golden test), and a
+browser walk with Playwright is the way to check the rest — `p.chromium.launch(
+executable_path="/opt/pw-browsers/chromium-1194/chrome-linux/chrome")`; do not run
+`playwright install`.
+
+**And there was no way to sign in.** The gateway has had register / login / email-code /
+OIDC for weeks; the PWA had a screen for none of it. The only route to a session was pasting
+a bearer token into the developer field in Settings. What looked like sign-in — "Continue
+with Google / Apple / Meta", Magic Link, Passkey — called `/v1/auth/social-sso`, which
+returns a made-up user id, no token and no session, and then toasted "Authenticated! Cloud
+Sync Active". `docs/HOSTING.md` meanwhile told friends to "tap Register". There is a real
+`#auth` dialog now: handle + password, email code when a mailer is configured, sign-out in
+Settings, and the OIDC providers listed only when the operator has configured them.
+
+The lesson worth keeping: **this repo's tests describe the API, not the product.** Anything
+that only breaks in a browser will not be caught by `pytest`, and two of the worst defects
+found so far — this and the CSV export button — were of exactly that shape.
+
+## Audit round four — one critical, eight broken endpoints
+
+Found by **sweeping all 425 endpoints as a signed-in user**, which nothing in the suite had
+ever done. That sweep is `POST`/`GET` with an empty body against every path in the OpenAPI
+schema, counting 5xx. It is worth re-running after every merge from `main`.
+
+**CRITICAL — any signed-in user could destroy the whole instance.** `POST /v1/graph/restore`
+is an ordinary authenticated endpoint with no operator gate, and `substrate/backup.py` ran
+`DELETE FROM edges; DELETE FROM observations; DELETE FROM entities` with **no owner
+predicate**, then inserted `backup_data`, which for a `{}` body is nothing. Demonstrated
+before fixing: a second account posted an empty body, the first account's graph went to zero,
+and she could no longer log in — accounts are entities too. `export_backup` was the same hole
+pointed the other way, dumping every user's graph to anyone with a login. Both are
+owner-scoped now, and restore goes **through `substrate/graph.py`** instead of around it, so
+it cannot name someone else's `owner_id`, invent a kind, or skip provenance.
+
+The pre-existing `tests/test_backup.py` passed throughout — it asserted that restoring an
+empty backup returns 200, which *is* the wipe. A test can encode the vulnerability.
+
+**The sweep has two halves, and the second one matters.** Empty bodies reach only the
+endpoints that take none — everything with a pydantic model answers 422 and hides whatever
+is behind it. `deep_sweep.py` synthesises a valid body from each endpoint's OpenAPI schema
+and exercises the other 275. That second pass is what found `log_focus_session`, the ninth
+dead endpoint, sitting behind a 422 the first sweep read as healthy. Run both.
+
+**Nine endpoints had never worked**, each calling a function its module does not define:
+`export_graph_topology`, `get_mindfulness_summary`, `Graph.all_entities`, and
+`discover.create_event` (three call sites), plus `/v1/people/qr` looking up entity kind
+`identity`, which is not in `KINDS`. All 500'd or 400'd on every call, including the PWA's
+live "Export CSV" button.
+
+**`find_topology_hubs` is the one to read before touching.** It counted `SELECT src, dst FROM
+edges` with no join and resolved every node's name — every user's people and goals. It was
+unreachable behind the wrong function name, so the *obvious* fix (correct the name) is what
+would have shipped the leak. Scoping was the fix; the rename was incidental.
+
+Two smaller ones: the CSV export now defuses spreadsheet formula injection (a person named
+`=HYPERLINK(...)` executes on open in Excel), and two handlers raised bare `ValueError` for a
+missing field, which reached the client as a 500 rather than a 400.
+
+## Email verification, and the secret-scanning alert
+
+**A GitHub secret-scanning alert fired on `gateway/modules_api.py` for a Stripe webhook
+signing secret.** Nothing real leaked — this repo has never integrated Stripe, and the value
+was invented by a generated commit on `main`. But it was spelled in Stripe's reserved
+namespaces, which is what a scanner reads as a live key. The alert also undersold the actual
+defect: all three `/v1/developers/*` endpoints returned the *same* constant to every caller,
+and a shared signing secret authenticates nothing. Credentials are minted per call now
+(`_issued_credential`), and `tests/test_security_audit.py` scans every tracked file for
+eleven vendor credential prefixes so the next one fails in CI instead of in an email.
+
+**Email verification exists** (`modules/auth/otp.py` + `modules/auth/mailer.py`), which
+finally unlocks the `verified=True` seam `identities.link()` has been refusing since it was
+written. Three flows: sign in with a code, link an address to an account you already have,
+and reset a forgotten password. The security is not the six-digit code — a million values is
+nothing — it is the attempt cap, the ten-minute expiry, single use, and a per-address
+issuance cap so nobody can use us to mail-bomb a stranger.
+
+**The one switch to never turn on in production is `LIFEOS_OTP_ECHO`.** `request_code`
+returns the plaintext code when no mail provider is configured, so a laptop stays usable;
+`_redact_code` strips it from HTTP responses unless that variable is explicitly set. Without
+the strip, `/v1/auth/email/code` — which is unauthenticated by necessity — would let anyone
+request a code for any address and read it straight back.
+
+A password reset **revokes every open session** on the account. That is the point rather
+than housekeeping: resets follow suspected compromise, and leaving the old sessions alive
+means the reset changes nothing for whoever is already inside.
+
+## Browser-side hardening
+
+The gateway sent **no security headers at all**. It now sends a CSP, `nosniff`, `DENY`,
+`no-referrer` and COOP on every response. Read the CSP honestly: `script-src` has to keep
+`'unsafe-inline'` while the PWA carries ~950 inline styles and ~20 inline handlers, so it
+does **not** stop an injected script running. What it does stop is what follows —
+`connect-src 'self'` means an injected script cannot post the localStorage session token
+anywhere, and `base-uri`/`object-src`/`frame-ancestors` close the rest.
+
+**Leaflet is vendored now** under `surfaces/app/www/vendor/`, so `script-src` is plain
+`'self'` and the PWA loads nothing from a third party at all. It came from unpkg with no
+Subresource Integrity hash, into the origin holding the session token — whatever unpkg
+returned is what ran. The sandbox proxy blocks unpkg and jsdelivr but *not* the npm
+registry, so the files were extracted from the 1.9.4 tarball and verified against the
+sha512 npm publishes for that release before being committed. A test now fails if any
+`src`/`href` in the PWA points at an external host again.
+
+The contact card went the same way: `/v1/people/qr` returned an `api.qrserver.com` URL with
+the vCard in the query string, and the PWA rendered a hardcoded one — so every view handed a
+third party the viewer's IP, for a card that said "LifeOS Member" and belonged to nobody. It
+is built from your own handle now, escaped per RFC 6350 (an unrestricted handle containing a
+newline could otherwise inject `TEL:` into the card someone saves), and delivered as a
+`data:` URI with no outbound call.
+
+## Hosting — see `docs/HOSTING.md`
+
+**Render if you are on a phone** (a browser, `render.yaml`, ~$7/mo + disk), **Hetzner if you
+have a terminal** (~€4/mo, `deploy/vps/`). Friends get one URL — `/app/` — and nothing to
+configure: the PWA is served by the gateway and talks to its own origin.
+
+Three things found while writing this, all of which would have bitten on first deploy:
+
+- **`scripts/launch.py` bound `127.0.0.1` unconditionally** — which is the Dockerfile's
+  `CMD`. In a container the process starts, the logs look healthy, and nothing outside can
+  reach it. It now honours `PORT` and flips to `0.0.0.0` when `PORT` is set (how every PaaS
+  says "you are in a container"); an explicit `LIFEOS_HOST` still wins.
+- **CI pinned Python 3.11 while the Dockerfile shipped 3.13** — CI was not testing what
+  deploys. Now a matrix over both.
+- **The disk is not optional on Render.** One SQLite file; no disk means every deploy resets
+  to empty, and the free tier has no disks *and* sleeps, which also breaks ACME renewal.
+
+`LIFEOS_SEED_CITY=lisbon` loads a committed pack on boot — subscribe only, never fetch (a
+boot that waits on twenty venue servers fails its health check), and a bad pack is swallowed
+rather than blocking startup.
+
 ## Gotchas — read these before touching anything
 
 - **`LIFEOS_SIGNING_KEY` has no default, deliberately.** `modules/security/crypto_tokens.py` used
@@ -457,3 +719,149 @@ Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre
 Google OAuth · Postgres migration (until measured, see above) · native store builds · SDK opening ·
 billing · licence/entity/ToS content · a swipe-style dating surface · sub-city location anywhere in
 the social layer.
+
+
+## The prop sweep — 2026-08-14
+
+`tools/audit_props.py` counts handlers that return a dict literal instead of touching the
+graph. It was **184 of 445 (40%)**. It is now **127 of 460 (28%)**, and the ones that moved
+were not deleted — they were built.
+
+What changed, and the one sentence each that explains why it mattered:
+
+| group | was | is |
+|---|---|---|
+| personal stats | karma 98, a leaderboard ranking you above three people who do not exist, a heatmap that was `(i % 3) + 1` | `modules/personal/recap.py`, computed, with no score |
+| ZK attribute check | `verified: true` for any attribute from any caller, including `AGE_OVER_18` | removed |
+| synergy (11) | Elena R. at 96%, in every city | `modules/city/synergy.py` — real published signals, no percentage, the shared terms instead |
+| dating (2) | a "7-Factor" score over seven constants; `agreed: True` for a name typed by hand; PIN 4892 for every pair on earth | `modules/dating/meets.py` — reciprocal visibility, a real handshake, a per-pair code |
+| `/ai/*` (20) | prose. None of them called a model | `modules/ai/assist.py` + `reflect.py` — grounded in the graph, works with no key |
+| seeding (21) | "160 Verified Third Places", 284 events, for every city | OpenStreetMap + Open-Meteo, **neither needs a key** |
+| activities (40) | invented people, and several claimed bookings | one matcher, forty vocabularies |
+| kudos/reviews/moments/check-ins | constants; nothing stored | `modules/social/signals.py` |
+| SafeWalk (3) | `SAFE-8921` for every walk, "crew notified" with nothing sent | `modules/safety/watch.py` — real deadlines, `push_delivered: false` |
+
+**Three rules came out of it, and they are worth keeping.**
+
+1. *A missing reading is missing, not zero.* "Wind: 0 km/h" is a specific claim about a
+   still day, and a plausible default is what made the old version believable.
+2. *A test that pins a prop is how the prop survives review.* Roughly 120 assertions in this
+   repo asserted the invented values back. Every one had to be rewritten, and several were
+   the only reason a prop lasted as long as it did.
+3. *Walk it in a browser.* Every UI bug in this sweep — the week-long SyntaxError, the
+   missing sign-in screen, the mobile dock calling `render()` instead of `refresh()`,
+   buttons injected by `innerHTML` that were never bound, `/venues/explore` answering 422 on
+   every page load — was invisible to a fully green Python suite.
+
+### The developer platform — 2026-08-14
+
+API keys, webhooks and the plugin registry are real. `docs/DEVELOPER.md` is the integrator
+page. Two things a future reader should not have to rediscover:
+
+**A key is nothing until auth honours it.** `gateway/auth.py` resolves a presented
+`los_sk_…` to the account that issued it, shaped exactly like `accounts.resolve` so every
+ownership check downstream treats it as that account and *only* that account. Without that
+one function the keys module would be the same prop with better prose — which is what the
+old endpoint was: a well-formed `los_sk_<uuid4>` that opened nothing.
+
+**A webhook is a URL a user picks and the server fetches.** It goes through `safefetch` at
+subscribe time *and* again at delivery, because DNS can change between the two. Without
+that, `http://169.254.169.254/…` as a target is instance-credential theft wearing the
+costume of an ordinary integration.
+
+The plugin sandbox deliberately executes nothing, and says so in the response. Running
+third-party code in the process that holds every user's graph is not something to
+approximate; a sandbox that is only *called* a sandbox is the most dangerous version of
+this. It reports what a plugin is asking for, in words — which is most of the value and none
+of the risk.
+
+### City guides, and one endpoint that should have gone in August — 2026-08-14
+
+The fourteen `/seeding/*` "curated local knowledge" endpoints all branched on the word
+"munich" in the request body: say it and you got hand-written Isar river swims, say anything
+else and you got Edinburgh's. They are one question asked fourteen ways, and
+`modules/city/guide.py` answers it from the two real sources — seeded OSM places, and what
+is on the board. The views are data, not fourteen functions, because they differ only in
+which categories and which words they match.
+
+Two of them have no source and say so: footfall needs sensors, and "editorial press" means
+scraping publications with no agreement. The second is worth keeping in mind as a general
+rule — subscribing to a feed a site publishes is the same content offered rather than taken,
+and it is the only version of that feature this repo should ever ship.
+
+**`/v1/auth/social-sso` is finally gone.** PR #19 removed the fake SSO buttons from the PWA
+and its own notes said the endpoint was "worth deleting separately" — then it stayed
+reachable for another day, still returning `authenticated: True`, a `user_id` derived from
+`hash(email)`, and "Cloud multi-device sync active", with no token and no provider involved.
+A dead caller is not a dead endpoint. If a response is auth-shaped, something will act on it.
+
+### A helper can vanish and the app still imports — 2026-08-14
+
+This happened twice in one sitting. A shared helper (`_guide`, then `_seed_city`) was a
+`def` sitting between an endpoint and the next `@router` decorator, and an edit that
+replaced the endpoint above it took the helper with it. **The app still imported cleanly**,
+because a nested function's free name is resolved at call time — so the only symptom was a
+500 the first time somebody hit one of those routes.
+
+`tests/test_city_guide.py::test_no_route_references_a_name_that_does_not_exist` walks every
+handler's bytecode for `LOAD_GLOBAL` instructions that resolve to neither a module global
+nor a builtin. Python compiles a reference to a missing enclosing local exactly that way, so
+this catches the whole class before anybody hits it.
+
+The other half of the lesson is about editing: put shared helpers immediately after `guard`
+at the top of `create_router`, not adjacent to the endpoint that first needed them.
+
+### Still props, and why
+
+Some genuinely cannot be built here and should not be faked: `/infra/edge-replication` on one
+SQLite file, `/mesh/offline-peer-sync` over BLE from a PWA, `/ar/spatial-flares`,
+`/dao/community-treasury`, `/wearables/sync-telemetry`. `/payments/stripe/*` and
+`/payments/paypal/*` are buildable but move real money and need live keys and an explicit
+decision. Those are the remaining 127, minus the developer-platform group.
+
+### The suite was green for the wrong reason — 2026-08-14
+
+CI caught something local runs could not. This sandbox's network policy 403s the CONNECT to
+`api.open-meteo.com` and `overpass-api.de`, so six tests asserting "conditions unavailable"
+passed here **because the machine had no route**, not because the code was right. GitHub's
+runners have ordinary internet, Open-Meteo answered, and all six failed.
+
+`tests/conftest.py` now refuses outbound network in every test — each provider's `_fetch`
+and the webhook `_post` raise, so a test that wants a response has to inject one. A test
+whose result depends on whether the machine running it has a route to a third party is not
+a test.
+
+The other CI failure was the secret scanner flagging **this repo's own prose**: a comment
+explaining which vendor prefix to avoid contained that prefix. That is the second time in
+this session. The rule: never write a vendor credential prefix in a comment, a docstring or
+a test string — describe it. A scanner that has to be taught exceptions stops being one.
+
+Also added, found while auditing readiness: `Strict-Transport-Security` was missing
+entirely. It is sent unconditionally now — browsers ignore HSTS over plain HTTP, so the LAN
+case is unaffected — with no `includeSubDomains` and no `preload`, since both are hard to
+undo and would speak for domains this app does not own.
+
+### Cities seed themselves — 2026-08-14
+
+Seeding was operator-only, which meant the first person to arrive anywhere new got an empty
+screen and the operator found out too late. `modules/city/autoseed.py` queues an unseeded
+city on arrival and drains it in a FastAPI background task, so the response is never held
+up by Overpass.
+
+**Read the guardrails before changing anything here.** This is the only path in the app
+where ordinary user input causes an outbound call to a third party, and that third party is
+volunteer-run and free. Somebody pasting five hundred city names must not become five
+hundred Overpass queries: only cities that geocode are seeded, a dead name is asked about
+once, a real city has a 30-day cooldown, there is a six-per-hour global ceiling, and a claim
+is taken before the work so two simultaneous arrivals seed once.
+
+The background task runs in-process, so a restart mid-seed loses that attempt — the queued
+row is what makes it recoverable, and `POST /v1/seeding/drain` is the cron-safe way to pick
+those up.
+
+### Unverified from the sandbox
+
+`overpass-api.de`, `api.open-meteo.com` and `app.ticketmaster.com` all answer 403 to the
+CONNECT through this environment's proxy. The parsing is written against documented response
+shapes and tested on fixtures; **the first real call on a deployed box is the actual test.**
+Failure is a recorded status, never a crash and never an invented number.

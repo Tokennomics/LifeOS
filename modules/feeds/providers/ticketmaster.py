@@ -21,6 +21,7 @@ defensive parsing here.
 import os
 
 NAME = "ticketmaster"
+KIND = "events"
 ENV_VAR = "LIFEOS_TICKETMASTER_KEY"
 BASE = "https://app.ticketmaster.com/discovery/v2/events.json"
 MAX_SIZE = 100

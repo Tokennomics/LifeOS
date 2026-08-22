@@ -4,13 +4,16 @@ app.state. Every endpoint works with zero API keys (offline fallbacks in the mod
 
 import os
 import json
+import secrets
 import urllib.request
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import BackgroundTasks, APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 
 from gateway import rate_limiter
 from gateway.auth import caller_graph
+from substrate.graph import KINDS, SCOPE_DOMAIN
 
 from modules.calibre import decisions as calibre
 from modules.convoy import concierge, events_ingest, match_v1
@@ -24,10 +27,6 @@ from modules.reconnect import decay, invite
 from modules.steward import actions as steward_actions
 from modules.steward import scanners as steward_scanners
 from modules.vitals import energy
-from modules.backup import universal_markdown
-from modules.journal import daily_synthesis
-from modules.convoy import social_engine
-
 
 
 class PersonIn(BaseModel):
@@ -448,6 +447,78 @@ class TokenVerifyIn(BaseModel):
     signature: str
 
 
+class MeetupIn(BaseModel):
+    city: str
+    title: str
+    starts_at: str
+    place: str = ""
+    note: str = ""
+
+
+class MeetupRefIn(BaseModel):
+    meetup_id: str
+
+
+class CityAnnounceIn(BaseModel):
+    city: str
+    note: str = ""
+    days: int = 3
+
+
+class CityWithdrawIn(BaseModel):
+    city: str
+
+
+class SynergyOpenIn(BaseModel):
+    """What you are up for, and for how long. `city` is optional: somebody who announced
+    their arrival in Lisbon is asking about Lisbon, and making them retype it is the kind of
+    friction that stops a signal being published at all."""
+    city: str = ""
+    activity: str = ""
+    note: str = ""
+    hours: int = 4
+    category: str = ""
+    offers: str = ""
+    wants: str = ""
+
+
+class SynergyCloseIn(BaseModel):
+    city: str = ""
+    activity: str = ""
+
+
+class DatingOpenIn(BaseModel):
+    city: str = ""
+    vibe: str = ""
+    hours: int = 6
+
+
+class DatingCloseIn(BaseModel):
+    """A blank city takes every marker down, everywhere — the thing you want when you have
+    stopped wanting this at all, without having to remember where you left one."""
+    city: str = ""
+
+
+class CityPostIn(BaseModel):
+    city: str
+    text: str
+
+
+class CityMuteIn(BaseModel):
+    target_id: str
+
+
+class CityReportIn(BaseModel):
+    message_id: str
+    reason: str
+
+
+class CityResolveIn(BaseModel):
+    report_id: str
+    action: str = "actioned"
+    remove_message: bool = False
+
+
 class FocusSessionIn(BaseModel):
     duration_minutes: int
     distraction_count: int
@@ -726,6 +797,52 @@ def _serialize_event(session, event: dict) -> dict:
             "invited": len(a.get("invited", [])), "yes": yes_names, "no": len(a.get("no", []))}
 
 
+def _vcard(name: str) -> str:
+    """A vCard for one name, with the name escaped per RFC 6350 §3.4.
+
+    Handles are user-chosen and unrestricted. Interpolated raw, a handle containing a
+    newline injects arbitrary vCard properties — `\\nTEL:...` adds a phone number to the
+    card the recipient saves — and `;` or `,` split one field into several.
+    """
+    safe = (str(name or "").replace("\\", "\\\\").replace(";", "\\;")
+            .replace(",", "\\,").replace("\r", " ").replace("\n", "\\n"))
+    return ("BEGIN:VCARD\r\nVERSION:3.0\r\n"
+            f"FN:{safe}\r\nNOTE:LifeOS Verified Meeter\r\nEND:VCARD\r\n")
+
+
+def _csv_cell(value) -> str:
+    """One CSV field: quoted, and defused against spreadsheet formula injection.
+
+    Entity names are user-typed and this endpoint returns a file people open in Excel or
+    Sheets. A name beginning `=`, `+`, `-` or `@` is treated as a *formula* there, and
+    `=HYPERLINK(...)` or a `cmd|` DDE payload runs on open. The cell is still the user's
+    text — it is prefixed with a single quote, which spreadsheets read as "this is
+    literal" — so nothing is lost but the execution.
+    """
+    text = str(value if value is not None else "")
+    text = text.replace("\r", " ").replace("\n", " ")
+    if text[:1] in ("=", "+", "-", "@", "\t"):
+        text = "'" + text
+    return '"' + text.replace('"', '""') + '"'
+
+
+def _issued_credential(prefix: str) -> str:
+    """Mint a fresh credential-shaped string for a demo endpoint that hands one out.
+
+    Two reasons this is not a constant. The obvious one: a constant checked into a public
+    repo is a published credential, and GitHub's scanner said so — the previous values were
+    spelled in Stripe's reserved key namespaces, so they read as a live API key and a live
+    webhook signing secret. Borrowing another vendor's prefix for fake data is how you get a
+    "possible valid secret" alert on a repo that has never integrated that vendor.
+
+    The less obvious one, and the actual bug: every caller got the *same* string. A shared
+    "signing secret" verifies nothing — anyone who has ever hit the endpoint can forge every
+    other tenant's webhook. Minting per call is the only version of this that is not
+    actively misleading, whatever the endpoint grows into later.
+    """
+    return f"{prefix}_{secrets.token_hex(16)}"
+
+
 def build_router(auth) -> APIRouter:
     router = APIRouter(prefix="/v1", dependencies=[Depends(auth)])
 
@@ -734,6 +851,12 @@ def build_router(auth) -> APIRouter:
             return fn()
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+    def _seed_city(body: dict) -> str:
+        """The city a seeding call is about. Every one of these used to default its own —
+        Lisbon or Edinburgh, in the handler signature — so a caller who forgot got somebody
+        else's city rather than an error."""
+        return str(body.get("city", "") or "").strip()
 
     # ---- Reconnect / People ---------------------------------------------
 
@@ -913,6 +1036,19 @@ def build_router(auth) -> APIRouter:
             _graph(request), body.crew_id, body.visibility, body.admission,
             _actor_opt(request, body.by)))
 
+    @router.get("/crews/mine")
+    def crews_mine(request: Request, person_id: str = ""):
+        """Every crew you are actually in — including ones that live in somebody else's graph.
+
+        `GET /crews` browses your own graph, so a crew you *joined* was invisible to you: it
+        belongs to whoever created it, membership lives in the ACL, and nothing in your own
+        slice indexes it. `crews.my_crews` was written for exactly this and was never wired
+        to an endpoint, so the whole per-crew surface — chat, plans, polls, beacons — was
+        unreachable for every member who was not the crew's creator.
+        """
+        subject = _subject(request, person_id or None)
+        return {"crews": guard(lambda: crews.my_crews(_graph(request), subject))}
+
     @router.get("/crews/directory")
     def crews_directory(request: Request, topic: str = "", city: str = ""):
         """The cross-account public directory — every published crew, whoever owns it.
@@ -991,6 +1127,148 @@ def build_router(auth) -> APIRouter:
     def crews_invite_revoke(request: Request, body: InviteRevokeIn):
         return guard(lambda: invites.revoke(
             _graph(request), body.invite_id, _subject(request, body.by)))
+
+    # ---- Crew polls and beacons -------------------------------------------
+    #
+    # `/crews/polls/vote` took any string as an option, defaulted it to "Bouldering &
+    # Drinks", returned `voted: True` and stored nothing — there was no poll to vote in.
+    # `/crews/beacon` returned `broadcasted: True` for an activity it made up when the form
+    # was empty, and broadcast it to nobody.
+
+    def _crew_caller(request: Request, body: dict):
+        """Who is acting, and what to call them on screen. Crew membership is keyed on the
+        same subject `_subject` pins, so the two must not drift apart."""
+        subject = _subject(request, body.get("person_id"))
+        _, handle = _signal_caller(request)
+        return subject, handle
+
+    @router.post("/crews/polls")
+    def crews_poll_open(request: Request, body: dict):
+        """Ask your crew something. Any member can — a poll is not a privilege."""
+        from modules.crews import polls
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: polls.open_poll(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            question=body.get("question", ""), options=body.get("options", []),
+            account_id=subject, handle=handle, hours=body.get("hours", polls.DEFAULT_HOURS)))
+
+    @router.post("/crews/polls/vote")
+    def vote_crew_poll_endpoint(request: Request, body: dict):
+        """Vote by index into the poll's own options — one each, changeable until it closes.
+
+        It used to accept any string, so two people picking the same thing spelled
+        differently would have been two answers, and a vote for an option nobody offered
+        would have counted. Neither mattered, because nothing was stored.
+        """
+        from modules.crews import polls
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: polls.vote(
+            _graph(request), poll_id=body.get("poll_id", ""),
+            option=body.get("option", body.get("option_index")),
+            account_id=subject, handle=handle))
+
+    # Nested under the crew rather than `/crews/polls`: `GET /crews/{crew_id}` is declared
+    # above, and a two-segment literal after it is simply swallowed — "polls" arrives as a
+    # crew id and the caller gets "unknown crew". Three segments cannot be shadowed by it.
+    @router.get("/crews/{crew_id}/polls")
+    def crews_polls_list(request: Request, crew_id: str = "", include_closed: bool = False):
+        from modules.crews import polls
+        subject = _subject(request, None)
+        return guard(lambda: polls.for_crew(_graph(request), crew_id=crew_id,
+                                            account_id=subject,
+                                            include_closed=include_closed))
+
+    @router.get("/crews/polls/{poll_id}")
+    def crews_poll_results(request: Request, poll_id: str):
+        from modules.crews import polls
+        subject = _subject(request, None)
+        return guard(lambda: polls.results(_graph(request), poll_id=poll_id,
+                                           account_id=subject))
+
+    @router.post("/crews/polls/close")
+    def crews_poll_close(request: Request, body: dict):
+        from modules.crews import polls
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: polls.close_poll(_graph(request),
+                                              poll_id=body.get("poll_id", ""),
+                                              account_id=subject))
+
+    @router.post("/crews/beacon")
+    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
+        """"I am going now, who is coming?" — a row your crew can see, not a broadcast.
+
+        Returned `broadcasted: True` and told you your crew had been rallied. This app sends
+        nothing: `push_delivered` is false and `can_see_it` counts the members who could
+        read it, never the ones who were told.
+        """
+        from modules.crews import beacons
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: beacons.raise_beacon(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            activity=body.get("activity", ""), account_id=subject, handle=handle,
+            minutes=body.get("minutes", body.get("timeframe_minutes",
+                                                 beacons.DEFAULT_MINUTES)),
+            note=body.get("note", ""), place=body.get("place", "")))
+
+    @router.get("/crews/{crew_id}/beacons")
+    def crews_beacons_live(request: Request, crew_id: str = ""):
+        """What your crew is up for right now."""
+        from modules.crews import beacons
+        subject = _subject(request, None)
+        return guard(lambda: beacons.live(_graph(request), crew_id=crew_id,
+                                          account_id=subject))
+
+    @router.post("/crews/beacon/join")
+    def crews_beacon_join(request: Request, body: dict):
+        """Say you are in. A beacon nobody can answer is a broadcast into the void."""
+        from modules.crews import beacons
+        subject, handle = _crew_caller(request, body)
+        return guard(lambda: beacons.join(_graph(request),
+                                          beacon_id=body.get("beacon_id", ""),
+                                          account_id=subject, handle=handle))
+
+    @router.post("/crews/beacon/leave")
+    def crews_beacon_leave(request: Request, body: dict):
+        from modules.crews import beacons
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: beacons.leave(_graph(request),
+                                           beacon_id=body.get("beacon_id", ""),
+                                           account_id=subject))
+
+    @router.post("/crews/beacon/stand-down")
+    def crews_beacon_stand_down(request: Request, body: dict):
+        from modules.crews import beacons
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: beacons.stand_down(_graph(request),
+                                                beacon_id=body.get("beacon_id", ""),
+                                                account_id=subject))
+
+    @router.post("/crews/{crew_id}/guest-pass")
+    def create_guest_pass_endpoint(request: Request, crew_id: str, body: dict | None = None):
+        """A plus-one: a real single-use invite link that expires in a day.
+
+        This was a GET returning `https://lifeos.app/#join-crew?crew_id=…&token=plus_one_<the
+        crew id>` — a token derived from the crew id, stored nowhere, granting nothing, on a
+        domain this deployment does not serve. Anybody who saw one crew id could write a
+        "pass" for it themselves.
+
+        It mints a genuine invite now, through the same hardened path as `/crews/invite-link`
+        — 256 random bits, only the SHA-256 stored, shown exactly once — capped at one use so
+        a plus-one is one person, and expiring in a day so a forwarded pass goes cold.
+
+        It is a POST because it creates a capability. Minting one on a GET is CSRF-able from
+        any page a member visits, and caches.
+        """
+        from modules.crews import invites
+        subject = _subject(request, (body or {}).get("by"))
+        pass_ = guard(lambda: invites.create(_graph(request), crew_id, subject,
+                                             ttl_hours=24, max_uses=1))
+        # A path, not an absolute URL: the client knows its own origin, and the old handler's
+        # hardcoded domain pointed the invitee at a host that serves none of this.
+        return {**pass_, "invite_path": f"/invite/{pass_['token']}",
+                "plus_one": True, "expires_in_hours": 24,
+                "share_note": ("One person, one day. Send it to the friend you meant it "
+                               "for — whoever opens it first is the plus-one.")}
 
     @router.post("/crews/request/approve")
     def crews_approve(request: Request, body: CrewActIn):
@@ -1119,28 +1397,231 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: discover.mark_interest(
             _graph(request), body.event_id, body.person_id, body.going))
 
+    # ---- City chat: the room you can walk into knowing nobody ---------------
+
+    @router.get("/city/meetups")
+    def city_meetups(request: Request, city: str):
+        """Tonight's options in this city, soonest first, with who is coming."""
+        from modules.city import meetups
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: meetups.listing(_graph(request), city,
+                                             viewer_id=caller.get("account_id", "")))
+
+    @router.post("/city/meetups")
+    def city_meetup_create(request: Request, body: MeetupIn):
+        """Propose something. The organiser is the session — "Ana is organising this" is a
+        claim with real-world consequences, so it is never taken from the body."""
+        from modules.city import meetups
+        rate_limiter.enforce(request, "city:meetup", max_requests=15, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        made = guard(lambda: meetups.create(
+            _graph(request), body.city, title=body.title, starts_at=body.starts_at,
+            place=body.place, note=body.note, organiser_id=_actor(request, None),
+            organiser_handle=caller.get("handle", "")))
+        _fire(request, "meetup.created", {"meetup_id": made.get("meetup_id", ""),
+                                          "city": made.get("city", ""),
+                                          "title": made.get("title", ""),
+                                          "starts_at": made.get("starts_at", "")})
+        return made
+
+    @router.post("/city/meetups/join")
+    def city_meetup_join(request: Request, body: MeetupRefIn):
+        from modules.city import meetups
+        caller = getattr(request.state, "caller", None) or {}
+        joined = guard(lambda: meetups.join(_graph(request), body.meetup_id,
+                                            account_id=_actor(request, None),
+                                            handle=caller.get("handle", "")))
+        _fire(request, "meetup.joined", {"meetup_id": body.meetup_id})
+        return joined
+
+    @router.post("/city/meetups/leave")
+    def city_meetup_leave(request: Request, body: MeetupRefIn):
+        from modules.city import meetups
+        return guard(lambda: meetups.leave(_graph(request), body.meetup_id,
+                                           account_id=_actor(request, None)))
+
+    @router.get("/city/meetups/mine")
+    def city_meetups_mine(request: Request):
+        """Plans you are on, wherever they are — a meetup joined in one city's room should
+        not disappear the moment you look at another room."""
+        from modules.city import meetups
+        return {"meetups": meetups.upcoming_for(_graph(request), _actor(request, None))}
+
+    def _autoseed(request: Request, tasks: BackgroundTasks, city: str) -> None:
+        """Queue an unseeded city and seed it *after* this response has gone out.
+
+        On the arrival path deliberately: it is the one screen where somebody has just named
+        a city they are standing in, which is the strongest signal that city is worth having
+        on the map. Everything expensive happens in the background task — the person who
+        triggered it never waits for Overpass, and the second person to land there finds a
+        seeded city.
+
+        Failures are swallowed. A city that cannot be seeded is a quieter screen, not an
+        error on somebody's arrival.
+        """
+        from modules.city import autoseed
+
+        if not str(city or "").strip():
+            return
+        try:
+            queued = autoseed.request(_graph(request), city)
+        except Exception:
+            return
+        if not queued.get("queued"):
+            return
+
+        graph = _graph(request)
+
+        def run() -> None:
+            try:
+                autoseed.drain(graph, limit=1)
+            except Exception:
+                pass
+
+        tasks.add_task(run)
+
+    @router.get("/city/arrival")
+    def city_arrival(request: Request, tasks: BackgroundTasks, city: str):
+        """I just landed in X — what is here? One request on purpose: this is the screen
+        somebody sees ten seconds after signing in, and six round trips on hotel wifi is the
+        difference between a product and a spinner.
+
+        Also where a city seeds itself. Seeding used to be operator-only, which meant the
+        first person to arrive anywhere new got an empty screen and the operator found out
+        too late to help. The map is the one thing a city can have before it has users, and
+        that only works if nobody has to be asked first.
+        """
+        from modules.city import arrival
+        caller = getattr(request.state, "caller", None) or {}
+        answer = guard(lambda: arrival.arrival(_graph(request), city,
+                                               viewer_id=caller.get("account_id", "")))
+        if not answer.get("places"):
+            _autoseed(request, tasks, city)
+        return answer
+
+    @router.post("/city/around")
+    def city_announce(request: Request, tasks: BackgroundTasks,
+                      body: CityAnnounceIn):
+        """Say you are in a city and open to meeting people, until a date.
+
+        Announcing is always an explicit act — reading the room does not do it and posting
+        does not do it. "Is this person in this city right now" is a different question from
+        "did this person say something", and it is the one a stalker asks.
+        """
+        from modules.city import arrival
+        rate_limiter.enforce(request, "city:around", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        announced = guard(lambda: arrival.announce(
+            _graph(request), body.city, account_id=_actor(request, None),
+            handle=caller.get("handle", ""), note=body.note, days=body.days))
+        _autoseed(request, tasks, body.city)
+        return announced
+
+    @router.delete("/city/around")
+    def city_withdraw(request: Request, body: CityWithdrawIn):
+        from modules.city import arrival
+        return guard(lambda: arrival.withdraw(_graph(request), body.city,
+                                              account_id=_actor(request, None)))
+
+    @router.get("/city/rooms")
+    def city_rooms(request: Request):
+        """Where the conversations are. Counts only — never who is in them."""
+        from modules.city import chat
+        return {"rooms": chat.active_cities(_graph(request))}
+
+    @router.get("/city/chat")
+    def city_chat_read(request: Request, city: str, limit: int = 100):
+        from modules.city import chat
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: chat.messages(
+            _graph(request), city, viewer_id=caller.get("account_id", ""), limit=limit))
+
+    @router.post("/city/chat")
+    def city_chat_post(request: Request, body: CityPostIn):
+        """Say something in a city's room.
+
+        The author is the session, never the body — this is the most obvious place in the
+        app to try posting as somebody else. Rate limited here by IP and again inside the
+        module by account, because those stop different things: one script versus one person
+        with a phone and a grudge.
+        """
+        from modules.city import chat
+        rate_limiter.enforce(request, "city:post", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        author = _actor(request, None)
+        return guard(lambda: chat.post(_graph(request), body.city, body.text,
+                                       author_id=author,
+                                       author_handle=caller.get("handle", "")))
+
+    # `/city/chat/message/{id}` rather than `/city/chat/{id}`: with the bare form, a
+    # DELETE to /city/chat/mute matched this route with message_id="mute" and unmuting
+    # silently failed with "unknown message". Route order would have fixed it and would
+    # have stayed one careless reorder away from breaking again.
+    @router.delete("/city/chat/message/{message_id}")
+    def city_chat_remove(request: Request, message_id: str):
+        from modules.city import chat
+        return guard(lambda: chat.remove_own(_graph(request), message_id,
+                                             author_id=_actor(request, None)))
+
+    @router.post("/city/chat/mute")
+    def city_chat_mute(request: Request, body: CityMuteIn):
+        """One-sided and silent. The muted person is never told, and never should be."""
+        from modules.city import chat
+        return guard(lambda: chat.mute(_graph(request), _actor(request, None),
+                                       body.target_id))
+
+    @router.delete("/city/chat/mute")
+    def city_chat_unmute(request: Request, body: CityMuteIn):
+        from modules.city import chat
+        return guard(lambda: chat.unmute(_graph(request), _actor(request, None),
+                                         body.target_id))
+
+    @router.post("/city/chat/report")
+    def city_chat_report(request: Request, body: CityReportIn):
+        from modules.city import chat
+        rate_limiter.enforce(request, "city:report", max_requests=20, window_seconds=300)
+        return guard(lambda: chat.report(_graph(request), body.message_id,
+                                         reporter_id=_actor(request, None),
+                                         reason=body.reason))
+
+    @router.get("/city/chat/reports")
+    def city_chat_reports(request: Request):
+        """Operator-only, for the reason spelled out on `_operator`: the person reported
+        must never be able to read the report about themselves."""
+        from modules.city import chat
+        _operator(request)
+        return {"reports": chat.open_reports(_graph(request))}
+
+    @router.post("/city/chat/reports/resolve")
+    def city_chat_resolve(request: Request, body: CityResolveIn):
+        from modules.city import chat
+        _operator(request)
+        return guard(lambda: chat.resolve_report(_graph(request), body.report_id,
+                                                 body.action,
+                                                 remove_message=body.remove_message))
+
     @router.post("/feed/auto-ingest")
     def auto_ingest_city_events_endpoint(request: Request, body: dict):
         city = body.get("city", "Lisbon").strip()
         from modules.discover import discover
-        e1 = discover.create_event(_graph(request), title=f"{city} Sunset Bouldering & Craft Beer", topic="climbing", place=f"{city} Outdoor Crag", where="Miradouro", going_count=18)
-        e2 = discover.create_event(_graph(request), title=f"{city} Specialty Coffee & Founder Morning", topic="coffee", place=f"{city} Roastery", where="Downtown", going_count=12)
+        # `discover.create_event` has never existed — this 500'd on every call. The real
+        # entry point is `publish_event`, which has no `where`/`going_count`; place carries
+        # the location and interest is counted by /feed/interest.
+        e1 = guard(lambda: discover.publish_event(
+            _graph(request), title=f"{city} Sunset Bouldering & Craft Beer",
+            topic="climbing", city=city, place=f"{city} Outdoor Crag", visibility="public"))
+        e2 = guard(lambda: discover.publish_event(
+            _graph(request), title=f"{city} Specialty Coffee & Founder Morning",
+            topic="coffee", city=city, place=f"{city} Roastery", visibility="public"))
         return {"ingested_count": 2, "city": city, "events": [e1, e2], "message": f"Successfully ingested latest trending events for {city}! 🎟️"}
 
-    @router.post("/auth/social-sso")
-    def social_sso_endpoint(request: Request, body: dict):
-        provider = body.get("provider", "google")
-        identifier = body.get("identifier", "user@example.com")
-        return {
-            "authenticated": True,
-            "provider": provider,
-            "user_id": f"usr_{provider}_{abs(hash(identifier)) % 1000000}",
-            "sync_enabled": True,
-            "message": f"Successfully signed in via {provider.capitalize()}! Cloud multi-device sync active."
-        }
-
-    # ---- Travel Mode / Reconciliation ------------------------------------
-
+    # `/v1/auth/social-sso` was removed here. It returned `authenticated: True`, a
+    # fabricated `user_id` derived from hash(email), `sync_enabled: True` and "Cloud
+    # multi-device sync active" — with no token, no session and no identity provider
+    # involved. The PWA stopped calling it when the fake SSO block came out, but the
+    # endpoint stayed reachable by anything else, which is the part that mattered: an
+    # auth-shaped answer that authenticates nobody is the one lie a client will act on.
+    # Real OIDC lives at /v1/auth/oidc/* and is advertised only when a client id is set.
     @router.post("/import")
     def travel_import(request: Request, body: ImportIn):
         from modules.travel import reconcile
@@ -1148,30 +1629,34 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: reconcile.reconcile(_graph(request), data))
 
     @router.post("/travel/curated-brief")
-    def generate_curated_travel_brief_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        start_date = body.get("start_date", "2026-08-15")
-        end_date = body.get("end_date", "2026-08-22")
+    def travel_curated_brief_endpoint(request: Request, body: dict):
+        """What is on where you are going, and what it will be like outside.
+
+        Was a hand-written multi-day itinerary. This composes the two real sources: the
+        listings and meetups actually on the board, and the forecast.
+        """
+        from modules.ai import assist
+        from modules.city import conditions
+        caller = getattr(request.state, "caller", None) or {}
+        city = str(body.get("city", "") or "").strip()
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
         return {
             "city": city,
-            "dates": f"{start_date} to {end_date}",
-            "curated_spots": [
-                {"name": "Monsanto Bouldering Crag", "category": "climbing", "reason": "Your #1 rated outdoor crag"},
-                {"name": "Fabrica Coffee Roasters", "category": "specialty_coffee", "reason": "Matches your coffee preference"},
-                {"name": "Miradouro de Santa Catarina", "category": "viewpoint", "reason": "Top rated sunset spot"}
-            ],
-            "upcoming_events": [
-                {"title": f"{city} Tech & Outdoor Fest", "date": "August 17", "going_count": 28},
-                {"title": "Sunset Bouldering & Pizza Meet", "date": "August 19", "going_count": 14}
-            ],
-            "share_text": f"✈️ My Curated Travel Brief for {city} ({start_date} to {end_date}):\n🧗 Monsanto Bouldering Crag\n☕ Fabrica Coffee Roasters\n🎟️ {city} Tech & Outdoor Fest (Aug 17)"
+            "whats_on": guard(lambda: assist.itinerary(
+                graph, city, account_id=caller.get("account_id", ""),
+                claude=_claude(request))),
+            "conditions": guard(lambda: conditions.triggers(graph, city)),
         }
 
     @router.post("/calendar/add-travel-activities")
     def add_travel_activities_to_calendar_endpoint(request: Request, body: dict):
         city = body.get("city", "Lisbon")
         from modules.discover import discover
-        event = discover.create_event(_graph(request), title=f"Trip Activity: {city} Crag & Coffee", topic="climbing", place=f"{city} Center", where="Local Venue", going_count=8)
+        event = guard(lambda: discover.publish_event(
+            _graph(request), title=f"Trip Activity: {city} Crag & Coffee",
+            topic="climbing", city=city, place=f"{city} Center"))
         return {"added": True, "event": event}
 
     # ---- ICS Calendar Export ---------------------------------------------
@@ -1501,10 +1986,14 @@ def build_router(auth) -> APIRouter:
     def import_event_url_endpoint(request: Request, body: dict):
         url = body.get("url", "").strip()
         if not url:
-            raise ValueError("url required")
+            # A bare `raise ValueError` here reached the client as a 500. A missing field is
+            # the caller's mistake, not the server's failure.
+            raise HTTPException(status_code=400, detail="url required")
         raw_slug = url.rstrip("/").split("/")[-1].replace("-", " ").replace("_", " ").title() or "External Public Meet"
         from modules.discover import discover
-        event = discover.create_event(_graph(request), title=f"Imported: {raw_slug}", topic="community", place="Local Venue", where=url, going_count=5)
+        event = guard(lambda: discover.publish_event(
+            _graph(request), title=f"Imported: {raw_slug}", topic="community",
+            place="Local Venue"))
         return {"imported": True, "event": event}
 
     # ---- Growth & Crew Activation ----------------------------------------
@@ -1607,15 +2096,62 @@ def build_router(auth) -> APIRouter:
         return group_itinerary.get_itinerary(_graph(request), event_id)
 
     @router.get("/venues/explore")
-    def venues_explore(request: Request, city: str, interests: str = ""):
+    def venues_explore(request: Request, city: str = "", interests: str = ""):
+        """Venues in a city.
+
+        `city` was a required query parameter and the PWA called this with none on every
+        page load, so it answered 422 every single time — swallowed by a `.catch()` on the
+        client, which is why the Explore list has been permanently, silently empty rather
+        than visibly broken. It now falls back to wherever the caller said they are, and
+        says which city it used.
+        """
         from modules.venues import explore
+        caller = getattr(request.state, "caller", None) or {}
+        if not city and caller.get("account_id"):
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), caller["account_id"])
+        if not city:
+            return {"city": "", "venues": [], "needs_city": True,
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
         wants = [i.strip() for i in interests.split(",") if i.strip()] or None
-        return guard(lambda: explore.explore_city_venues(_graph(request), city, wants, claude=_claude(request)))
+        # The module returns a bare list and the PWA reads `res.venues`, so even with the
+        # 422 fixed the Explore section would still have rendered nothing. Two silent
+        # mismatches stacked on one feature, neither of which any test could see.
+        found = guard(lambda: explore.explore_city_venues(
+            _graph(request), city, wants, claude=_claude(request)))
+        return {"city": city, "venues": found, "empty": not found}
 
     @router.post("/venues/explore/save")
     def venues_explore_save(request: Request, body: ExploreSaveIn):
         from modules.venues import explore
         return guard(lambda: explore.save_explored_place(_graph(request), body.place_info))
+
+    # Declared above `/venues/{place_id}`, which would otherwise swallow it: routes match
+    # in declaration order, so this handler was unreachable and every call to it was
+    # served by the venue-details route with place_id="programs". Still a literal — the
+    # venue programme surface is its own ticket — but at least it is the handler that runs.
+    @router.get("/venues/programs")
+    def list_venue_programs_endpoint(request: Request):
+        return {
+            "programs": [
+                {
+                    "venue_name": "Vertical Wall Climbing Gym",
+                    "category": "bouldering_gym",
+                    "city": "Lisbon",
+                    "title": "Weekly Bouldering League & Sunset Social",
+                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
+                    "perks": "15% off for ConnectOS Crew Members 🎟️"
+                },
+                {
+                    "venue_name": "Fabrica Coffee Roasters",
+                    "category": "specialty_coffee",
+                    "city": "Lisbon",
+                    "title": "Specialty Cupping & Founder Morning",
+                    "schedule": "Wednesdays 08:30 AM",
+                    "perks": "Free Espresso Tasting ☕"
+                }
+            ]
+        }
 
     @router.get("/venues/{place_id}")
     def venue_details(place_id: str):
@@ -1818,7 +2354,7 @@ def build_router(auth) -> APIRouter:
         from modules.voiceos import capture
         text = body.get("text", "")
         if not text.strip():
-            raise ValueError("text is required")
+            raise HTTPException(status_code=400, detail="text is required")
         return guard(lambda: capture.capture(text, _graph(request), claude=_claude(request)))
 
     # ---- Security Hardening & Threat Defense -----------------------------
@@ -1844,7 +2380,10 @@ def build_router(auth) -> APIRouter:
     @router.get("/graph/topology")
     def get_graph_topology_endpoint(request: Request):
         from substrate import topology
-        return topology.export_graph_topology(_graph(request))
+        # Was `export_graph_topology`, which has never existed — this endpoint returned a
+        # 500 on every call. See the docstring in `substrate/topology.py` for why simply
+        # correcting the name would have been the wrong fix.
+        return {"hubs": topology.find_topology_hubs(_graph(request))}
 
     @router.post("/goals/nudges/scan")
     def scan_milestone_nudges_endpoint(request: Request):
@@ -1910,7 +2449,8 @@ def build_router(auth) -> APIRouter:
     @router.get("/routines/mindfulness/summary")
     def get_mindfulness_summary_endpoint(request: Request):
         from modules.routines import mindfulness
-        return mindfulness.get_mindfulness_summary(_graph(request))
+        # `get_mindfulness_summary` never existed; the module's function is this one.
+        return mindfulness.generate_mindfulness_target(_graph(request))
 
     @router.get("/graph/export/graphml")
     def export_graphml_endpoint(request: Request):
@@ -1919,11 +2459,22 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/graph/export/csv")
     def export_csv_endpoint(request: Request):
-        g = _graph(request)
-        entities = g.all_entities()
-        lines = ["id,domain,type,created_at"]
-        for e in entities:
-            lines.append(f"{e.get('id','')},{e.get('domain','')},{e.get('attrs',{}).get('type','')},{e.get('created_at','')}")
+        # `Graph.all_entities()` does not exist, so this 500'd every time — and the PWA has
+        # a live "Export CSV" button wired to it. Rebuilt on `find_entities`, which is
+        # owner-scoped, so the export contains the caller's own rows and nobody else's.
+        session = _graph(request).session(
+            "export", {f"{SCOPE_DOMAIN[kind]}:read" for kind in KINDS})
+        rows = []
+        for kind in sorted(KINDS):
+            rows.extend((kind, row) for row in session.find_entities(kind, limit=1000))
+
+        lines = ["id,kind,type,name,created_at"]
+        for kind, entity in rows:
+            attrs = entity.get("attrs") or {}
+            lines.append(",".join(_csv_cell(value) for value in (
+                entity.get("id", ""), kind, attrs.get("type", ""),
+                attrs.get("name") or attrs.get("title") or "",
+                entity.get("created_at", ""))))
         csv_data = "\n".join(lines)
         return Response(content=csv_data, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=lifeos_graph.csv"})
 
@@ -1940,96 +2491,70 @@ def build_router(auth) -> APIRouter:
             "message": f"Official Venue Program published for {venue_name}! 🏛️"
         }
 
-    @router.get("/venues/programs")
-    def list_venue_programs_endpoint(request: Request):
-        return {
-            "programs": [
-                {
-                    "venue_name": "Vertical Wall Climbing Gym",
-                    "category": "bouldering_gym",
-                    "city": "Lisbon",
-                    "title": "Weekly Bouldering League & Sunset Social",
-                    "schedule": "Tuesdays 19:00 & Fridays 20:00",
-                    "perks": "15% off for ConnectOS Crew Members 🎟️"
-                },
-                {
-                    "venue_name": "Fabrica Coffee Roasters",
-                    "category": "specialty_coffee",
-                    "city": "Lisbon",
-                    "title": "Specialty Cupping & Founder Morning",
-                    "schedule": "Wednesdays 08:30 AM",
-                    "perks": "Free Espresso Tasting ☕"
-                }
-            ]
-        }
-
-    @router.post("/crews/polls/vote")
-    def vote_crew_poll_endpoint(request: Request, body: dict):
-        option = body.get("option", "Bouldering & Drinks")
-        return {"voted": True, "option": option, "message": f"Voted for '{option}'! 📊"}
-
     @router.post("/rituals/sunset")
-    def post_sunset_win_endpoint(request: Request, body: dict):
-        win_text = body.get("win_text", "Shipped ConnectOS v2!").strip()
-        return {"logged": True, "win": win_text, "message": f"Evening Sunset Win logged: '{win_text}' 🌅"}
+    def rituals_sunset_endpoint(request: Request, body: dict):
+        """Write down the day's win, and see when the sun actually sets.
 
-    @router.get("/wrapped/monthly")
-    def get_monthly_wrapped_endpoint(request: Request):
-        return {
-            "month": "August 2026",
-            "focus_hours": 48.5,
-            "real_world_meetups": 12,
-            "top_venue": "Monsanto Outdoor Crag",
-            "kudos_received": 34,
-            "share_text": "🏆 My ConnectOS August Wrapped:\n⚡ 48.5 Focus Hours\n🧗 12 Real-World Outings\n📍 Top Venue: Monsanto Crag\n👏 34 Kudos Received!"
-        }
+        Reported a "ritual streak" and a group of named people who had also logged theirs.
+        The win is now a real private reflection, and the sunset is a real reading.
+        """
+        from modules.ai import reflect
+        from modules.city import conditions
+        text = str(body.get("win_text", "") or body.get("note", "") or "").strip()
+        graph = _graph(request)
+        city = str(body.get("city", "") or "").strip()
+        sun = {}
+        if city:
+            state = guard(lambda: conditions.read(graph, city))
+            sun = {"sunset": (state.get("weather") or {}).get("sunset", ""),
+                   "available": state.get("available", False)}
+        if not text:
+            return {"logged": False, "recent": reflect.entries(graph, kind="win", limit=5),
+                    "total": reflect.count(graph, kind="win"), "sun": sun,
+                    "privacy": "yours only — never shared, never scored"}
+        return {**guard(lambda: reflect.log(graph, text, kind="win")), "sun": sun}
 
     @router.post("/feed/reviews")
-    def post_venue_review_endpoint(request: Request, body: dict):
-        place = body.get("place", "Monsanto Outdoor Crag").strip()
-        review = body.get("review", "Dry and perfect conditions today!").strip()
-        rating = body.get("rating", 5)
-        return {
-            "published": True,
-            "place": place,
-            "review": review,
-            "rating": rating,
-            "message": f"Community Review published for '{place}'! 📝"
-        }
+    def feed_reviews_write_endpoint(request: Request, body: dict):
+        """Review a place. Never a person.
+
+        Returned three reviews of Lisbon venues signed by people who do not exist. A rating
+        attached to a human being is the karma score under another name, and that was
+        removed on its merits -- so this takes a place and refuses anything else.
+        """
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        written = guard(lambda: signals.write_review(
+            _graph(request), str(body.get("city", "") or ""),
+            str(body.get("place", "") or ""), str(body.get("review", "") or body.get("text", "")),
+            account_id=account_id, handle=handle, rating=body.get("rating"),
+            place_id=str(body.get("place_id", "") or "")))
+        _fire(request, "review.written", {"review_id": written.get("review_id", ""),
+                                          "place": written.get("place", "")})
+        return written
 
     @router.get("/feed/reviews")
-    def list_venue_reviews_endpoint(request: Request):
-        return {
-            "reviews": [
-                {
-                    "place": "Monsanto Outdoor Crag",
-                    "author": "Alex M.",
-                    "review": "Crag is dry and friction is top tier today! Sunset climbing session starting at 18:30.",
-                    "rating": 5,
-                    "time": "10m ago"
-                },
-                {
-                    "place": "Fabrica Coffee Roasters",
-                    "author": "Elena R.",
-                    "review": "Fresh Ethiopian Anaerobic batch on pour-over today. Great vibe for deep work!",
-                    "rating": 5,
-                    "time": "1h ago"
-                }
-            ]
-        }
+    def feed_reviews_read_endpoint(request: Request, city: str = "", place_id: str = ""):
+        from modules.social import signals
+        return guard(lambda: signals.reviews(_graph(request), city=city,
+                                             place_id=place_id))
 
     @router.post("/ledger/tip")
     def send_micro_tip_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex (Crew Host)").strip()
-        amount = body.get("amount", 3.50)
-        currency = body.get("currency", "EUR")
-        return {
-            "tipped": True,
-            "recipient": recipient,
-            "amount": amount,
-            "currency": currency,
-            "message": f"Sent €{amount:.2f} Coffee Micro-Tip to {recipient}! ☕"
-        }
+        """A tip you meant to send, recorded as owed rather than claimed as sent.
+
+        Returned `tipped: True` and "Sent €3.50 to Alex (Crew Host)" for a recipient it made
+        up when the caller named nobody. No money left anywhere. It goes on the tab instead,
+        where the other person can see it and either of you can mark it settled.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        to_account = _named_account(request, body.get("recipient", "")
+                                    or body.get("to_account", ""))
+        return _with_handles(request, guard(lambda: tab.iou(
+            _graph(request), account_id=account_id, to_account=to_account,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", ""))))
 
     @router.post("/spaces/audio")
     def create_audio_space_endpoint(request: Request, body: dict):
@@ -2042,321 +2567,334 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/social/kindness")
-    def send_kindness_note_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex").strip()
-        note = body.get("note", "Thanks for organizing the bouldering meet yesterday!").strip()
-        return {
-            "sent": True,
-            "recipient": recipient,
-            "note": note,
-            "message": f"Anonymous Kindness Note delivered to {recipient}! 💌"
-        }
-
-    @router.post("/crews/beacon")
-    def broadcast_squad_beacon_endpoint(request: Request, body: dict):
-        activity = body.get("activity", "Coffee & Quick Bouldering").strip()
-        timeframe = body.get("timeframe", "30 mins").strip()
-        return {
-            "broadcasted": True,
-            "activity": activity,
-            "timeframe": timeframe,
-            "message": f"⚡ Outing Squad Beacon broadcasted! '{activity}' in next {timeframe}."
-        }
+    def social_kindness_endpoint(request: Request, body: dict):
+        """The same object, sent for a different reason. It reported a kindness streak."""
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        to_account = _named_account(request, body.get("to_account", "")
+                                    or body.get("recipient", ""))
+        return guard(lambda: signals.send_kudos(
+            _graph(request), to_account,
+            str(body.get("note", "") or ""), account_id=account_id, handle=handle,
+            kind="kindness"))
 
     @router.get("/gamification/passport")
-    def get_city_passport_endpoint(request: Request):
-        return {
-            "city": "Lisbon",
-            "stamps_count": 8,
-            "stamps": [
-                {"venue": "Monsanto Outdoor Crag", "category": "Climbing", "date": "2026-08-01", "badge": "🧗 Crag Pioneer"},
-                {"venue": "Fabrica Coffee Roasters", "category": "Specialty Coffee", "date": "2026-08-03", "badge": "☕ Roast Aficionado"},
-                {"venue": "Miradouro Sunset Spot", "category": "Social Outing", "date": "2026-08-05", "badge": "🌅 Sunset Chaser"}
-            ]
-        }
+    def get_city_passport_endpoint(request: Request, city: str = ""):
+        """Places you actually went. Was three invented Lisbon venues, identical for every
+        account on the box."""
+        from modules.personal import recap
+        return guard(lambda: recap.passport(_graph(request), city))
+
+    # ---- Synergy: who else in this city is up for the same thing -----------
+    #
+    # Eleven endpoints below used to answer that with Elena R., Marcus T. and a score in the
+    # nineties. They now all run the one matcher in `modules/city/synergy.py`, which reads
+    # signals real people published. Each endpoint keeps its own field name (`sport`,
+    # `cuisine`, `subgenre`) and its own category label, because a climber and a chef are
+    # asking different questions even though the machinery underneath is identical.
+
+    def _synergy_city(request: Request, body: dict, viewer_id: str) -> str:
+        """Where to look. The body wins; otherwise wherever the caller last announced they
+        are, so someone who has already said "I'm in Lisbon" is not asked twice."""
+        from modules.city import synergy
+        city = str(body.get("city", "") or "").strip()
+        if city:
+            return city
+        return synergy.city_for(_graph(request), viewer_id) if viewer_id else ""
+
+    def _synergy_match(request: Request, body: dict, activity: str, category: str) -> dict:
+        """One shape for every activity endpoint.
+
+        The viewer is read off the session rather than required, because these routes also
+        serve single-user owner mode where there is no account to be. In account mode the
+        gateway has already rejected an unauthenticated caller before this runs.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            # An honest unanswerable question rather than an invented answer: without a city
+            # there is nothing to search, and there never was.
+            return {"matched": False, "needs_city": True, "activity": activity,
+                    "category": category, "people": [], "people_count": 0,
+                    "meetups": [], "events": [],
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: synergy.find(_graph(request), city, activity,
+                                          viewer_id=viewer_id, category=category))
+
+    @router.post("/synergy/open-to")
+    def synergy_open_to_endpoint(request: Request, body: SynergyOpenIn):
+        """Say what you are up for, in a city, for the next few hours.
+
+        The piece the matcher could not work without, and the piece that did not exist: every
+        `/synergy/*-match` call searches these, so with nobody publishing, every honest
+        search returns nothing. Publishing is always explicit — searching does not do it.
+        """
+        from modules.city import synergy
+        rate_limiter.enforce(request, "synergy:open", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id = _actor(request, None)
+        city = body.city.strip() or synergy.city_for(_graph(request), account_id)
+        opened = guard(lambda: synergy.open_to(
+            _graph(request), city, body.activity, account_id=account_id,
+            handle=caller.get("handle", ""), note=body.note, hours=body.hours,
+            category=body.category, offers=body.offers, wants=body.wants))
+        _fire(request, "signal.opened", {"city": opened.get("city", ""),
+                                         "activity": opened.get("activity", "")})
+        return opened
+
+    @router.delete("/synergy/open-to")
+    def synergy_close_endpoint(request: Request, body: SynergyCloseIn):
+        from modules.city import synergy
+        account_id = _actor(request, None)
+        city = body.city.strip() or synergy.city_for(_graph(request), account_id)
+        return guard(lambda: synergy.close(_graph(request), city, body.activity,
+                                           account_id=account_id))
+
+    @router.get("/synergy/open-to")
+    def synergy_mine_endpoint(request: Request):
+        """What you are currently publishing about yourself, in every city."""
+        from modules.city import synergy
+        return {"signals": synergy.mine(_graph(request), account_id=_actor(request, None))}
+
+    def _conditions_for(request: Request, city: str) -> dict:
+        """Live conditions for a match, or an honest reason there are none.
+
+        Deliberately never raises: a weather service being unreachable must not stop the
+        matcher answering the question it was actually asked, which is who else is up for
+        this.
+        """
+        if not city:
+            return {"available": False, "reason": "no city to look up"}
+        from modules.city import conditions
+        try:
+            return conditions.read(_graph(request), city)
+        except Exception as exc:
+            return {"available": False, "reason": f"conditions unavailable: {type(exc).__name__}"}
 
     @router.post("/synergy/instant-match")
     def instant_synergy_match_endpoint(request: Request, body: dict):
-        interest = body.get("interest", "specialty coffee").strip()
-        timeframe = body.get("timeframe", "30 mins").strip()
-        graph = _graph(request)
-        return social_engine.match_synergy(graph, interest=interest, timeframe=timeframe)
+        interest = str(body.get("interest", "") or "").strip()
+        return {**_synergy_match(request, body, interest, "Instant Match"),
+                "interest": interest,
+                "timeframe": str(body.get("timeframe", "") or "").strip()}
 
     @router.post("/dating/instant-meet")
     def instant_dating_meet_endpoint(request: Request, body: dict):
-        vibe = body.get("vibe", "drinks tonight").strip()
-        timeframe = body.get("timeframe", "next hour").strip()
-        graph = _graph(request)
-        return social_engine.match_dating(graph, vibe=vibe, timeframe=timeframe)
+        """Who is open to meeting someone in this city.
+
+        Replaces a "7-Factor Comprehensive Match Engine" whose seven factors — proximity,
+        preferences, heatmap, popularity, trust index, energy balance, weather — were seven
+        constants, weighted into a score, attached to Elena R., 1.2 km away. There was no
+        distance because there were no coordinates, and no Elena.
+
+        Reciprocal by construction: you see who is open here only once you are open
+        yourself, so this can never be browsed from the outside by somebody who is not in
+        it. The `lat`/`lon` the old version took are gone — city granularity is what makes
+        an "open to meeting" list safe to publish at all.
+        """
+        from modules.dating import meets
+        caller = getattr(request.state, "caller", None) or {}
+        account_id = _dating_id(request) or ""
+        city = str(body.get("city", "") or "").strip()
+        if not city and account_id:
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), account_id)
+        if not city:
+            return {"people": [], "people_count": 0, "you_are_open": False,
+                    "needs_city": True,
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+
+        if str(body.get("open", "")).lower() in ("1", "true", "yes"):
+            dating_guard(lambda: meets.open_to_meeting(
+                _graph(request), city, account_id=account_id,
+                handle=caller.get("handle", ""), vibe=str(body.get("vibe", "") or ""),
+                hours=body.get("hours", meets.DEFAULT_HOURS)))
+        return dating_guard(lambda: meets.nearby(_graph(request), city,
+                                                 account_id=account_id))
+
+    @router.post("/dating/open-to-meeting")
+    def dating_open_to_meeting_endpoint(request: Request, body: DatingOpenIn):
+        """Publish that you are open to meeting someone here, for a few hours.
+
+        Its own call rather than a side effect of searching: being listed as open to meeting
+        strangers is a larger disclosure than looking, and the two must never be the same
+        gesture.
+        """
+        from modules.dating import meets
+        rate_limiter.enforce(request, "dating:open", max_requests=20, window_seconds=300)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id = _dating_id(request) or ""
+        city = body.city.strip()
+        if not city and account_id:
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), account_id)
+        return dating_guard(lambda: meets.open_to_meeting(
+            _graph(request), city, account_id=account_id,
+            handle=caller.get("handle", ""), vibe=body.vibe, hours=body.hours))
+
+    @router.delete("/dating/open-to-meeting")
+    def dating_close_meeting_endpoint(request: Request, body: DatingCloseIn):
+        from modules.dating import meets
+        return dating_guard(lambda: meets.close(_graph(request), body.city,
+                                                account_id=_dating_id(request) or ""))
+
+    @router.get("/dating/open-to-meeting")
+    def dating_my_markers_endpoint(request: Request):
+        from modules.dating import meets
+        return dating_guard(lambda: {"markers": meets.mine(
+            _graph(request), account_id=_dating_id(request) or "")})
 
     @router.post("/synergy/creative-match")
     def creative_jam_match_endpoint(request: Request, body: dict):
-        genre = body.get("genre", "acoustic jam").strip()
-        return {
-            "matched": True,
-            "category": "Music & Creative Jam",
-            "genre": genre,
-            "partner_name": "Leo V.",
-            "match_score": 96,
-            "suggested_venue": "Miradouro Park Sound Shell",
-            "message": f"🎵 Creative Jam Match Found (96% Match)! Leo V. is 0.9km away & ready for an {genre} session!"
-        }
+        genre = str(body.get("genre", "") or "").strip()
+        return {**_synergy_match(request, body, genre, "Music & Creative Jam"),
+                "genre": genre}
 
     @router.post("/synergy/dining-match")
     def dining_crew_match_endpoint(request: Request, body: dict):
-        cuisine = body.get("cuisine", "seafood & tapas").strip()
-        return {
-            "matched": True,
-            "category": "Culinary & Dining",
-            "cuisine": cuisine,
-            "partner_name": "Mateo & 2 foodies",
-            "match_score": 98,
-            "suggested_venue": "Mercado da Ribeira Food Hall",
-            "message": f"🍲 Dining Crew Match Found (98% Match)! Mateo & crew are meeting for {cuisine} tonight!"
-        }
+        cuisine = str(body.get("cuisine", "") or "").strip()
+        return {**_synergy_match(request, body, cuisine, "Culinary & Dining"),
+                "cuisine": cuisine}
 
     @router.post("/synergy/ski-match")
     def ski_snowboard_match_endpoint(request: Request, body: dict):
-        resort = body.get("resort", "Serra da Estrela / Alpine Slopes").strip()
-        snow_depth = body.get("snow_depth_cm", 45)
-        return {
-            "matched": True,
-            "category": "Alpine Skiing & Snowboarding",
-            "fresh_powder_alert": True,
-            "snow_depth_cm": snow_depth,
-            "partner_name": "Julian B. (Advanced Freeride)",
-            "match_score": 99,
-            "suggested_venue": resort,
-            "breakdown": {
-                "snowfall_condition_score": 100,
-                "proximity_km": 0.9,
-                "resort_heatmap": 94,
-                "skill_level_match": 98
-            },
-            "message": f"⛷️ Powder Alert Triggered! 45cm fresh snow detected. Julian B. is ready for skiing at {resort}!"
-        }
+        """Skiing. `snow_depth_cm: 45` and `fresh_powder_alert: True` were literals that
+        fired in July, in Lisbon, for everyone.
+
+        There is still no snow-depth source — Open-Meteo gives temperature and
+        precipitation, not piste conditions — so what comes back is the weather that was
+        actually measured, and snow depth stays absent rather than plausible."""
+        resort = str(body.get("resort", "") or "").strip()
+        matched = _synergy_match(request, body, resort or "skiing", "Skiing & Snowboarding")
+        return {**matched, "resort": resort,
+                "conditions": _conditions_for(request, matched.get("city_label", "")),
+                "snow_depth_cm": None,
+                "snow_note": "No piste or snow-depth provider is configured."}
 
     @router.post("/synergy/rave-match")
     def rave_nightlife_match_endpoint(request: Request, body: dict):
-        subgenre = body.get("subgenre", "techno & house").strip()
-        return {
-            "matched": True,
-            "category": "Nightlife, Raves & Underground Music",
-            "subgenre": subgenre,
-            "partner_name": "Clara & Lisbon Rave Crew (4 people)",
-            "match_score": 98,
-            "suggested_venue": "Lux Frágil Warehouse Stage",
-            "breakdown": {
-                "subgenre_match_pct": 98,
-                "club_heatmap_capacity": 94,
-                "sound_system_rating": 99,
-                "trust_index": 96
-            },
-            "message": f"🪩 Rave Match Found (98% Match)! Clara & Lisbon Rave Crew are heading to {subgenre} set at Lux Frágil!"
-        }
+        subgenre = str(body.get("subgenre", "") or "").strip()
+        return {**_synergy_match(request, body, subgenre,
+                                 "Nightlife, Raves & Underground Music"),
+                "subgenre": subgenre}
 
     @router.post("/synergy/surf-match")
     def surf_swell_match_endpoint(request: Request, body: dict):
-        spot = body.get("spot", "Carcavelos Beach").strip()
-        swell_m = body.get("swell_m", 2.2)
-        period_s = body.get("period_s", 14)
-        wind = body.get("wind", "11 knot Offshore NNE").strip()
-        return {
-            "matched": True,
-            "category": "Surfing & Ocean Sports",
-            "swell_alert": True,
-            "telemetry": {
-                "swell_height_m": swell_m,
-                "wave_period_sec": period_s,
-                "wind_conditions": wind,
-                "water_temp_c": 17.5
-            },
-            "partner_name": "Tiago M. (Shortboard / Intermediate)",
-            "match_score": 99,
-            "suggested_venue": spot,
-            "breakdown": {
-                "marine_weather_score": 100,
-                "proximity_km": 1.1,
-                "beach_break_rating": 98,
-                "skill_alignment": 97
-            },
-            "message": f"🏄 Swell Alert Active ({swell_m}m @ {period_s}s, {wind})! Tiago M. is heading to {spot}!"
-        }
+        """Surfing. The swell telemetry — 2.2 m at 14 s, 17.5 °C water — was four constants,
+        not a buoy.
+
+        Open-Meteo's marine API is a real buoy-grade forecast and needs no key, so the wave
+        height is measured now. An inland city returns `no_data`, which is how "there is no
+        surf in Munich" gets said truthfully rather than by a hardcoded city list."""
+        spot = str(body.get("spot", "") or "").strip()
+        matched = _synergy_match(request, body, spot or "surfing", "Surfing & Ocean Sports")
+        return {**matched, "spot": spot,
+                "conditions": _conditions_for(request, matched.get("city_label", ""))}
 
     @router.get("/weather/radar")
-    def weather_radar_telemetry_endpoint(request: Request):
-        return {
-            "active_alerts": [
-                {"activity": "Surfing 🏄", "trigger": "2.2m Swell, 14s Period (Offshore Wind)", "status": "PRIME CONDITIONS"},
-                {"activity": "Alpine Skiing ⛷️", "trigger": "45cm Fresh Snowfall", "status": "POWDER ALERT"},
-                {"activity": "Golden Hour Sunset 🌅", "trigger": "Clear Sky, 24°C, 15% Clouds", "status": "IDEAL SUNSET"}
-            ],
-            "marine": {
-                "swell_m": 2.2,
-                "period_s": 14,
-                "wind_direction": "Offshore NNE",
-                "wind_speed_knots": 11
-            },
-            "atmosphere": {
-                "temp_c": 24,
-                "humidity_pct": 48,
-                "cloud_cover_pct": 15,
-                "uv_index": 6
-            }
-        }
+    def weather_radar_telemetry_endpoint(request: Request, city: str = ""):
+        """Conditions worth acting on.
+
+        Returned a 2.2 m swell at 14 s, 45 cm of fresh snowfall and a clear 24 °C sky -- as
+        constants, in July, in Lisbon, for everyone. It takes a city now because weather is
+        a fact about a place, and it reports what was measured.
+        """
+        from modules.city import conditions
+        caller = getattr(request.state, "caller", None) or {}
+        if not city and caller.get("account_id"):
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), caller["account_id"])
+        if not city:
+            return {"available": False, "needs_city": True, "triggers": [],
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.get("/developer/plugins")
-    def list_developer_plugins_endpoint(request: Request):
-        return {
-            "plugins": [
-                {
-                    "id": "kitesurf-wind-radar",
-                    "name": "🪁 KiteSurf Wind Radar",
-                    "developer": "WindyDev Labs",
-                    "category": "Ocean & Wind Sports",
-                    "trigger_condition": "Wind Speed > 18 Knots (Offshore)",
-                    "installed": True,
-                    "rating": 4.9
-                },
-                {
-                    "id": "padel-4th-player",
-                    "name": "🎾 Padel 4th Player Finder",
-                    "developer": "PadelClub EU",
-                    "category": "Racquet Sports",
-                    "trigger_condition": "Matches 3 players lacking 1 player in 30 mins",
-                    "installed": True,
-                    "rating": 4.8
-                },
-                {
-                    "id": "scuba-vis-meter",
-                    "name": "🤿 Scuba Vis & Water Temp Meter",
-                    "developer": "DiveTech Global",
-                    "category": "Water Sports",
-                    "trigger_condition": "Water Vis > 15m & Low Tide",
-                    "installed": False,
-                    "rating": 4.7
-                },
-                {
-                    "id": "chess-park-match",
-                    "name": "♟️ Park Chess Matcher",
-                    "developer": "OpenChess DAO",
-                    "category": "Board Games",
-                    "trigger_condition": "Sunny Weather & Park Bench Check-in",
-                    "installed": False,
-                    "rating": 4.9
-                }
-            ],
-            "sdk_version": "2.4.0-synergy",
-            "message": "🔌 ConnectOS Developer Synergy SDK: Build activity plugins with 7-Factor scoring!"
-        }
+    def list_developer_plugins_endpoint(request: Request, mine: bool = False):
+        """Registered plugins. There were four here, with developers and ratings out of
+        five, on an empty database."""
+        from modules.platform import plugins
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: plugins.listing(
+            _graph(request), account_id=account_id if mine else ""))
 
     @router.post("/developer/plugins/register")
     def register_developer_plugin_endpoint(request: Request, body: dict):
-        plugin_name = body.get("name", "Custom Activity Plugin").strip()
-        category = body.get("category", "Custom Sports").strip()
-        trigger = body.get("trigger_condition", "Weather & Location Trigger").strip()
-        return {
-            "registered": True,
-            "plugin_id": f"dev-{plugin_name.lower().replace(' ', '-')}",
-            "name": plugin_name,
-            "category": category,
-            "trigger_condition": trigger,
-            "message": f"🚀 Registered '{plugin_name}' on ConnectOS Developer Hub! Synergy webhook endpoint active."
-        }
+        """Validate a manifest and store the registration.
+
+        It returned `registered: True` and a slugified id and stored nothing, so a developer
+        would register, see success, and never find their plugin again. The manifest
+        validator it now calls has been in modules/platform since Sprint 1.
+        """
+        from modules.platform import plugins
+        account_id, _ = _signal_caller(request)
+        payload = body.get("manifest") or body
+        return guard(lambda: plugins.register(_graph(request), payload,
+                                              account_id=account_id))
+
+    @router.delete("/developer/plugins/{plugin_id}")
+    def remove_developer_plugin_endpoint(request: Request, plugin_id: str):
+        from modules.platform import plugins
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: plugins.remove(_graph(request), plugin_id,
+                                            account_id=account_id))
 
     @router.post("/gamification/mint-presence")
-    def mint_proof_of_presence_endpoint(request: Request, body: dict):
-        event_name = body.get("event_name", "Lisbon Rooftop Sunset Meet").strip()
-        location = body.get("location", "Miradouro Rooftop").strip()
-        token_id = "POP-" + "".join(__import__("random").choices("0123456789ABCDEF", k=8))
-        return {
-            "minted": True,
-            "token_id": token_id,
-            "badge_name": f"Verified Attendee: {event_name}",
-            "location": location,
-            "tx_hash": f"0x{token_id.lower()}9941a82f3d",
-            "message": f"🎟️ Proof-of-Presence Badge Minted! ID: {token_id} ({event_name} @ {location}). Verified on blockchain! ⛓️"
-        }
+    def gamification_mint_presence_endpoint(request: Request, body: dict):
+        """Proof you were somewhere -- which is a check-in, not a token.
+
+        It minted a "POP-" token as proof of presence: a token nobody issued, on no chain,
+        signed by nothing, verifying nothing. The underlying idea is real and is now the
+        same record as a QR check-in.
+        """
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.check_in(
+            _graph(request), account_id=account_id,
+            place=str(body.get("event_name", "") or body.get("location", "") or ""),
+            city=str(body.get("city", "") or "")))
 
     @router.get("/vitals/social-battery")
     def social_battery_optimizer_endpoint(request: Request):
-        return {
-            "battery_pct": 82,
-            "social_state": "OPTIMAL_FLOW",
-            "recommendation": "High Social Energy! Perfect for joining a 4-person Crew Outing or Bouldering Session.",
-            "suggested_format": "Group Crew Outing (3-6 members)",
-            "balance_index": {
-                "real_world_hours": 18.5,
-                "screen_hours": 3.2,
-                "real_world_ratio": 0.85
-            },
-            "message": "🧠 AI Social Battery: 82% Capacity. Real-World Ratio: 85% Real World / 15% Screen."
-        }
+        """How much you have been around people lately. Was a hardcoded 82% for everyone;
+        reports what it counted, and `unknown` when there is nothing to count."""
+        from modules.personal import recap
+        return guard(lambda: recap.social_battery(_graph(request)))
 
     @router.get("/ar/spatial-flares")
-    def get_ar_spatial_flares_endpoint(request: Request):
-        return {
-            "ar_mode": "ACTIVE_SPATIAL_RADAR",
-            "flares": [
-                {
-                    "id": "flare-101",
-                    "type": "OUTING_BEACON",
-                    "title": "☕ Specialty Coffee Meetup",
-                    "creator": "Elena R. (96% Match)",
-                    "distance_m": 85,
-                    "bearing_deg": 42,
-                    "altitude_offset_m": 1.5,
-                    "ar_glyph": "☕",
-                    "color": "#f0a94a"
-                },
-                {
-                    "id": "flare-102",
-                    "type": "VENUE_HEATMAP",
-                    "title": "🔥 Miradouro Rooftop (88% Density)",
-                    "creator": "Official Partner Venue",
-                    "distance_m": 240,
-                    "bearing_deg": 115,
-                    "altitude_offset_m": 12.0,
-                    "ar_glyph": "🍷",
-                    "color": "#ec4899"
-                },
-                {
-                    "id": "flare-103",
-                    "type": "AUDIO_SPACE",
-                    "title": "🎙️ Live Audio Drop-In: Weekend Bouldering",
-                    "creator": "Alex & Crew",
-                    "distance_m": 310,
-                    "bearing_deg": 280,
-                    "altitude_offset_m": 0.0,
-                    "ar_glyph": "🎙️",
-                    "color": "#10b981"
-                }
-            ],
-            "message": "👓 AR Spatial Radar Active: 3 real-world social beacons rendered in your 3D view!"
-        }
+    def get_ar_spatial_flares_endpoint(request: Request, city: str = ""):
+        """What is live in a city right now — from rows, with nothing placed in space.
+
+        Returned `ar_mode: "ACTIVE_SPATIAL_RADAR"` and three beacons rendered in 3D:
+        "☕ Specialty Coffee Meetup" by **Elena R. (96% Match)** at 85 metres on a bearing of
+        42°, a venue at "88% Density", an audio space by "Alex & Crew" — with altitude
+        offsets, as though the app knew which floor they were on.
+
+        There is no AR here, no compass, and no position of any kind: a check-in is a place
+        name somebody typed. Every number in that response was decoration on a person who
+        was not there. The question underneath — what is happening near me — is answerable
+        from what people have actually published, and on a quiet instance the answer is
+        nothing.
+        """
+        from modules.city import live
+        account_id, _ = _signal_caller(request)
+        where = city or _viewer_city(request, account_id)
+        return guard(lambda: live.around(_graph(request), where, viewer_id=account_id))
 
     @router.post("/ai/copilot-icebreaker")
     def generate_ai_icebreaker_endpoint(request: Request, body: dict):
-        partner_name = body.get("partner_name", "").strip()
-        shared_hobby = body.get("shared_hobby", "").strip()
-        g = _graph(request)
-        if not partner_name:
-            people = g.session("people", {"people:read", "*"}).find_entities("person", limit=1)
-            partner_name = people[0]["attrs"].get("name", "Elena R.") if people else "Elena R."
-        if not shared_hobby:
-            shared_hobby = "Specialty Coffee & Bouldering"
+        """Openers built from what the two of you actually published.
 
-        icebreakers = [
-            f"☕ 'Hey {partner_name}! Saw you're into {shared_hobby} too — have you checked out the local roastery?'",
-            f"🧗 'Hi {partner_name}! Down for a quick {shared_hobby.split('&')[0].strip()} session this week?'",
-            f"🌅 'Hey {partner_name}! Going to tonight's community sunset meetup?'"
-        ]
-        return {
-            "partner_name": partner_name,
-            "shared_hobby": shared_hobby,
-            "icebreakers": icebreakers,
-            "message": f"🤖 AI Social Co-Pilot: 3 tailored icebreakers generated for {partner_name}!"
-        }
+        Was three sentences about a washed Ethiopian pour-over at Fabrica, returned for
+        whatever `partner_name` you sent -- including a name you typed yourself.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.icebreakers(
+            _graph(request), account_id=_ai_caller(request),
+            target_account_id=str(body.get("target_account_id", "") or "").strip(),
+            city=str(body.get("city", "") or "").strip(), claude=_claude(request)))
 
     @router.post("/biometrics/circadian-sync")
     def biometrics_circadian_sync_endpoint(request: Request, body: dict):
@@ -2374,70 +2912,37 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/squad-agent")
     def autonomous_squad_agent_endpoint(request: Request, body: dict):
-        crew_id = body.get("crew_id", "crw-001").strip()
-        activity = body.get("activity", "Sunset Tapas & Bouldering").strip()
-        g = _graph(request)
-        session = g.session("crews", {"events:write", "crews:read", "*"})
-        session.create_entity("event", {
-            "title": f"Squad Outing: {activity}",
-            "crew_id": crew_id,
-            "activity": activity,
-            "time_slot": "Tonight @ 7:30 PM",
-            "reservation_status": "CONFIRMED (Miradouro Rooftop)",
-            "expense_split": "€15.00/person",
-            "confirmed_members": ["You", "Alex", "Elena R.", "Marcus T.", "Sophia K."]
-        }, source="autonomous_squad_agent", confidence=1.0)
-        return {
-            "negotiated": True,
-            "crew_id": crew_id,
-            "activity": activity,
-            "confirmed_members": ["You", "Alex", "Elena R.", "Marcus T.", "Sophia K."],
-            "time_slot": "Tonight @ 7:30 PM",
-            "reservation_status": "CONFIRMED (Miradouro Rooftop)",
-            "expense_split": "€15.00/person (Auto-Split Active)",
-            "message": f"🤖 Autonomous Squad Agent: Negotiated 5 calendars & reserved spot at Miradouro Rooftop for {activity}!"
-        }
+        """What the crew is actually going to.
+
+        Reported "negotiated 5 calendars", a confirmed table and an auto-split, naming Alex,
+        Elena R., Marcus T. and Sophia K. There are no calendars, no booking integration and
+        no payment rail; `not_included` now says so out loud.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.crew_plan(
+            _graph(request), str(body.get("crew_id", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.get("/city/live-globe")
     def get_live_3d_globe_telemetry_endpoint(request: Request):
-        return {
-            "mode": "3D_SPATIAL_GLOBE",
-            "active_cities": [
-                {"city": "Lisbon", "lat": 38.722, "lon": -9.139, "active_flares": 14, "weather": "24°C Sunny 🌅"},
-                {"city": "Tokyo", "lat": 35.676, "lon": 139.650, "active_flares": 28, "weather": "19°C Clear 🗼"},
-                {"city": "New York", "lat": 40.712, "lon": -74.006, "active_flares": 32, "weather": "22°C Mild 🌆"},
-                {"city": "London", "lat": 51.507, "lon": -0.127, "active_flares": 22, "weather": "18°C Partly Cloudy 🎡"},
-                {"city": "San Francisco", "lat": 37.774, "lon": -122.419, "active_flares": 19, "weather": "17°C Coastal Fog 🌁"}
-            ],
-            "message": "🗺️ Live 3D Globe Telemetry: 115 active social beacons across 5 global hubs!"
-        }
+        """Cities this instance actually has activity in.
 
-    @router.post("/zk/verify-attribute")
-    def zk_anonymous_attribute_verification_endpoint(request: Request, body: dict):
-        attribute = body.get("attribute", "AGE_OVER_18").strip()
-        proof_hash = "ZK-" + "".join(__import__("random").choices("0123456789abcdef", k=16))
-        return {
-            "verified": True,
-            "attribute": attribute,
-            "zk_proof": proof_hash,
-            "identity_disclosed": False,
-            "message": f"🔐 ZK-SNARK Proof Generated for '{attribute}'! Zero identity disclosed. Cryptographically verified ✓"
-        }
+        Five hardcoded cities with coordinates, invented flare counts and invented weather
+        ("24°C Sunny", in Lisbon, forever) — identical on every deployment, including one
+        installed a minute ago. Counts rows now, and on a new instance says plainly that
+        nobody is anywhere yet.
+        """
+        from modules.platform import overview
+        return guard(lambda: overview.globe(_graph(request)))
 
     @router.get("/trust/karma-score")
     def get_social_karma_score_endpoint(request: Request):
-        return {
-            "karma_score": 98,
-            "trust_tier": "LEGEND_CREW_MEMBER",
-            "metrics": {
-                "punctual_arrivals_pct": 99,
-                "verified_badges": 12,
-                "safewalk_completions": 8,
-                "crew_rating": 4.98
-            },
-            "message": "🏆 Social Karma Score: 98/100 (Legend Crew Tier)! Highly trusted across all outing matchers."
-        }
-
+        """What you have actually turned up to. Was 98/100 "LEGEND_CREW_MEMBER" with a 4.98
+        crew rating, for every account including one made ten seconds ago — and a single
+        trust score invites farming, explains nothing, and cannot be computed honestly from
+        data this app has. Nobody rates anybody here."""
+        from modules.personal import recap
+        return guard(lambda: recap.standing(_graph(request)))
     @router.get("/audio/lounge-spaces")
     def get_spatial_audio_lounges_endpoint(request: Request):
         return {
@@ -2464,75 +2969,78 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/ai/micro-itinerary")
     def generate_micro_itinerary_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        vibe = body.get("vibe", "Coffee to Sunset Drinks & Rave").strip()
-        return {
-            "city": city,
-            "vibe": vibe,
-            "stops": [
-                {"step": 1, "time": "6:30 PM", "venue": "Fabrica Coffee Roasters", "activity": "Specialty Coffee Pour-Over ☕"},
-                {"step": 2, "time": "7:45 PM", "venue": "Miradouro Rooftop Bar", "activity": "Sunset Cocktails & Tapas 🍷"},
-                {"step": 3, "time": "10:00 PM", "venue": "Lux Frágil", "activity": "Underground Electronic Music Set 🪩"}
-            ],
-            "total_duration": "3.5 Hours",
-            "message": f"🗺️ Micro-Itinerary Generated for {city} ({vibe})!"
-        }
+        """The next day and a half, out of things that exist. Was Fabrica, Miradouro and Lux
+        Frágil -- the same three venues for every user in every city."""
+        from modules.ai import assist
+        return guard(lambda: assist.itinerary(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/safety/emergency-sos")
-    def trigger_emergency_sos_endpoint(request: Request, body: dict):
-        location = body.get("location", "Miradouro Rooftop, Lisbon").strip()
-        g = _graph(request)
-        session = g.session("safety", {"metrics:write", "admin_items:write", "*"})
-        sos_id = session.create_entity("metric", {
-            "type": "emergency_sos",
-            "location": location,
-            "status": "broadcasted",
-            "recipients_count": 4
-        }, source="emergency_sos", confidence=1.0)
-        return {
-            "sos_active": True,
-            "sos_id": sos_id,
-            "location": location,
-            "broadcast_status": "SENT_TO_TRUSTED_CREW",
-            "recipients_notified": 4,
-            "emergency_pin": "SOS-9911-GPS",
-            "message": f"⚡ EMERGENCY SOS ACTIVATED! Location broadcasted to 4 trusted crew members."
-        }
+    def safety_emergency_sos_endpoint(request: Request, body: dict):
+        """The same watch at a higher severity, and the same honesty about delivery.
+
+        It returned `recipients_notified: 4` and an emergency PIN. This app cannot call
+        anyone, so it does not say it did: `push_delivered` is false and the disclaimer
+        points at the local emergency number.
+        """
+        from modules.safety import watch
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: watch.start(
+            _graph(request),
+            str(body.get("location", "") or body.get("destination", "") or "here"),
+            account_id=account_id, handle=handle, severity="sos",
+            eta_minutes=body.get("eta_mins", 15),
+            watchers=body.get("watchers") or [],
+            note=str(body.get("note", "") or "")))
 
     @router.post("/nomad/city-switch")
     def nomad_city_switch_endpoint(request: Request, body: dict):
-        target_city = body.get("target_city", "Tokyo").strip()
-        return {
-            "teleported": True,
-            "current_city": target_city,
-            "active_nomads_count": 48,
-            "recommended_hub": "Shibuya Roastery & Co-Working Hub",
-            "local_events": ["Tokyo Tech Founders Coffee", "Shinjuku Underground Beats"],
-            "message": f"🌐 Nomad Passport Active: Teleported to {target_city}! 48 active nomads nearby."
-        }
+        """Look at another city before you go.
+
+        Said "Teleported to Tokyo! 48 active nomads nearby" and named a hub, for any city.
+        It shows the real arrival screen for that city instead, which on an unseeded city is
+        honestly empty.
+        """
+        from modules.city import arrival
+        caller = getattr(request.state, "caller", None) or {}
+        target = str(body.get("target_city", "") or body.get("city", "") or "").strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: arrival.arrival(_graph(request), target,
+                                             viewer_id=caller.get("account_id", "")))
 
     @router.post("/memories/highlight-reel")
     def generate_memory_capsule_endpoint(request: Request, body: dict):
-        outing_title = body.get("title", "Lisbon Sunset Rooftop Drinks").strip()
-        g = _graph(request)
-        session = g.session("memento", {"memories:read", "memories:write", "*"})
-        mem_id = session.create_entity("memory", {
-            "type": "highlight_reel",
-            "title": outing_title,
-            "photos_count": 6,
-            "badges_earned": ["POP-89F12A04", "Sunset Chaser Badge"],
-            "attendees": ["You", "Elena R.", "Alex", "Marcus T."]
-        }, source="highlight_reel", confidence=1.0)
-        capsule_code = f"CAP-{mem_id}"
+        """An evening you check into, gathered from your own check-ins that day.
+
+        Returned `attendees: ["You", "Elena R.", "Alex", "Marcus T."]`, two badges including
+        `POP-89F12A04`, six photos and a share URL on connectos.app — for an outing it named
+        "Lisbon Sunset Rooftop Drinks" when you sent nothing. The other line of work made
+        this graph-backed, which made it worse: the invented guest list was then *written
+        into the graph*, so a fabricated evening became a durable memory.
+
+        Who was somewhere is not knowable from a check-in, so nobody is listed. There is no
+        image pipeline, so there are no photos. What is real is the day's own entries.
+        """
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        title = str(body.get("title", "") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="what are you calling it?")
+        day = guard(lambda: journal.day(_graph(request), account_id=account_id,
+                                        date=body.get("date", "")))
         return {
-            "capsule_id": capsule_code,
-            "memory_id": mem_id,
-            "title": outing_title,
-            "photos_count": 6,
-            "badges_earned": ["POP-89F12A04", "Sunset Chaser Badge"],
-            "attendees": ["You", "Elena R.", "Alex", "Marcus T."],
-            "share_url": f"/#memory?id={mem_id}",
-            "message": f"🤖 AI Memory Capsule Generated for '{outing_title}'! Stored in Substrate graph (ID: {mem_id})."
+            "title": title,
+            "date": day["date"],
+            "entries": day["did"] + day["notes"],
+            "count": len(day["did"]) + len(day["notes"]),
+            "empty": day["empty"],
+            "photos": False,
+            "attendees": [],
+            "no_attendees": ("Who else was there is not something a check-in records, so "
+                             "nobody is listed rather than guessed."),
+            "suggestion": day["suggestion"],
         }
 
     @router.post("/events/vip-guestlist")
@@ -2547,139 +3055,221 @@ def build_router(auth) -> APIRouter:
             "message": f"🎟️ VIP Guestlist Access Granted for {venue}! (Karma Score: {karma_score}/100 verified)."
         }
 
-    @router.get("/gamification/leaderboard")
-    def get_global_synergy_leaderboard_endpoint(request: Request):
-        return {
-            "leaderboard": [
-                {"rank": 1, "user": "You", "karma_score": 98, "badge": "👑 Lisbon Coffee & Tech Legend", "outings_count": 42},
-                {"rank": 2, "user": "Elena R.", "karma_score": 96, "badge": "🌅 Rooftop Sunset Master", "outings_count": 39},
-                {"rank": 3, "user": "Alex M.", "karma_score": 94, "badge": "🧗 Bouldering & Outdoor Pro", "outings_count": 35},
-                {"rank": 4, "user": "Marcus T.", "karma_score": 92, "badge": "🏄 Dawn Patrol Surfer", "outings_count": 31}
-            ],
-            "message": "🏆 Global Synergy Leaderboard: You are Ranked #1 in Lisbon!"
-        }
+    # `GET /gamification/leaderboard` was here, ranking "You" #1 above Elena R., Alex M. and
+    # Marcus T. — none of whom exist. Not reimplemented: ranking people by how many outings
+    # they attend rewards performative meeting-up, and publishing one person's activity
+    # count to everyone else is the presence-list problem wearing a scoreboard.
 
     @router.post("/synergy/mentor-match")
     def mentor_synergy_match_endpoint(request: Request, body: dict):
-        domain = body.get("domain", "AI & Startup Founders").strip()
-        return {
-            "matched": True,
-            "mentor_name": "Dr. Sarah Lin (ex-YC Founder)",
-            "domain": domain,
-            "match_score": 97,
-            "suggested_format": "1-on-1 Walk & Talk Coffee",
-            "suggested_venue": "Fabrica Coffee Roasters, Chiado",
-            "message": f"🤝 Mentorship Match Found! {domain} mentorship session set with Dr. Sarah Lin (97% Match Score)."
-        }
+        """Mentorship is complementary, not symmetric — the match for somebody who wants to
+        learn product is somebody offering it. Falls back to a plain same-domain search when
+        the caller only names a domain, which finds peers rather than nobody."""
+        from modules.city import synergy
+        domain = str(body.get("domain", "") or "").strip()
+        seeking = str(body.get("seeking", "") or "").strip() or domain
+        offering = str(body.get("offering", "") or "").strip()
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "domain": domain, "people": [],
+                    "people_count": 0, "category": "Mentorship",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if offering and seeking:
+            return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                                 learn=seeking, viewer_id=viewer_id)),
+                    "domain": domain, "category": "Mentorship"}
+        return {**_synergy_match(request, body, seeking, "Mentorship"), "domain": domain}
 
     @router.post("/routines/squad-sync")
     def squad_recurring_routine_sync_endpoint(request: Request, body: dict):
-        import base64
-        routine_name = body.get("routine_name", "Wednesday Dawn Patrol Surf Crew").strip()
-        ics_text = (
-            "BEGIN:VCALENDAR\r\n"
-            "VERSION:2.0\r\n"
-            "PRODID:-//ConnectOS//Squad Routine Calendar//EN\r\n"
-            "BEGIN:VEVENT\r\n"
-            f"SUMMARY:{routine_name}\r\n"
-            "DESCRIPTION:Weekly recurring squad routine synced via ConnectOS Life OS\r\n"
-            "RRULE:FREQ=WEEKLY;BYDAY=WE\r\n"
-            "DTSTART:20260820T070000Z\r\n"
-            "DTEND:20260820T083000Z\r\n"
-            "END:VEVENT\r\n"
-            "END:VCALENDAR\r\n"
-        )
-        b64_ics = base64.b64encode(ics_text.encode("utf-8")).decode("ascii")
-        data_uri = f"data:text/calendar;charset=utf8;base64,{b64_ics}"
-        return {
-            "synced": True,
-            "routine_name": routine_name,
-            "recurrence": "Weekly on Wednesdays @ 7:00 AM",
-            "synced_calendars": 5,
-            "ics_link": data_uri,
-            "message": f"📅 Squad Routine Synced! '{routine_name}' auto-added to 5 crew calendars as valid RFC 5545 stream."
-        }
+        """The same thing, same time, every week — as dates a calendar can subscribe to.
+
+        Returned `synced: True`, the same recurrence ("Weekly on Wednesdays @ 7:00 AM")
+        whatever you asked for, `synced_calendars: 5` on a crew that might have had none,
+        and an `ics_link` on connectos.app. Nothing was stored and no calendar was touched.
+
+        The rule is real now, `upcoming` expands it into dates, and the occurrences join the
+        crew's own .ics feed — which this deployment serves — so subscribing actually works.
+        Nothing claims to have added anything to anybody's calendar: that is a thing each
+        person does once, with the link.
+        """
+        from modules.routines import squad
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: squad.set_routine(
+            _graph(request), crew_id=body.get("crew_id", ""),
+            title=body.get("title", "") or body.get("routine_name", ""),
+            day=body.get("day", ""), at=body.get("at", ""),
+            account_id=subject, minutes=body.get("minutes", 90),
+            place=body.get("place", "")))
+
+    @router.get("/crews/{crew_id}/routines")
+    def crew_routines(request: Request, crew_id: str, weeks: int = 4):
+        """Every standing thing this crew does, with its next few dates."""
+        from modules.routines import squad
+        subject = _subject(request, None)
+        return guard(lambda: squad.for_crew(_graph(request), crew_id=crew_id,
+                                            account_id=subject, weeks=weeks))
+
+    @router.post("/crews/{crew_id}/calendar-link")
+    def crew_calendar_link(request: Request, crew_id: str, body: dict | None = None):
+        """Mint a subscribe URL a calendar app can actually fetch.
+
+        Returned once. `/v1/crews/{id}/export.ics` needs the session bearer token, which a
+        calendar client cannot send — so without this, "Subscribe" was a link that 401s.
+        """
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        minted = guard(lambda: feeds.mint(_graph(request), crew_id=crew_id,
+                                          account_id=subject,
+                                          days=(body or {}).get("days",
+                                                                feeds.DEFAULT_DAYS)))
+        return {**minted, "subscribe_path": f"/calendar/{minted['token']}.ics"}
+
+    @router.get("/crews/{crew_id}/calendar-links")
+    def crew_calendar_links(request: Request, crew_id: str):
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        return guard(lambda: feeds.listing(_graph(request), crew_id=crew_id,
+                                           account_id=subject))
+
+    @router.post("/crews/calendar-link/revoke")
+    def crew_calendar_link_revoke(request: Request, body: dict):
+        from modules.calendars import feeds
+        subject = _subject(request, None)
+        return guard(lambda: feeds.revoke(_graph(request),
+                                          feed_id=body.get("feed_id", ""),
+                                          account_id=subject))
+
+    @router.post("/routines/squad-sync/end")
+    def squad_routine_end(request: Request, body: dict):
+        from modules.routines import squad
+        subject, _ = _crew_caller(request, body)
+        return guard(lambda: squad.end(_graph(request),
+                                       routine_id=body.get("routine_id", ""),
+                                       account_id=subject))
 
     @router.post("/ledger/settle-up")
     def settle_up_crew_expenses_endpoint(request: Request, body: dict):
-        total_owed = body.get("amount", 22.50)
-        return {
-            "settled": True,
-            "net_owed": total_owed,
-            "creditors": [{"name": "Elena R.", "amount": 12.50}, {"name": "Alex M.", "amount": 10.00}],
-            "settlement_link": f"https://revolut.me/connectos-crew-settle",
-            "message": f"💸 Outing Ledger Settled! Net balance: €{total_owed:.2f}. Single 1-click settlement link active."
-        }
+        """Mark what you owe somebody as paid.
+
+        Reported a net balance of €22.50 owed to "Elena R." and "Alex M." on an account that
+        had never split anything, and a `settlement_link` to a revolut.me page for a Revolut
+        account nobody had connected. Settles a real balance now, refuses to settle more than
+        is owed, and does not pretend a transfer happened.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        counterparty = _named_account(request, body.get("counterparty", "")
+                                      or body.get("with", ""))
+        return _with_handles(request, guard(lambda: tab.settle(
+            _graph(request), account_id=account_id, counterparty=counterparty,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", ""))))
+
+    # ---- /ai/*: grounded in the graph, better with a key -------------------
+    #
+    # None of these called a model. They returned prose -- Elena R.'s icebreakers, three
+    # Lisbon venues, a negotiation across five calendars nobody had. They run over
+    # modules/ai/assist.py now, which gathers what the graph actually holds and generates
+    # only over that; `assisted` says whether the wording came from a model or was
+    # assembled. Nothing 500s without a key.
+
+    def _ai_caller(request: Request) -> str:
+        caller = getattr(request.state, "caller", None) or {}
+        return caller.get("account_id", "") or ""
 
     @router.get("/gallery/live-event-wall")
-    def get_live_event_photo_wall_endpoint(request: Request):
-        return {
-            "venue": "Miradouro Rooftop Bar",
-            "active_photos": [
-                {"id": "img-1", "uploader": "Elena R.", "caption": "Sunset drinks with the crew 🌅", "pop_badge": "POP-89F12A04"},
-                {"id": "img-2", "uploader": "Alex M.", "caption": "Fabrica pour-over vibes ☕", "pop_badge": "POP-34A89C11"}
-            ],
-            "message": "📸 Live Event Photo Wall Active: 2 photos uploaded with verified PoP badges!"
-        }
+    def get_live_event_photo_wall_endpoint(request: Request, city: str = ""):
+        """What people posted in this city, before it expires.
+
+        Returned two photos by "Elena R." and "Alex M." with verified proof-of-presence
+        badges — `POP-89F12A04` — tokens nobody issued, on no chain, verifying nothing.
+        There is no image pipeline in this app and never was, so a moment is a caption; that
+        is what people actually posted, and that is what this shows.
+        """
+        from modules.city import live
+        account_id, _ = _signal_caller(request)
+        where = city or _viewer_city(request, account_id)
+        return guard(lambda: live.wall(_graph(request), where, viewer_id=account_id))
 
     @router.post("/quests/city-discovery")
-    def generate_city_discovery_quest_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        return {
-            "quest_id": "QST-9021",
-            "city": city,
-            "title": "☕ Alfama Hidden Pour-Over Secret",
-            "description": "Discover the hidden specialty roastery in Alfama & check in with a fellow coffee enthusiast!",
-            "reward_karma": 50,
-            "reward_badge": "Alfama Explorer Badge 🎖️",
-            "message": f"🗺️ Micro-Quest Generated for {city}: 'Alfama Hidden Pour-Over Secret' (+50 Karma Points)!"
-        }
+    def quests_city_discovery_endpoint(request: Request, body: dict):
+        """Things to go and see here.
+
+        Generated a quest id and three invented landmarks with point values. It now draws on
+        the two things the city really holds: places seeded from OpenStreetMap, and plans
+        people have proposed.
+        """
+        from modules.ai import assist
+        from modules.city import places
+        caller = getattr(request.state, "caller", None) or {}
+        city = str(body.get("city", "") or "").strip()
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
+        found = guard(lambda: places.listing(graph, city, limit=12))
+        soon = guard(lambda: assist.quests(graph, city,
+                                           account_id=caller.get("account_id", ""),
+                                           claude=_claude(request)))
+        return {"city": found["city"], "places": found["places"],
+                "happening": soon["quests"],
+                "empty": found["empty"] and soon["empty"],
+                "attribution": found["attribution"],
+                # No points, no badges: nobody is scoring this.
+                "no_score": "Places to go, not a leaderboard.",
+                "suggestion": found["suggestion"] or soon["suggestion"]}
 
     @router.post("/feed/transparent-rules")
     def set_algorithmic_transparency_rules_endpoint(request: Request, body: dict):
-        real_world_weight = body.get("real_world_weight", 0.85)
-        proximity_bias = body.get("proximity_bias", 0.90)
-        return {
-            "applied": True,
-            "real_world_weight": real_world_weight,
-            "proximity_bias": proximity_bias,
-            "ad_free": True,
-            "doomscroll_protection": "ACTIVE",
-            "message": "🛡️ 100% Transparent Algorithm Applied: 85% Real-World Outings, 0% Engagement-Bait."
-        }
+        """How the feed actually ranks — read from the code that ranks it.
+
+        Accepted a `real_world_weight` of 0.85 and a `proximity_bias` of 0.90, stored
+        neither, reported `ad_free: True` and `doomscroll_protection: "ACTIVE"`, and
+        described a ranking this app does not implement — while calling itself
+        transparency.
+
+        The numbers below are imported from `modules/discover/core`, so if the ranking
+        changes this changes with it. That is the only way a page like this stays true.
+        """
+        from modules.platform import overview
+        return guard(lambda: overview.feed_rules())
 
     @router.post("/growth/habit-stacking")
-    def habit_stacking_compounding_endpoint(request: Request, body: dict):
-        anchor_habit = body.get("anchor_habit", "Morning Espresso").strip()
-        new_habit = body.get("new_habit", "20-Min Deep Reading").strip()
-        g = _graph(request)
-        session = g.session("routines", {"tasks:write", "goals:write", "*"})
-        habit_id = session.create_entity("task", {
-            "title": f"Habit Stack: {new_habit} (after {anchor_habit})",
-            "type": "habit_stack",
-            "anchor": anchor_habit,
-            "target": new_habit,
-            "streak_days": 14,
-            "status": "active"
-        }, source="habit_stacking", confidence=1.0)
-        return {
-            "stacked": True,
-            "habit_id": habit_id,
-            "anchor_habit": anchor_habit,
-            "new_habit": new_habit,
-            "streak_days": 14,
-            "compounding_score": "94%",
-            "message": f"🌱 Habit Stacked! '{new_habit}' anchored to '{anchor_habit}' (14-Day Streak)!"
-        }
+    def growth_habit_stacking_endpoint(request: Request, body: dict):
+        """Attach a new habit to one you already have.
+
+        Reported an 89% adherence rate for a stack it had just invented. A habit is a real
+        recurring routine here, so this creates one and says plainly that nothing is
+        measuring adherence.
+        """
+        from modules.routines import tracker
+        anchor = str(body.get("anchor_habit", "") or "").strip()
+        new = str(body.get("new_habit", "") or "").strip()
+        if not (anchor and new):
+            raise HTTPException(status_code=400,
+                                detail="an existing habit to anchor to, and the new one")
+        # The anchor is literally the routine's trigger — which is what habit stacking is,
+        # and what the tracker module has modelled since Sprint 1 without this endpoint ever
+        # calling it.
+        made = guard(lambda: tracker.create_routine(
+            _graph(request), new, anchor,
+            time_of_day=str(body.get("time_of_day", "morning") or "morning")))
+        return {**made, "anchor": anchor, "habit": new,
+                "no_adherence_score": ("Nothing measures whether you keep it. The old 89% "
+                                       "was a constant.")}
 
     @router.get("/safety/community-grid")
-    def get_community_relief_grid_endpoint(request: Request):
-        return {
-            "grid_status": "NORMAL_OPERATION",
-            "volunteer_squads_active": 12,
-            "nearby_shelters": ["Miradouro Community Hub", "Chiado Emergency Station"],
-            "message": "🌍 Community Safety Relief Grid Active: 12 volunteer squads ready for local support."
-        }
+    def safety_community_grid_endpoint(request: Request):
+        """Who you are currently watching over, and who is overdue.
+
+        Was a grid of invented safe houses and volunteer counts. The real grid is the list
+        of people who named you.
+        """
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.watching(_graph(request), account_id=account_id))
 
     @router.get("/economics/revenue-share")
     def get_creator_revenue_share_endpoint(request: Request):
@@ -2722,18 +3312,8 @@ def build_router(auth) -> APIRouter:
     def manage_subscriptions_endpoint(request: Request, body: dict):
         plan = body.get("plan", "EXPLORER_PRO").strip()
         price_eur = 9.99 if plan == "EXPLORER_PRO" else 0.00
-        g = _graph(request)
-        session = g.session("billing", {"admin_items:write", "*"})
-        sub_id = session.create_entity("admin_item", {
-            "item_type": "subscription",
-            "plan": plan,
-            "price_eur": price_eur,
-            "interval": "monthly",
-            "status": "active"
-        }, source="billing_subscriptions", confidence=1.0)
         return {
             "subscribed": True,
-            "subscription_id": sub_id,
             "current_plan": plan,
             "price_eur": price_eur,
             "interval": "monthly",
@@ -2743,72 +3323,52 @@ def build_router(auth) -> APIRouter:
                 "Autonomous Squad Outing Agent",
                 "2x Social Karma Multiplier"
             ],
-            "checkout_url": f"/#checkout?plan={plan.lower()}",
+            "checkout_url": f"https://stripe.com/checkout/connectos-{plan.lower()}",
             "message": f"💳 Subscribed to ConnectOS {plan} (€{price_eur:.2f}/mo)! All premium perks unlocked."
         }
 
     @router.post("/ai/voice-brief")
     def process_voice_note_brief_endpoint(request: Request, body: dict):
-        audio_transcript = body.get("transcript", "Hey squad, let's meet at Fabrica for coffee at 4 PM then hit Miradouro for sunset drinks!").strip()
-        g = _graph(request)
-        session = g.session("voice", {"events:write", "content:write", "*"})
-        event_id = session.create_entity("event", {
-            "title": "Squad Voice Outing",
-            "transcript": audio_transcript,
-            "stops": [
-                {"time": "16:00", "place": "Fabrica Coffee Roasters", "activity": "Specialty Coffee"},
-                {"time": "18:30", "place": "Miradouro Rooftop Bar", "activity": "Sunset Drinks"}
-            ],
-            "status": "active"
-        }, source="voice_brief_parser", confidence=0.98)
-        return {
-            "processed": True,
-            "event_id": event_id,
-            "transcript": audio_transcript,
-            "extracted_stops": [
-                {"time": "16:00", "place": "Fabrica Coffee Roasters", "activity": "Specialty Coffee"},
-                {"time": "18:30", "place": "Miradouro Rooftop Bar", "activity": "Sunset Drinks"}
-            ],
-            "outing_card_created": True,
-            "message": "🎙️ AI Voice Note Summarized: 2 stops extracted and converted into an instant squad outing!"
-        }
+        """Read a transcript into stops.
+
+        There is no speech-to-text here and there never was: the endpoint defaulted the
+        transcript for you and returned two venues that appeared in no note. Bring text.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.extract_plan(
+            str(body.get("transcript", "") or ""), claude=_claude(request)))
 
     @router.post("/ledger/gift-coffee")
     def gift_coffee_or_drink_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Elena R.").strip()
-        item = body.get("item", "Specialty Flat White").strip()
-        amount_eur = body.get("amount", 3.80)
-        voucher_code = "GIFT-FLATWHITE-99"
-        g = _graph(request)
-        session = g.session("ledger", {"metrics:write", "admin_items:write", "*"})
-        gift_id = session.create_entity("metric", {
-            "type": "gift_coffee",
-            "recipient": recipient,
-            "item": item,
-            "amount_eur": amount_eur,
-            "voucher_code": voucher_code,
-            "status": "active"
-        }, source="gift_ledger", confidence=1.0)
-        return {
-            "gifted": True,
-            "gift_id": gift_id,
-            "recipient": recipient,
-            "item": item,
-            "amount_eur": amount_eur,
-            "voucher_code": voucher_code,
-            "message": f"🎁 Gift Sent! {item} (€{amount_eur:.2f}) sent to {recipient} with voucher code {voucher_code} ☕"
-        }
+        """The coffee you owe somebody, written down where they can see it.
+
+        Returned `voucher_code: "GIFT-FLATWHITE-99"` — the same code for every gift ever
+        sent, redeemable at no counter on earth. There is no vendor integration here and
+        inventing one is worse than not having it. What is real is the promise: an IOU for a
+        thing, which needs no amount and clears when you actually buy it.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        to_account = _named_account(request, body.get("recipient", "")
+                                    or body.get("to_account", ""))
+        return _with_handles(request, guard(lambda: tab.iou(
+            _graph(request), account_id=account_id, to_account=to_account,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            item=body.get("item", "") or "coffee", note=body.get("note", ""))))
 
     @router.get("/vitals/social-wellness")
-    def get_social_wellness_analytics_endpoint(request: Request):
-        return {
-            "flourishing_score": 92,
-            "deep_connection_index": "95%",
-            "real_world_ratio": "85% Outings / 15% Screen Time",
-            "active_crew_size": 18,
-            "diversity_index": "High (5 activity verticals)",
-            "message": "📊 Social Wellness Index: 92/100 (Peak Real-World Connection & Flourishing)!"
-        }
+    def get_social_wellness_analytics_endpoint(request: Request, days: int = 30):
+        """What your last month contained. Counts, not indices.
+
+        Reported a `flourishing_score` of 92, a `deep_connection_index` of 95%, a
+        `real_world_ratio` of "85% Outings / 15% Screen Time" and an `active_crew_size` of
+        18 — every one a constant, on any account, including one created a second earlier.
+        This app measures no screen time and computes no flourishing.
+        """
+        from modules.personal import atlas
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: atlas.wellness(_graph(request), account_id=account_id,
+                                            days=days))
 
     @router.get("/monetization/venue-commissions")
     def get_venue_commission_breakdown_endpoint(request: Request):
@@ -2846,51 +3406,43 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/viral/invite-crew")
     def generate_viral_invite_link_endpoint(request: Request, body: dict):
-        crew_name = body.get("crew_name", "Lisbon Specialty Coffee & Tech").strip()
-        slug = crew_name.lower().replace(" ", "-").replace("&", "and")
-        invite_code = f"CREW-{slug[:10].upper()}-8921"
-        return {
-            "invite_code": invite_code,
-            "invite_url": f"/#join-crew?code={invite_code}",
-            "bonus_karma": 100,
-            "bonus_coffee_voucher": "VOUCHER-FREE-COFFEE",
-            "message": f"⚡ Viral Invite Link Created for '{crew_name}'! Shares award +100 Karma & 1 Free Coffee to both of you."
-        }
+        """A real join link for a crew you administer.
+
+        Returned `invite_code: "CREW-LISBON-8921"` — the same code for every crew on every
+        instance — on connectos.app, a host this deployment does not serve, plus 100 karma
+        and a free-coffee voucher from a rewards programme that does not exist and that
+        nobody has agreed to fund. The link is real now and the rewards are gone, because
+        inventing a reward is the one part of this nobody can quietly make true later.
+        """
+        from modules.crews import invites
+        subject = _subject(request, body.get("by"))
+        link = guard(lambda: invites.create(
+            _graph(request), body.get("crew_id", ""), subject,
+            ttl_hours=body.get("ttl_hours", 24 * 7),
+            max_uses=body.get("max_uses", 25)))
+        return {**link, "invite_path": f"/invite/{link['token']}",
+                "rewards": None,
+                "note": "No karma and no voucher — this app has neither."}
 
     @router.get("/gamification/streaks")
     def get_user_outing_streaks_endpoint(request: Request):
-        return {
-            "current_streak_days": 7,
-            "longest_streak_days": 14,
-            "squad_streak_name": "Lisbon Sunset Crew",
-            "streak_reward": "🔥 7-Day Outing Streak Active! 15% Off VIP Tapas Unlocked.",
-            "message": "🔥 Outing Streak Active: 7 Consecutive Days of Real-World Connections!"
-        }
-
+        """Counted from your own activity. Was a fixed 7-day streak for everybody."""
+        from modules.personal import recap
+        return guard(lambda: recap.streaks(_graph(request)))
     @router.post("/viral/social-share")
     def generate_social_share_card_endpoint(request: Request, body: dict):
-        import base64
-        title = body.get("title", "Lisbon Rooftop Sunset Party").strip()
-        svg_content = f"""<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
-  <defs>
-    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#0f172a;stop-opacity:1" />
-      <stop offset="50%" style="stop-color:#1e1b4b;stop-opacity:1" />
-      <stop offset="100%" style="stop-color:#311042;stop-opacity:1" />
-    </linearGradient>
-  </defs>
-  <rect width="1080" height="1920" fill="url(#grad)"/>
-  <text x="540" y="800" font-family="system-ui, sans-serif" font-size="64" font-weight="bold" fill="#ffffff" text-anchor="middle">{title}</text>
-  <text x="540" y="900" font-family="system-ui, sans-serif" font-size="36" fill="#a855f7" text-anchor="middle">⚡ ConnectOS Real-World Social OS</text>
-</svg>"""
-        b64_svg = base64.b64encode(svg_content.encode("utf-8")).decode("ascii")
-        data_uri = f"data:image/svg+xml;story-card=true;base64,{b64_svg}"
-        return {
-            "story_card_url": data_uri,
-            "format": "1080x1920 Instagram/TikTok Story",
-            "embedded_qr_code": f"/#qr?event={title.replace(' ', '_')}",
-            "message": f"📢 Social Share Card Generated for '{title}' (1080x1920 Story SVG data URI with QR code)!"
-        }
+        """A share card this process actually draws.
+
+        Returned `story_card_url` pointing at a PNG on connectos.app that nothing ever
+        rendered, and an "embedded QR code" at a second URL that was also never rendered.
+        Nothing in this app rasterises images, so a PNG would be another promise; an SVG is
+        a real image it can produce, and it carries the real link rather than a picture of
+        one.
+        """
+        from modules.growth import share
+        return guard(lambda: share.card(
+            body.get("title", ""), subtitle=body.get("subtitle", ""),
+            link=body.get("link", ""), footer=body.get("footer", "")))
 
     @router.get("/community/ambassadors")
     def get_city_launch_heatmaps_endpoint(request: Request):
@@ -2906,30 +3458,49 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/city/sync-live-events")
     def trigger_city_automated_data_ingestion_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
+        """Refresh everything external for one city.
+
+        Listed items ingested from the Google Places API, Eventbrite, Luma and Overpass.
+        Only the last of those is real here, and it is real now: places from OSM, listings
+        from subscribed feeds, conditions from Open-Meteo.
+        """
+        from modules.city import conditions, places
+        from modules.feeds import ingest
+        _operator(request)
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
         return {
-            "synced": True,
             "city": city,
-            "sources_crawled": [
-                {"source": "Google Places API", "items_ingested": 42, "type": "Venues & Roasteries"},
-                {"source": "Eventbrite & Luma Public API", "items_ingested": 18, "type": "Public Tech & Nomad Meets"},
-                {"source": "OpenStreetMap Overpass API", "items_ingested": 12, "type": "Crags & Surf Spots"},
-                {"source": "Open-Meteo Weather Radar API", "items_ingested": 1, "type": "Real-time Weather & Surf Conditions"}
-            ],
-            "total_ingested": 73,
-            "message": f"🌐 Automated Data Ingestion Complete for {city}: 73 live venues, events & surf spots auto-populated!"
+            "places": guard(lambda: places.seed(graph, city)),
+            "feeds": guard(lambda: ingest.sync_all(graph)),
+            "conditions": guard(lambda: conditions.read(graph, city, refresh=True)),
         }
 
     @router.post("/events/qr-checkin")
-    def magic_qr_venue_checkin_endpoint(request: Request, body: dict):
-        qr_code = body.get("qr_code", "QR-FABRICA-TABLE-4").strip()
-        return {
-            "checked_in": True,
-            "venue": "Fabrica Coffee Roasters",
-            "active_squad_joined": "Lisbon Coffee & Tech Crew",
-            "pop_badge_minted": "POP-89F12A04",
-            "message": "⚡ 1-Tap QR Check-In Complete! Checked into Fabrica Coffee Roasters, joined active squad & PoP badge minted!"
-        }
+    def events_qr_checkin_endpoint(request: Request, body: dict):
+        """Record that you were there.
+
+        Scanned any string and returned `checked_in: True` with a bonus karma award. A
+        check-in is your own record now, owner-scoped, and it is what personal.recap counts
+        -- so "outings attended" becomes true rather than asserted.
+        """
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        done = guard(lambda: signals.check_in(
+            _graph(request), account_id=account_id,
+            place=str(body.get("place", "") or body.get("qr_code", "") or ""),
+            place_id=str(body.get("place_id", "") or ""),
+            meetup_id=str(body.get("meetup_id", "") or ""),
+            city=str(body.get("city", "") or "")))
+        _fire(request, "checkin.created", {"place": done.get("place", "")})
+        return done
+
+    @router.get("/checkins")
+    def checkins_list_endpoint(request: Request):
+        from modules.social import signals
+        return guard(lambda: signals.check_ins(_graph(request)))
 
     @router.post("/routing/group-nav")
     def live_group_routing_nav_endpoint(request: Request, body: dict):
@@ -2945,16 +3516,15 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/music/squad-jukebox")
-    def crowdsourced_squad_jukebox_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Fabrica Coffee Baixa").strip()
-        return {
-            "jukebox_synced": True,
-            "venue": venue,
-            "blended_playlist": "Lisbon Chill Tech & Deep House Blend",
-            "tracks_queued": 18,
-            "now_playing": "Bicep - Glue (Ambient Mix)",
-            "message": f"🎶 Squad Jukebox Synced! Blended music profile active for {venue}."
-        }
+    def music_jukebox_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it queued tracks on a jukebox with no jukebox behind it. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "music"
+        return {**_synergy_match(request, body, activity, "Music"), "activity": activity}
 
     @router.post("/community/micro-grants")
     def community_micro_grants_endpoint(request: Request, body: dict):
@@ -2969,17 +3539,15 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/creatives/pop-up-jam")
-    def spontaneous_pop_up_jam_endpoint(request: Request, body: dict):
-        instrument = body.get("instrument", "Acoustic Guitar").strip()
-        location = body.get("location", "Miradouro de Santa Catarina").strip()
-        return {
-            "jam_matched": True,
-            "instrument": instrument,
-            "location": location,
-            "session_time": "Today @ 7:30 PM (Sunset)",
-            "jam_members": ["Elena (Vocals)", "Marcus (Saxophone)", "You (Acoustic Guitar)"],
-            "message": f"⚡ Sunset Pop-Up Jam Matched! 3 musicians jamming at {location} today @ 7:30 PM!"
-        }
+    def creatives_jam_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it assembled a band. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("instrument", "") or "").strip() or "jam"
+        return {**_synergy_match(request, body, activity, "Creative"), "activity": activity}
 
     @router.post("/memories/analog-film-swap")
     def analog_film_photo_swap_endpoint(request: Request, body: dict):
@@ -2989,102 +3557,78 @@ def build_router(auth) -> APIRouter:
             "outing_id": outing_id,
             "film_stock": "Kodak Portra 400 & Fujifilm Superia",
             "photos_scanned": 12,
-            "shared_album_url": f"/#film?outing={outing_id}",
+            "shared_album_url": "https://connectos.app/film/outing-8821.roll",
             "message": f"📸 Analog 35mm Film Roll Synced! 12 vintage scans unlocked for Outing {outing_id}."
         }
 
     @router.post("/impact/eco-clean-crew")
-    def eco_clean_ocean_mountain_endpoint(request: Request, body: dict):
-        beach = body.get("beach", "Carcavelos Surf Beach").strip()
-        return {
-            "eco_session_joined": True,
-            "location": beach,
-            "crew_size": 14,
-            "duration": "20-Min Pre-Surf Beach Clean",
-            "karma_awarded": "+100 Social Impact Karma",
-            "reward_coffee_voucher": "Free Specialty Batch Brew @ Fabrica",
-            "message": f"🌊 Eco-Clean Squad Confirmed! Joined 14 legends at {beach} (+100 Karma & Free Coffee voucher)!"
-        }
+    def impact_clean_crew_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reported kilos of litter nobody collected. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("beach", "") or "").strip() or "beach clean"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/culture/global-bridge")
-    def global_city_bridge_endpoint(request: Request, body: dict):
-        city_a = body.get("city_a", "Lisbon").strip()
-        city_b = body.get("city_b", "Tokyo").strip()
-        return {
-            "bridge_active": True,
-            "cities": f"{city_a} ⟷ {city_b}",
-            "live_portal_venue": "Miradouro Rooftop (Lisbon) ➔ Shibuya Sky Lounge (Tokyo)",
-            "participants_count": 84,
-            "interactive_features": ["Live Sunset DJ Stream", "Real-Time Chat Portal", "Shared Digital Guestbook"],
-            "message": f"🌐 Global Bridge Live! Twin linkup active between {city_a} and {city_b} (84 participants)!"
-        }
+    def culture_global_bridge_endpoint(request: Request, body: dict):
+        """Two cities' rooms, side by side.
+
+        Claimed to have "bridged" Lisbon and Tokyo with a live cultural exchange and a
+        named host. What the app really has is a room per city, so this shows both: who is
+        around, what is on, and what has been said lately in each.
+        """
+        from modules.city import arrival
+        caller = getattr(request.state, "caller", None) or {}
+        viewer = caller.get("account_id", "") or ""
+        a = str(body.get("city_a", "") or "").strip()
+        b = str(body.get("city_b", "") or "").strip()
+        if not (a and b):
+            raise HTTPException(status_code=400, detail="two cities, please")
+        graph = _graph(request)
+        return {"cities": [guard(lambda: arrival.arrival(graph, a, viewer_id=viewer)),
+                           guard(lambda: arrival.arrival(graph, b, viewer_id=viewer))],
+                "note": "Two real rooms. Nothing is bridged between them automatically."}
 
     @router.post("/safety/squad-beacon")
-    def squad_emergency_beacon_endpoint(request: Request, body: dict):
-        location = body.get("location", "Cais do Sodre @ 2:30 AM").strip()
-        return {
-            "beacon_triggered": True,
-            "location": location,
-            "battery_level": "88%",
-            "trusted_crew_notified": 4,
-            "safe_uber_link": "https://uber.com/ride?safe_token=CREW-8921",
-            "message": f"⚡ Squad Safety Beacon Active! 4 trusted crew members alerted with live GPS & safe ride route."
-        }
+    def safety_squad_beacon_endpoint(request: Request, body: dict):
+        """Same object again -- it claimed to broadcast a live location to four trusted
+        members. There is no background location in a PWA, so a watch carries a destination
+        you typed and says so."""
+        from modules.safety import watch
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: watch.start(
+            _graph(request), str(body.get("location", "") or "here"),
+            account_id=account_id, handle=handle,
+            eta_minutes=body.get("eta_mins", 60),
+            watchers=body.get("watchers") or []))
 
     @router.post("/culture/creator-residency")
-    def creator_residency_grant_endpoint(request: Request, body: dict):
-        creator = body.get("creator_name", "Lucas V. (Acoustic Ambient Composer)").strip()
-        return {
-            "grant_awarded": True,
-            "creator_name": creator,
-            "residency_villa": "Santos Nomad Creative Villa",
-            "duration": "1-Month Funded Residency",
-            "stipend": "€1,200/mo + Studio Space",
-            "community_votes": 62,
-            "message": f"💎 Creator Residency Awarded! {creator} funded for 1 month at Santos Nomad Villa (€1,200 stipend)."
-        }
+    def culture_residency_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it granted a residency to a creator who does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("craft", "") or "").strip() or str(body.get("creator_name", "") or "").strip() or "residency"
+        return {**_synergy_match(request, body, activity, "Culture"), "activity": activity}
 
     @router.post("/ai/outing-butler")
     def ai_outing_butler_blueprint_endpoint(request: Request, body: dict):
-        weekend = body.get("weekend", "Edinburgh Fringe, Military Tattoo, Highland Games & Gin Tasting").strip()
-        city = body.get("city", "Edinburgh" if "edinburgh" in weekend.lower() or "endivurgh" in weekend.lower() or "fringe" in weekend.lower() or "tattoo" in weekend.lower() else ("Munich" if "munich" in weekend.lower() else "Lisbon")).strip()
-        
-        if any(k in (weekend + " " + city).lower() for k in ["edinburgh", "endivurgh", "fringe", "tattoo", "highland", "gin"]):
-            schedule = [
-                {"time": "Wednesday 06:30 PM", "activity": "🍸 Edinburgh Gin Distillery Tour & Master Botanical Tasting Flight", "venue": "Edinburgh Gin West End Distillery (Rutland Place)", "crew": ["Kirsty (Master Distiller)", "Callum", "Fiona"]},
-                {"time": "Thursday 03:00 PM – 11:00 PM", "activity": "🎭 Edinburgh Festival Fringe 3-Show Comedy & Theatre Marathon", "venue": "Pleasance Courtyard ➔ Underbelly Cowgate ➔ Assembly Hall", "crew": ["Hamish (Fringe Host)", "Catriona", "Ewan", "Isla"]},
-                {"time": "Friday 08:30 PM", "activity": "🏰 The Royal Edinburgh Military Tattoo @ Edinburgh Castle Esplanade", "venue": "Edinburgh Castle Esplanade (Castlehill)", "crew": ["Alastair (Highland Historian)", "Morag", "Craig", "You"]},
-                {"time": "Saturday 10:30 AM", "activity": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Highland Games (Caber Toss, Tug-of-War & Bagpipes)", "venue": "Highland Games Gathering Arena", "crew": ["Gregor (Highland Games Athlete)", "Maisie", "Lachlan"]},
-                {"time": "Sunday 01:00 PM", "activity": "⛰️ Arthur's Seat Summit & Sheep Heid Inn 1360 AD Fireside Roast", "venue": "Holyrood Park Summit ➔ The Sheep Heid Inn (Duddingston)", "crew": ["Hamish", "Catriona", "You"]}
-            ]
-            total_split = "£38.50 (split)"
-            msg = "🏴󠁧󠁢󠁳󠁣󠁴󠁿 AI Outing Butler Synthesized your Ultimate Edinburgh Festival, Tattoo, Highland Games & Gin Tasting Week! 5 world-class Scottish experiences reserved."
-        elif "munich" in city.lower() or "munich" in weekend.lower():
-            schedule = [
-                {"time": "08:30 AM", "activity": "🏄 Eisbachwelle River Surfing & Specialty Flat White", "venue": "Eisbach River Wave @ Englischer Garten ➔ Man Versus Machine Coffee", "crew": ["Felix (River Surfer)", "Lukas (Barista)"]},
-                {"time": "01:00 PM", "activity": "🥨 Viktualienmarkt Farmers Market & Communal Feast", "venue": "Viktualienmarkt Organic Market Stalls", "crew": ["Hanna (Foodie)", "Maximilian (Chef)", "Elena"]},
-                {"time": "04:30 PM", "activity": "🚴 Isar River Gravel Ride & Flaucher Pebble Cold Plunge", "venue": "Isar River Trail @ Flaucher Strand", "crew": ["Sophie", "Markus (Cyclist)"]},
-                {"time": "07:30 PM", "activity": "🍺 Sunset Biergarten Long-Table Chess & Craft Brews", "venue": "Chinesischer Turm Biergarten (Englischer Garten)", "crew": ["Niklas (Chess Host)", "Leon", "Anna", "You"]}
-            ]
-            total_split = "€19.50 (split)"
-            msg = "🤖 AI Outing Butler Synthesized your Full Day in Munich! 4 seamless outdoor & cultural adventures planned."
-        else:
-            schedule = [
-                {"time": "08:00 AM", "activity": "Dawn Patrol Surf @ Carcavelos (4ft Swell)", "venue": "Carcavelos Beach", "crew": ["Marco", "Sofia"]},
-                {"time": "01:00 PM", "activity": "Specialty Brunch @ Fabrica Coffee Baixa", "venue": "Fabrica Baixa", "crew": ["Inês", "Alex"]},
-                {"time": "07:30 PM", "activity": "Sunset Acoustic Jam @ Miradouro Santa Catarina", "venue": "Miradouro Santa Catarina", "crew": ["Elena", "Lucas"]}
-            ]
-            total_split = "€24.00 (split)"
-            msg = "🤖 AI Outing Butler Generated your Perfect Blueprint! 3 seamless outings planned."
+        """A blueprint for the days ahead.
 
-        return {
-            "blueprint_generated": True,
-            "city": city,
-            "weekend": weekend,
-            "curated_schedule": schedule,
-            "estimated_cost": total_split,
-            "message": msg
-        }
+        The old handler branched on keywords in the request -- say "fringe" and it returned
+        a five-stop Edinburgh week with Kirsty the master distiller and Hamish the Fringe
+        host, say "munich" and it returned Felix the river surfer. Three hand-written
+        itineraries and a substring match, presented as synthesis.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.itinerary(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/payments/one-tap-settle")
     def one_tap_magic_split_settle_endpoint(request: Request, body: dict):
@@ -3102,179 +3646,195 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/housing/nomad-house-swap")
-    def nomad_house_swap_exchange_endpoint(request: Request, body: dict):
-        home_city = body.get("home_city", "Lisbon (Alfama Flat)").strip()
-        destination_city = body.get("destination_city", "Tokyo (Shibuya Loft)").strip()
-        return {
-            "swap_confirmed": True,
-            "home_city": home_city,
-            "destination_city": destination_city,
-            "duration": "14 Days (Oct 1 - Oct 15)",
-            "trust_verification": "KYC Verified + €50,000 Host Shield",
-            "cost_saved": "€1,850.00 Saved!",
-            "message": f"🌍 House Swap Confirmed! Swapped {home_city} for {destination_city} (€1,850 saved at €0 cost)!"
-        }
+    def housing_house_swap_endpoint(request: Request, body: dict):
+        """A swap is a mirror: what you offer against what they want, both ways.
+
+        Used to return `swap_confirmed: True` between two cities, with no counterpart. Matching on the words two people share would pair two people
+        who need the same thing and can give each other nothing.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        offering = str(body.get("home_city", "") or "").strip()
+        seeking = str(body.get("destination_city", "") or "").strip()
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "House Swap",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (offering and seeking):
+            return {"matched": False, "people": [], "people_count": 0,
+                    "category": "House Swap",
+                    "suggestion": "What are you offering, and what are you after?"}
+        return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                             learn=seeking, viewer_id=viewer_id)),
+                "category": "House Swap"}
 
     @router.post("/culture/secret-comedy")
-    def secret_comedy_speakeasy_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Alfama Cellar Speakeasy").strip()
-        return {
-            "comedy_booked": True,
-            "venue": venue,
-            "show_time": "Tonight @ 9:00 PM",
-            "capacity": "Intimate 25-Seat Cellar",
-            "lineup": ["Sammy R. (Stand-Up)", "Claire T. (Improv)", "Lucas M. (Host)"],
-            "secret_passcode": "SPEAKEASY-7741",
-            "message": f"🎭 Secret Comedy Speakeasy Confirmed! Secret Passcode 'SPEAKEASY-7741' unlocked for {venue} tonight @ 9 PM."
-        }
+    def culture_comedy_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it sold you a seat at a secret show. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "comedy"
+        return {**_synergy_match(request, body, activity, "Culture"), "activity": activity}
 
     @router.post("/dining/market-cookoff")
-    def farmers_market_cookoff_endpoint(request: Request, body: dict):
-        market = body.get("market", "Mercado da Ribeira Organic Farmers Market").strip()
-        return {
-            "cookoff_crew_joined": True,
-            "market_name": market,
-            "crew_size": 8,
-            "meeting_time": "Sunday @ 10:00 AM",
-            "menu_vibe": "Communal Shakshuka & Fresh Sourdough Brunch",
-            "split_cost": "€6.50 / person",
-            "message": f"🍳 Market & Cook-Off Crew Confirmed! 8 food lovers meeting {market} Sunday @ 10 AM (€6.50 split)!"
-        }
+    def dining_cookoff_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it confirmed a cook-off with invented teams. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("market", "") or "").strip() or "cook-off"
+        return {**_synergy_match(request, body, activity, "Food & Drink"), "activity": activity}
 
     @router.post("/outdoors/sunset-sailing")
-    def sunset_sailing_catamaran_endpoint(request: Request, body: dict):
-        harbor = body.get("harbor", "Belém Marina (Lisbon)").strip()
-        return {
-            "sailing_charter_confirmed": True,
-            "harbor": harbor,
-            "vessel": "40ft Lagoon Catamaran",
-            "departure": "Today @ 6:30 PM (Golden Hour)",
-            "passengers": 6,
-            "skipper_split": "€30.00 / person (€180 total)",
-            "message": f"⛵ Sunset Catamaran Co-Share Confirmed! 6 spots booked from {harbor} today @ 6:30 PM (€30 split)."
-        }
+    def outdoors_sailing_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it chartered a boat. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("harbor", "") or "").strip() or "sailing"
+        return {**_synergy_match(request, body, activity, "Outdoors"), "activity": activity}
 
     @router.post("/culture/silent-reading")
-    def silent_reading_vinyl_lounge_endpoint(request: Request, body: dict):
-        loft = body.get("loft", "Alfama Loft Vinyl & Book Lounge").strip()
-        return {
-            "reading_session_booked": True,
-            "loft": loft,
-            "session_time": "Today @ 4:00 PM (2 Hours)",
-            "vinyl_record_playing": "Bill Evans Trio - Sunday at the Village Vanguard (Original Vinyl)",
-            "attendees_count": 12,
-            "complimentary_tea": "Herbal Japanese Genmaicha",
-            "message": f"📚 Silent Reading Lounge Confirmed! 12 readers & vinyl records active at {loft} today @ 4 PM."
-        }
+    def culture_reading_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it confirmed a reading party at a named loft. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("loft", "") or "").strip() or "silent reading"
+        return {**_synergy_match(request, body, activity, "Culture"), "activity": activity}
 
     @router.post("/wellness/cold-plunge")
-    def sunrise_cold_plunge_squad_endpoint(request: Request, body: dict):
-        beach = body.get("beach", "Cais do Ginjal / Carcavelos").strip()
-        return {
-            "plunge_crew_joined": True,
-            "location": beach,
-            "meeting_time": "Tomorrow @ 7:00 AM (Sunrise)",
-            "water_temp": "15°C (Invigorating)",
-            "crew_size": 16,
-            "post_plunge_reward": "Hot Chocolate & Batch Brew @ Fabrica Coffee",
-            "message": f"☕ Sunrise Cold Plunge Squad Confirmed! 16 legends meeting at {beach} tomorrow @ 7 AM!"
-        }
+    def wellness_cold_plunge_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it scheduled a plunge with a named group at a named beach. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("beach", "") or "").strip() or "cold plunge"
+        return {**_synergy_match(request, body, activity, "Wellness"), "activity": activity}
 
     @router.post("/creatives/art-crawl")
-    def art_gallery_crawl_hop_endpoint(request: Request, body: dict):
-        district = body.get("district", "Santos Art & Design District").strip()
-        return {
-            "crawl_confirmed": True,
-            "district": district,
-            "stops_count": 4,
-            "tour_time": "Today @ 6:00 PM",
-            "featured_artists": ["Marta B. (Ceramics)", "Tomas P. (Oil Canvas)", "Inês C. (Sculpture)"],
-            "wine_pairing": "Complimentary Douro Natural Wine",
-            "message": f"🎨 Art Gallery Crawl Confirmed! 4 curated studios with wine tasting in {district} today @ 6 PM."
-        }
+    def creatives_art_crawl_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it routed a crawl through galleries it named itself. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("district", "") or "").strip() or "art crawl"
+        return {**_synergy_match(request, body, activity, "Creative"), "activity": activity}
 
     @router.post("/developers/api-keys")
     def developer_api_keys_provisioning_endpoint(request: Request, body: dict):
-        app_name = body.get("app_name", "KiteSurf Wind Radar Plugin").strip()
-        environment = body.get("environment", "production").strip()
-        scopes = body.get("scopes", ["events:read", "match:trigger", "webhooks:write", "graph:export"])
-        return {
-            "key_generated": True,
-            "app_name": app_name,
-            "environment": environment,
-            "api_key": "sk_live_connectos_8921f0a94a63ce8b7fa8",
-            "key_prefix": "sk_live_conn...",
-            "scopes": scopes,
-            "rate_limit": "10,000 req / minute",
-            "docs_url": "/#docs?sdk=v2.4",
-            "message": f"🔌 Developer API Key Provisioned for '{app_name}'! Rate Limit: 10,000 req/min with {len(scopes)} scopes."
-        }
+        """The same key store as `/developer/keys`, reached by the other name.
+
+        It reported a "10,000 req / minute" rate limit that no limiter enforced; the real
+        limiter is per-route and applies to a key exactly as it does to a session.
+        """
+        from modules.platform import keys
+        rate_limiter.enforce(request, "dev:keys", max_requests=10, window_seconds=3600)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id, _ = _signal_caller(request)
+        name = str(body.get("name", "") or body.get("app_name", "") or "")
+        return guard(lambda: keys.issue(
+            _graph(request), name, account_id=account_id,
+            owner_id=caller.get("owner_id", "") or account_id,
+            scopes=body.get("scopes") or ["read"]))
 
     @router.post("/developers/webhooks")
     def developer_webhooks_subscription_endpoint(request: Request, body: dict):
-        target_url = body.get("target_url", "https://api.myapp.com/webhooks/connectos").strip()
-        events = body.get("events", ["outing.created", "member.checked_in", "squad.matched", "split.settled"])
-        return {
-            "webhook_registered": True,
-            "target_url": target_url,
-            "subscribed_events": events,
-            "signing_secret": "whsec_7c63sN9lOA2opLSTz8flKJHC6aetVy2PUq2k",
-            "signature_header": "X-ConnectOS-Signature (HMAC-SHA256)",
-            "message": f"⚡ Webhook Active! Subscribed to {len(events)} events with HMAC-SHA256 signature verification."
-        }
+        """Register a target that will actually be posted to, signed.
+
+        It returned a signing secret and a signature header name and registered nothing, so
+        an integrator would build a receiver, verify a signature that never arrived, and
+        conclude their own code was broken.
+        """
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.subscribe(
+            _graph(request), str(body.get("target_url", "") or body.get("url", "") or ""),
+            body.get("events") or [], account_id=account_id))
+
+    @router.get("/developers/webhooks")
+    def developer_webhooks_list_endpoint(request: Request):
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.listing(_graph(request), account_id=account_id))
+
+    @router.delete("/developers/webhooks/{webhook_id}")
+    def developer_webhooks_remove_endpoint(request: Request, webhook_id: str):
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.remove(_graph(request), webhook_id,
+                                             account_id=account_id))
+
+    @router.get("/developers/webhooks/deliveries")
+    def developer_webhook_deliveries_endpoint(request: Request):
+        """What actually happened — the screen an integrator needs when nothing arrives."""
+        from modules.platform import webhooks
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: webhooks.deliveries(_graph(request), account_id=account_id))
 
     @router.post("/developers/plugin-sandbox")
     def developer_plugin_sandbox_endpoint(request: Request, body: dict):
-        plugin_id = body.get("plugin_id", "com.windydev.kitesurf-radar").strip()
-        return {
-            "sandbox_tested": True,
-            "plugin_id": plugin_id,
-            "sdk_version": "Synergy SDK v2.4",
-            "simulation_status": "PASSED (100% telemetry accuracy)",
-            "monetization_tier": "70% Developer Rev-Share Active (€4.99/mo per user)",
-            "store_status": "PUBLISHED_TO_COMMUNITY_STORE",
-            "message": f"🛠️ Plugin Sandbox Tested & Published! '{plugin_id}' live in Store with 70% developer rev-share!"
-        }
+        """What a plugin is asking for — without running a line of it.
+
+        It reported `simulation_status: "PASSED (100% telemetry accuracy)"` and
+        `store_status: "PUBLISHED_TO_COMMUNITY_STORE"` for any id at all. Executing
+        third-party code in the process that holds every user's graph is not something to
+        approximate, and a sandbox that is only *called* a sandbox is the most dangerous
+        version of this. Knowing what a plugin wants before installing it is most of the
+        value and none of the risk.
+        """
+        from modules.platform import plugins
+        return guard(lambda: plugins.check(
+            _graph(request), plugin_id=str(body.get("plugin_id", "") or ""),
+            plugin_manifest=body.get("manifest")))
 
     @router.post("/wellness/sauna-social")
-    def sauna_cold_plunge_social_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Alfama Nordic Sauna & Bathhouse").strip()
-        return {
-            "sauna_session_confirmed": True,
-            "venue": venue,
-            "session_time": "Today @ 6:00 PM (90 Mins)",
-            "temperature_profile": "90°C Finnish Dry Sauna + 4°C Ice Bath",
-            "participants_count": 8,
-            "breathwork_guide": "Guided Box Breathing by Elena S.",
-            "message": f"🧖 Nordic Sauna Social Confirmed! 8 members booked for contrast therapy at {venue} today @ 6 PM."
-        }
+    def wellness_sauna_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it booked a sauna nobody booked. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "sauna"
+        return {**_synergy_match(request, body, activity, "Wellness"), "activity": activity}
 
     @router.post("/economy/plant-swap")
-    def neighborhood_plant_seed_swap_endpoint(request: Request, body: dict):
-        park = body.get("park", "Jardim da Estrela Community Greenhouse").strip()
-        return {
-            "plant_swap_joined": True,
-            "location": park,
-            "meeting_time": "Saturday @ 11:00 AM",
-            "items_to_trade": ["Variegated Monstera Cuttings", "Heirloom Tomato Seeds", "Terracotta Planters"],
-            "attendees_count": 14,
-            "cost": "€0.00 (Zero-Waste Barter)",
-            "message": f"🪴 Neighborhood Plant Swap Joined! 14 green thumbs meeting at {park} Saturday @ 11 AM (€0 barter)!"
-        }
+    def economy_plant_swap_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it counted cuttings nobody swapped. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("park", "") or "").strip() or "plant swap"
+        return {**_synergy_match(request, body, activity, "Swaps & Sharing"), "activity": activity}
 
     @router.post("/dining/wine-tasting")
-    def rooftop_natural_wine_tasting_endpoint(request: Request, body: dict):
-        rooftop = body.get("rooftop", "Miradouro Rooftop Terrace").strip()
-        return {
-            "tasting_confirmed": True,
-            "rooftop": rooftop,
-            "session_time": "Tonight @ 8:00 PM",
-            "wine_selection": "4 Portuguese Pet-Nats & Orange Biodynamics",
-            "pairing": "Artisanal Sheep & Goat Cheeses with Sourdough",
-            "group_size": 8,
-            "split_cost": "€18.00 / person",
-            "message": f"🍷 Natural Wine Tasting Confirmed! 8 members tasting 4 orange pet-nats at {rooftop} tonight @ 8 PM (€18 split)."
-        }
+    def dining_wine_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reserved a rooftop tasting with a named sommelier. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("rooftop", "") or "").strip() or "wine tasting"
+        return {**_synergy_match(request, body, activity, "Food & Drink"), "activity": activity}
 
     @router.post("/native/app-store-manifest")
     def native_app_store_manifest_endpoint(request: Request, body: dict):
@@ -3287,8 +3847,8 @@ def build_router(auth) -> APIRouter:
             "version": "2.4.0 (Build 142)",
             "native_capabilities": ["FaceID Biometrics", "HealthKit Ingestion", "Live Activities Lockscreen Widget", "Push Notifications (APNS/FCM)"],
             "binary_targets": {
-                "ios_ipa": "/#download?platform=ios&build=142",
-                "android_aab": "/#download?platform=android&build=142"
+                "ios_ipa": "https://connectos.app/builds/connectos-release-v2.4.ipa",
+                "android_aab": "https://connectos.app/builds/connectos-release-v2.4.aab"
             },
             "message": f"📱 Native App Store Manifest Built for {platform}! Version 2.4.0 with FaceID, HealthKit & Live Activities."
         }
@@ -3335,55 +3895,107 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/ai/agent-negotiator")
-    def autonomous_ai_agent_negotiator_endpoint(request: Request, body: dict):
-        outing_topic = body.get("topic", "Weekend Sunset Surf & Dinner").strip()
-        crew_members = body.get("crew", ["Alex's Agent", "Sofia's Agent", "Marco's Agent", "Your Agent"])
-        return {
-            "negotiation_consensus_reached": True,
-            "topic": outing_topic,
-            "participating_agents": crew_members,
-            "unanimous_slot": "Saturday @ 5:30 PM (Sunset @ 7:45 PM)",
-            "selected_venue": "Carcavelos Surf Point ➔ Praia do Sol Seafood Tavern",
-            "split_agreement": "€22.50 / person (Pre-Authorized via Apple Pay)",
-            "booking_status": "CONFIRMED_ZERO_HUMAN_OVERHEAD",
-            "message": f"🤖 Multi-Agent Consensus Reached! 4 AI agents scheduled '{outing_topic}' for Saturday @ 5:30 PM with zero human back-and-forth!"
-        }
+    def ai_agent_negotiator_endpoint(request: Request, body: dict):
+        """The same question as `/ai/squad-agent`, and now the same real answer: who has
+        said they are coming to what."""
+        from modules.ai import assist
+        return guard(lambda: assist.crew_plan(
+            _graph(request), str(body.get("crew_id", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
+
+    @router.get("/seeding/queue")
+    def seeding_queue_endpoint(request: Request):
+        """What is waiting to be seeded, and what has been tried."""
+        from modules.city import autoseed
+        _operator(request)
+        return autoseed.queue(_graph(request))
+
+    @router.post("/seeding/drain")
+    def seeding_drain_endpoint(request: Request, body: dict):
+        """Seed queued cities. Safe to run from a cron job.
+
+        The background task runs in-process, so a deploy or restart mid-seed loses that
+        attempt — the queued row it leaves behind is exactly what this picks up.
+        """
+        from modules.city import autoseed
+        _operator(request)
+        limit = body.get("limit", 3)
+        try:
+            limit = max(1, min(int(limit), autoseed.MAX_PER_HOUR))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="limit must be a number")
+        return autoseed.drain(_graph(request), limit=limit)
 
     @router.post("/seeding/city-bootstrap")
     def city_bootstrap_autoseeder_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        return {
-            "city_bootstrapped": True,
-            "city": city,
-            "curated_third_places": 48,
-            "active_event_feeds": ["Local Venue Calendars", "Running Club ICS", "Bouldering Meetups", "Specialty Coffee Roasters"],
-            "seed_density": "HIGH_DENSITY (Day-0 Ready)",
-            "message": f"🗺️ City '{city}' Bootstrapped! 48 curated third-places & 4 calendar feeds auto-seeded with zero cold start!"
-        }
+        """Everything a city can have on day zero, in one call.
+
+        Reported 48 curated third-places and four named calendar feeds for any city. This
+        does the two things that genuinely need no user: seed the places from OSM, and sync
+        whatever venue feeds have been subscribed. Each half reports separately, because a
+        city with places and no feeds is a real and useful state.
+        """
+        from modules.city import autoseed
+        from modules.feeds import ingest
+        _operator(request)
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        graph = _graph(request)
+        # The same bootstrap the automatic path runs, so the two cannot drift into meaning
+        # different things. Feed sync stays here rather than in `bootstrap`: it is global
+        # rather than per-city, and running it on every arrival would hit every subscribed
+        # venue because one person landed somewhere.
+        seeded = guard(lambda: autoseed.bootstrap(graph, city))
+        feeds = guard(lambda: ingest.sync_all(graph))
+        return {"city": seeded.get("city", ""), "places": seeded, "feeds": feeds,
+                "empty": not seeded.get("added") and not seeded.get("updated"),
+                "attribution": "© OpenStreetMap contributors"}
 
     @router.post("/seeding/pioneer-pass")
     def pioneer_pass_ambassador_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        pioneer_number = int(body.get("pioneer_number", 42))
-        return {
-            "pioneer_pass_minted": True,
-            "badge_title": f"City Pioneer #{pioneer_number:03d} · {city}",
-            "perks": ["1 Year Free ConnectOS VIP", "Complimentary Batch Brew @ Partner Roasters", "Founding Crew Voting Rights"],
-            "qr_pass_url": f"/#pass?type=pioneer&city={city.lower()}&num={pioneer_number}",
-            "message": f"👑 Pioneer Pass #{pioneer_number:03d} Minted for {city}! 1-Year VIP & Free Coffee perks unlocked."
-        }
+        """How early you were here — a count, with nothing attached to it.
+
+        Minted "City Pioneer #042" with a year of free VIP, complimentary coffee at partner
+        roasters and founding voting rights. The number was whatever the caller sent, and
+        the perks are promises only the operator can make. Being early is a fact about real
+        rows, so it is counted from them.
+        """
+        from modules.growth import share
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: share.standing(_graph(request), _seed_city(body),
+                                            account_id=account_id))
 
     @router.post("/seeding/golden-tickets")
     def viral_golden_tickets_multiplier_endpoint(request: Request, body: dict):
-        outing_title = body.get("outing", "Sunset Catamaran Sailing (€30)").strip()
-        return {
-            "tickets_generated": True,
-            "outing": outing_title,
-            "tickets_count": 3,
-            "share_link": f"/#join-crew?code=GOLDEN-CREW-8921",
-            "viral_multiplier": "3x Crew Invitations with 1-Tap Apple Pay Split",
-            "message": f"🎟️ 3 Golden Crew Tickets Generated for '{outing_title}'! Shareable 1-tap link ready for WhatsApp/iMessage."
-        }
+        """A handful of single-use invites, one per person you mean to bring.
+
+        Returned three "golden tickets" behind one connectos.app link — the same link every
+        time — advertising a "1-Tap Apple Pay Split" this app cannot perform. Separate
+        single-use links are the real version of the idea: you can hand one to each person
+        and see which were used.
+        """
+        from modules.crews import invites
+        subject = _subject(request, body.get("by"))
+        crew_id = body.get("crew_id", "")
+        try:
+            count = int(body.get("count", 3))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="count must be a number")
+        if not 1 <= count <= 10:
+            raise HTTPException(status_code=400, detail="between 1 and 10 tickets")
+
+        tickets = [guard(lambda: invites.create(_graph(request), crew_id, subject,
+                                                ttl_hours=body.get("ttl_hours", 24 * 7),
+                                                max_uses=1))
+                   for _ in range(count)]
+        return {"tickets": [{"invite_id": t["invite_id"], "token": t["token"],
+                             "invite_path": f"/invite/{t['token']}",
+                             "expires_at": t["expires_at"]} for t in tickets],
+                "count": len(tickets), "single_use_each": True,
+                "crew_name": tickets[0]["crew_name"] if tickets else "",
+                "no_payment": ("There is no Apple Pay split here. These are join links, one "
+                               "person each.")}
 
     @router.post("/seeding/anchor-outings")
     def anchor_weekly_outings_endpoint(request: Request, body: dict):
@@ -3458,127 +4070,121 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/seeding/auto-event-pipeline")
     def automated_event_pipeline_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        sources = body.get("sources", ["Luma Open Calendar", "Resident Advisor", "Eventbrite API", "Municipal Culture Feed", "Dice.fm"])
-        return {
-            "pipeline_synced": True,
-            "city": city,
-            "events_ingested": 284,
-            "connected_sources": sources,
-            "sync_frequency": "Every 60 Minutes (Autonomous)",
-            "categories_covered": ["Electronic Music", "Run Clubs", "Tech Meetups", "Art Exhibitions", "Wellness & Yoga"],
-            "message": f"📡 Automated Event Pipeline Synced! 284 live events ingested for {city} from {len(sources)} public APIs."
-        }
+        """Sync every subscribed listing source.
+
+        Said "284 events ingested" from Luma, Resident Advisor, Eventbrite and Dice.fm, none
+        of which this app integrates. What it does have is ICS venue feeds and Ticketmaster;
+        this runs both and reports what each actually returned.
+        """
+        from modules.feeds import ingest
+        _operator(request)
+        graph = _graph(request)
+        feeds = guard(lambda: ingest.sync_all(graph))
+        city = _seed_city(body)
+        tier2 = guard(lambda: ingest.sync_provider(graph, "ticketmaster", city=city)) \
+            if city else {"status": "no_city", "added": 0}
+        return {"city": city, "feeds": feeds, "provider": tier2}
 
     @router.post("/seeding/ai-outing-synthesizer")
     def ai_outing_synthesizer_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        theme = body.get("theme", "Hidden Sunset Vinyl & Craft Beer Crawl").strip()
-        return {
-            "itinerary_synthesized": True,
-            "city": city,
-            "theme": theme,
-            "generated_stops": [
-                {"stop": 1, "time": "05:30 PM", "place": "Miradouro de Santa Catarina", "vibe": "Scenic Sunset & Acoustic Beats"},
-                {"stop": 2, "time": "07:00 PM", "place": "Groove Bar Alfama", "vibe": "Vintage Vinyl Record Listening"},
-                {"stop": 3, "time": "08:30 PM", "place": "Musa da Bica Taproom", "vibe": "Local Artisanal Craft Beers & Sourdough Pizza"}
-            ],
-            "estimated_split": "€14.00 / person",
-            "message": f"🤖 AI Outing Synthesizer Built '{theme}'! 3 verified stops scheduled with zero manual input."
-        }
+        """A plan for the days ahead, out of things that exist.
+
+        Same real answer as /v1/ai/micro-itinerary, which is what this always claimed to be.
+        """
+        from modules.ai import assist
+        caller = getattr(request.state, "caller", None) or {}
+        return guard(lambda: assist.itinerary(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=caller.get("account_id", ""), claude=_claude(request)))
 
     @router.post("/seeding/third-places-directory")
     def verified_third_places_directory_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        return {
-            "directory_enriched": True,
-            "city": city,
-            "total_third_places": 160,
-            "breakdown": {
-                "specialty_coffee_workspaces": 42,
-                "bouldering_and_calisthenics": 18,
-                "sunset_viewpoints_miradouros": 24,
-                "botanical_parks_and_greenhouses": 16,
-                "quiet_reading_libraries": 20,
-                "dog_friendly_social_parks": 40
-            },
-            "live_status": "100% OPERATIONAL (Live Opening Hours & Wi-Fi Speeds Verified)",
-            "message": f"📍 160 Verified Third Places Ingested for {city}! Specialty coffee, gyms, parks & reading spots populated."
-        }
+        """Pull a city's cafés, climbing walls, viewpoints, parks and libraries from
+        OpenStreetMap into the graph.
+
+        Claimed "160 Verified Third Places" with a breakdown down to 42 specialty coffee
+        workspaces and a `live_status` of "Live Opening Hours & Wi-Fi Speeds Verified".
+        Nothing was stored, nothing was verified, and every city got the same numbers.
+        Operator-only: it writes public rows and talks to a volunteer-run service.
+        """
+        from modules.city import places
+        _operator(request)
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: places.seed(
+            _graph(request), city, category=str(body.get("category", "") or "").strip(),
+            radius_m=int(body.get("radius_m", 4000) or 4000)))
+
+    @router.get("/city/places")
+    def city_places_endpoint(request: Request, city: str, category: str = ""):
+        """What is in this city. The read side, and what a new arrival actually sees."""
+        from modules.city import places
+        return guard(lambda: places.listing(_graph(request), city, category=category))
+
+    @router.get("/city/places/categories")
+    def city_place_categories_endpoint(request: Request):
+        from modules.city import places
+        return {"categories": places.categories()}
 
     @router.post("/seeding/weather-triggers")
     def weather_triggered_activity_generator_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        current_condition = body.get("condition", "Sunny 24°C with 4ft Ocean Swell").strip()
-        return {
-            "weather_triggers_evaluated": True,
-            "city": city,
-            "live_conditions": current_condition,
-            "auto_published_outings": [
-                {"activity": "Dawn Patrol Surf Squad @ Carcavelos (4ft Swell, Offshore Wind)", "status": "PUBLISHED_LIVE"},
-                {"activity": "Sunset Catamaran Golden Hour Co-Share @ Belém (Clear 24°C Sky)", "status": "PUBLISHED_LIVE"},
-                {"activity": "Rooftop Natural Wine Tasting @ Miradouro (Warm Evening)", "status": "PUBLISHED_LIVE"}
-            ],
-            "trigger_engine": "NOAA & Open-Meteo Autonomous Ingestion",
-            "message": f"☀️ Weather Trigger Engine Published 3 Spontaneous Outings for {city} based on live conditions!"
-        }
+        """What the conditions actually make worth doing.
+
+        Published a dawn-patrol surf squad at Carcavelos in a 4 ft swell, as a literal, for
+        every city. Each trigger now carries its reading and the threshold it fired on, so
+        it is checkable rather than asserted -- and a reading the API did not return
+        produces no trigger at all.
+        """
+        from modules.city import conditions
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.post("/hobbies/sports-outdoors")
-    def sports_outdoors_hobby_hub_endpoint(request: Request, body: dict):
-        category = body.get("category", "Bouldering & Padel").strip()
-        return {
-            "hobby_feed_synced": True,
-            "category": "Sports & Outdoor Adventures",
-            "active_activities": [
-                {"title": "🧗 V4-V7 Boulder Problem Solving Session", "venue": "Escala25 Lisboa", "time": "Today @ 6:30 PM", "crew": 6},
-                {"title": "🎾 Padel 4th Player Matcher (Intermediate 3.5)", "venue": "Padel Campo Grande", "time": "Tomorrow @ 7:00 PM", "crew": 4},
-                {"title": "🚴 45km Gravel Peloton Coastal Ride", "venue": "Cascais Bike Path", "time": "Saturday @ 8:00 AM", "crew": 12},
-                {"title": "🤿 Ocean Scuba & Free-Dive Buddy Match", "venue": "Sesimbra Marine Reserve", "time": "Sunday @ 9:00 AM", "crew": 4}
-            ],
-            "message": f"🧗 Sports & Outdoors Hub Synced! 4 active sessions live across climbing, padel, cycling & diving."
-        }
+    def hobbies_sports_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("category", "") or "").strip() or str(body.get("sport", "") or "").strip() or "sport"
+        return {**_synergy_match(request, body, activity, "Sports & Outdoors"), "activity": activity}
 
     @router.post("/hobbies/creative-making")
-    def creative_making_hobby_hub_endpoint(request: Request, body: dict):
-        return {
-            "hobby_feed_synced": True,
-            "category": "Creative Arts, Crafts & Making",
-            "active_activities": [
-                {"title": "🏺 Pottery Wheel Throwing & Glazing Open Studio", "venue": "Santos Ceramic Loft", "time": "Tonight @ 6:00 PM", "materials_included": True},
-                {"title": "📸 35mm B&W Darkroom Film Developing Lab", "venue": "Alfama Analog Collective", "time": "Thursday @ 7:00 PM", "materials_included": True},
-                {"title": "✏️ Life Drawing & Sourdough Sketch Session", "venue": "Bica Art Atelier", "time": "Friday @ 6:30 PM", "materials_included": True},
-                {"title": "🪵 Japanese Woodworking & Joinery Intro", "venue": "Mouraria Maker Space", "time": "Saturday @ 11:00 AM", "materials_included": True}
-            ],
-            "message": f"🎨 Creative Arts & Making Hub Synced! 4 studio sessions live across ceramics, darkroom, drawing & woodcraft."
-        }
+    def hobbies_creative_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("craft", "") or "").strip() or "making"
+        return {**_synergy_match(request, body, activity, "Creative & Making"), "activity": activity}
 
     @router.post("/hobbies/gaming-strategy")
-    def gaming_strategy_hobby_hub_endpoint(request: Request, body: dict):
-        return {
-            "hobby_feed_synced": True,
-            "category": "Board Games, Chess & Strategy",
-            "active_activities": [
-                {"title": "♟️ Sunny Park Blitz & Rapid Chess Meetup", "venue": "Jardim da Estrela Kiosk", "time": "Today @ 4:30 PM", "boards_provided": 10},
-                {"title": "🎲 Settlers of Catan & Dune Strategy Night", "venue": "GameCraft Board Game Lounge", "time": "Tomorrow @ 7:30 PM", "tables_active": 6},
-                {"title": "🐉 Dungeons & Dragons (D&D 5e) 1-Shot Quest", "venue": "The Guildhall Tavern", "time": "Friday @ 7:00 PM", "dm_lead": "Marcus (Level 12 DM)"},
-                {"title": "⌨️ Custom Mechanical Keyboard Switch Modding", "venue": "Lisbon Tech Hacker Loft", "time": "Saturday @ 2:00 PM", "tools_provided": True}
-            ],
-            "message": f"♟️ Strategy & Gaming Hub Synced! 4 meetups active across park chess, Catan, D&D & keyboard modding."
-        }
+    def hobbies_gaming_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("game", "") or "").strip() or "gaming"
+        return {**_synergy_match(request, body, activity, "Gaming & Strategy"), "activity": activity}
 
     @router.post("/hobbies/culinary-craft")
-    def culinary_craft_hobby_hub_endpoint(request: Request, body: dict):
-        return {
-            "hobby_feed_synced": True,
-            "category": "Culinary, Fermentation & Specialty Brews",
-            "active_activities": [
-                {"title": "🍞 Wild Sourdough Starter & Loaf Swap", "venue": "Ribeira Baker Collective", "time": "Sunday @ 10:30 AM", "starters_to_trade": 8},
-                {"title": "☕ Geisha & Natural Ethiopian Cupping Flight", "venue": "Fabrica Specialty Roastery", "time": "Saturday @ 10:00 AM", "coffees_tasted": 6},
-                {"title": "🥬 Kimchi & Kombucha Fermentation Circle", "venue": "Santos Community Kitchen", "time": "Wednesday @ 6:30 PM", "jars_provided": True},
-                {"title": "🍕 Wood-Fired Neapolitan Pizza Making Jam", "venue": "Graça Rooftop Oven", "time": "Friday @ 7:30 PM", "dough_included": True}
-            ],
-            "message": f"🍳 Culinary & Craft Brewing Hub Synced! 4 workshops active across sourdough, coffee cupping, kimchi & pizza."
-        }
+    def hobbies_culinary_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it listed hobby groups nobody was in. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("dish", "") or "").strip() or "cooking"
+        return {**_synergy_match(request, body, activity, "Culinary Craft"), "activity": activity}
 
     @router.post("/events/landmark-radar")
     def landmark_mega_festival_radar_endpoint(request: Request, body: dict):
@@ -3646,37 +4252,38 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/nfc/tap-to-synergy")
     def nfc_tap_to_synergy_handshake_endpoint(request: Request, body: dict):
-        target_peer = body.get("peer", "Catriona (Nomad / Foodie)").strip()
-        return {
-            "handshake_verified": True,
-            "protocol": "NFC & Apple NameDrop Ephemeral Handshake",
-            "peer": target_peer,
-            "synergy_score": 94,
-            "shared_hobbies": ["Specialty Pour-Over Coffee", "35mm Analog Photography", "Trail Ridge Running"],
-            "mutual_connections": 3,
-            "haptic_feedback": "CONFIRM_DOUBLE_PULSE",
-            "zk_card_exchanged": True,
-            "message": f"🪄 Tap-to-Synergy Confirmed! 94% compatibility with {target_peer} (3 shared passions)."
-        }
+        """Swap a short code with somebody standing next to you.
+
+        Claimed an "NFC & Apple NameDrop Ephemeral Handshake", reported 94% compatibility
+        with three shared passions for any peer string sent, and confirmed a "zk card
+        exchanged". A web app cannot speak NFC or NameDrop, nobody was on the other end, and
+        the score was a constant.
+
+        Sending no code shows yours; sending one takes theirs. What comes back is what you
+        have both actually published, or nothing — never a percentage.
+        """
+        from modules.growth import share
+        account_id, handle = _signal_caller(request)
+        code = str(body.get("code", "") or "").strip()
+        if code:
+            return guard(lambda: share.redeem_code(_graph(request), code,
+                                                   account_id=account_id, handle=handle))
+        return guard(lambda: share.open_code(_graph(request), account_id=account_id,
+                                             handle=handle))
 
     @router.post("/ai/culture-bridge-translator")
     def local_culture_and_dialect_bridge_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        phrase = body.get("phrase", "Having a braw time with the scran, but it's a wee bit dreich").strip()
-        return {
-            "translation_active": True,
-            "city": city,
-            "original_phrase": phrase,
-            "translation": "Having a wonderful time with the delicious food, though the weather is a bit gloomy/rainy.",
-            "cultural_etiquette_tip": "🏴󠁧󠁢󠁳󠁣󠁴󠁿 Scottish Pub Etiquette: Always buy rounds for the group; it is customary to offer before getting your own drink.",
-            "local_slang_lexicon": {
-                "braw": "Excellent / Fantastic",
-                "scran": "Food / Delicious meal",
-                "dreich": "Gloomy / Rainy Scottish weather",
-                "wee": "Small / Little bit"
-            },
-            "message": f"🗣️ Local Culture & Dialect Bridge Active for {city}! Etiquette and local slang translated."
-        }
+        """Translate a local phrase.
+
+        The one endpoint in this group that genuinely cannot work without a key: it was four
+        Scottish words in a dict -- braw, scran, dreich, wee -- returned for every city on
+        earth along with an etiquette tip about buying rounds. It reports unavailable now
+        rather than degrading into a smaller lie.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.translate(
+            str(body.get("phrase", "") or ""), str(body.get("city", "") or "").strip(),
+            claude=_claude(request)))
 
     @router.post("/dao/community-treasury")
     def dao_community_treasury_endpoint(request: Request, body: dict):
@@ -3695,308 +4302,209 @@ def build_router(auth) -> APIRouter:
         }
 
     @router.post("/ai/spontaneous-quests")
-    def spontaneous_instant_quest_radar_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        time_available = body.get("time_available", "Right Now (Next 15 Mins)").strip()
-        return {
-            "quests_generated": True,
-            "city": city,
-            "timeframe": time_available,
-            "anti_boredom_quests": [
-                {
-                    "title": "☕ Gesha Pour-Over Cupping & Sourdough Tasting",
-                    "eta": "10 mins away",
-                    "venue": "Artisan Roast Loft",
-                    "crew_size": 3,
-                    "host": "Lukas (Lead Barista)",
-                    "action": "JOIN_IMMEDIATELY"
-                },
-                {
-                    "title": "🎨 Sunset Charcoal Sketch & Acoustic Jam",
-                    "eta": "12 mins away",
-                    "venue": "Calton Hill Viewpoint",
-                    "crew_size": 4,
-                    "host": "Catriona (Artist)",
-                    "action": "JOIN_IMMEDIATELY"
-                },
-                {
-                    "title": "♟️ Outdoor Park Blitz Chess Challenge",
-                    "eta": "8 mins away",
-                    "venue": "Meadows Park Pavilion",
-                    "crew_size": 6,
-                    "host": "Niklas (Chess Master)",
-                    "action": "JOIN_IMMEDIATELY"
-                }
-            ],
-            "message": f"⚡ 3 High-Energy Spontaneous Quests Ready in {city}! Zero waiting, instant human connection."
-        }
+    def ai_spontaneous_quests_endpoint(request: Request, body: dict):
+        """Small things you could do soon -- real ones, with real hosts. The old five came
+        with invented hosts and crew sizes."""
+        from modules.ai import assist
+        return guard(lambda: assist.quests(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/ai/ikigai-compass")
-    def ikigai_deep_fulfillment_compass_endpoint(request: Request, body: dict):
-        interests = body.get("interests", ["Outdoor Sport", "Creative Making", "Community Mentorship"])
-        return {
-            "ikigai_aligned": True,
-            "fulfillment_score": 96,
-            "ikigai_pillars": {
-                "what_you_love": "Trail mountain running & analog film darkroom development",
-                "what_youre_good_at": "Organizing communal cooking feasts & strategy board games",
-                "what_the_world_needs": "Weekly coastal beach cleanup steward & youth chess mentoring",
-                "what_creates_deep_bonds": "Nordic sauna contrast therapy & vulnerability dinner salons"
-            },
-            "recommended_weekly_purpose_schedule": [
-                {"day": "Tuesday", "focus": "Creative Flow Mastery (Pottery Wheel / Darkroom)", "vibe": "Deep Focus"},
-                {"day": "Thursday", "focus": "Meaningful Vulnerability Dinner Salon (6 People)", "vibe": "Deep Heart Connection"},
-                {"day": "Saturday", "focus": "Wild Nature Ridge Trail & Cold Plunge", "vibe": "Physical Eudaimonia"},
-                {"day": "Sunday", "focus": "Community Herb Garden & Seed Sharing", "vibe": "Contribution & Impact"}
-            ],
-            "message": "🧘 Ikigai Fulfillment Blueprint Activated! Purpose-driven schedule built to eliminate passive screen time and maximize genuine joy."
-        }
+    def ai_ikigai_compass_endpoint(request: Request, body: dict):
+        """What you have been doing, and what you said you wanted to do.
+
+        `fulfillment_score: 87` and four pillars written on your behalf are gone. A graph of
+        meetups cannot measure whether a life is aligned with its purpose, and a number next
+        to that question gets believed.
+        """
+        from modules.ai import reflect
+        return guard(lambda: reflect.purpose(_graph(request),
+                                             account_id=_ai_caller(request),
+                                             claude=_claude(request)))
 
     @router.post("/ai/flow-mastery")
     def flow_state_mastery_exchange_endpoint(request: Request, body: dict):
-        skill = body.get("skill", "Ceramics Wheel Throwing & Glaze Chemistry").strip()
-        return {
-            "flow_lab_scheduled": True,
-            "skill": skill,
-            "flow_partner": "Catriona (Studio Master)",
-            "venue": "Broughton Craft Workshop",
-            "duration": "2.5 Hours Deep Flow State",
-            "hands_on_creation": "Throwing 2 stoneware vessels from raw Scottish clay",
-            "screen_free_guarantee": "100% Screen-Free Physical Immersion",
-            "message": f"🌊 Flow Lab Scheduled for '{skill}'! 2.5 hours of uninterrupted creative mastery and tangible craftsmanship."
-        }
+        """Who else wants to practise this.
+
+        Was Catriona the studio master, at the Broughton Craft Workshop, for any skill you
+        named. A skill exchange is a match on the skill, so it runs the city matcher.
+        """
+        skill = str(body.get("skill", "") or "").strip()
+        return {**_synergy_match(request, body, skill, "Skills & Flow"), "skill": skill}
 
     @router.post("/ai/meaningful-salons")
     def meaningful_conversation_dinner_salon_endpoint(request: Request, body: dict):
-        theme = body.get("theme", "Courage, Transition & The Next Chapter").strip()
-        return {
-            "salon_confirmed": True,
-            "theme": theme,
-            "format": "6-Person Curated Long-Table Dinner Salon (Anti-Small-Talk)",
-            "venue": "Stockbridge Nomad Loft & Kitchen",
-            "table_prompts": [
-                "What is a deeply held belief you willingly changed your mind about recently?",
-                "What is an ambitious dream you rarely say out loud for fear of sounding foolish?",
-                "When in the last year did you feel most vibrantly alive and unhurried?"
-            ],
-            "host": "Ewan (Philosopher & Sourdough Baker)",
-            "split": "£18.00 (split organic ingredients & natural wine)",
-            "message": f"🕊️ Meaningful Conversation Dinner Salon '{theme}' Confirmed! 6 curious souls gathered for anti-small-talk connection."
-        }
+        """Who is up for a dinner on this theme.
+
+        `salon_confirmed: True` confirmed a six-person table at a loft, hosted by Ewan the
+        philosopher and sourdough baker, for any theme at all. Nothing was booked and nobody
+        was invited. The table prompts were the one good part and they are kept -- they are
+        a writing prompt, not a claim about the world.
+        """
+        theme = str(body.get("theme", "") or "").strip()
+        return {**_synergy_match(request, body, theme, "Dinner & Conversation"),
+                "theme": theme,
+                "table_prompts": [
+                    "What is something you changed your mind about recently?",
+                    "What is a plan you rarely say out loud?",
+                    "When did you last lose track of time?",
+                ],
+                "confirmed": False,
+                "next_step": "Nothing is booked. Propose it as a meetup and people can join."}
 
     @router.post("/ai/serendipity-engine")
-    def proactive_serendipity_predictor_endpoint(request: Request, body: dict):
-        user_name = body.get("user", "Robert").strip()
-        return {
-            "serendipity_detected": True,
-            "user": user_name,
-            "opportunity_window": "Tomorrow 04:00 PM – 05:30 PM (90 Min Free Slot)",
-            "weather_condition": "22°C Clear Golden Hour",
-            "nearby_friend": {
-                "name": "Alex",
-                "distance": "380m away @ Fabrica Specialty Coffee",
-                "availability": "Finished Deep Work @ 4:15 PM"
-            },
-            "proactive_suggestion": "Reserved a sunny outdoor terrace table at Fabrica Coffee for a spontaneous 45-min flat white catch-up with Alex.",
-            "one_tap_action": "CONFIRM_AND_NOTIFY_ALEX",
-            "message": f"🔮 Proactive Serendipity Detected! Free 90-min window & Alex is 380m away in sunny weather."
-        }
+    def ai_serendipity_engine_endpoint(request: Request, body: dict):
+        """Overlaps worth acting on now.
+
+        Detected a "serendipity window" with a named friend 400 m away and a weather
+        condition. There is no location sharing and no weather provider; the overlap this
+        app can observe is two people who both said they are up for the same thing.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.serendipity(_graph(request),
+                                                account_id=_ai_caller(request),
+                                                claude=_claude(request)))
 
     @router.post("/ai/empathy-vibe-tuner")
     def emotional_empathy_vibe_tuner_endpoint(request: Request, body: dict):
-        current_vibe = body.get("vibe", "Slightly Overstimulated & Reflective").strip()
-        return {
-            "vibe_tuned": True,
-            "detected_state": current_vibe,
-            "tailored_environment": "Quiet Zen Botanical Greenhouse & Silent Reading Loft",
-            "venue": "Jardim Botânico Glasshouse",
-            "social_battery_protection": "No Loud Groups / Max 1 Quiet Companion",
-            "companion_match": "Isla (Quiet Tea & Book Enthusiast)",
-            "soothing_activity": "Herbal Matcha Ceremony & 1-on-1 Philosophy Walk",
-            "message": f"🧠 Empathy Vibe Tuner Activated for '{current_vibe}'! Auto-tuned environment for peaceful restorative connection."
-        }
+        """Small plans, for when a big night is the wrong answer.
+
+        Claimed to *detect* an emotional state, then tuned an environment for it and matched
+        you with Isla, a quiet tea and book enthusiast. Nothing here reads a mood -- you say
+        how you are, and this filters what is really on down to the quiet options.
+        """
+        from modules.ai import assist
+        # `body.get("max_group", 4) or 4` turns an explicit 0 into 4 — the same defaulting
+        # bug that quietly published a presence in arrival, here quietly widening a filter
+        # somebody set precisely because they wanted it narrow.
+        raw = body.get("max_group")
+        try:
+            max_group = 4 if raw is None else int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="max_group must be a number")
+        return guard(lambda: assist.quiet_options(
+            _graph(request), str(body.get("city", "") or "").strip(),
+            account_id=_ai_caller(request),
+            max_group=max_group, claude=_claude(request)))
 
     @router.post("/ai/group-concierge")
-    def group_autonomous_concierge_endpoint(request: Request, body: dict):
-        group_name = body.get("group", "Weekend Lisbon Crew (4 People)").strip()
-        return {
-            "group_negotiation_complete": True,
-            "group": group_name,
-            "members": ["Robert", "Marco", "Sofia", "Elena"],
-            "mutually_free_slot": "Saturday 07:30 PM",
-            "dietary_consensus": "1 Vegan, 1 Gluten-Free, 2 Omnivore (Consensus: Farm-to-Table Alfama)",
-            "booked_venue": "Prado Organic Wine Bar & Kitchen",
-            "table_status": "RESERVED_FOR_4",
-            "apple_pay_split_pre_authorized": "€24.00 / person",
-            "calendar_invites_sent": True,
-            "message": f"🗺️ Autonomous Group Concierge Synced! Calendar consensus reached & table booked for {group_name} with zero back-and-forth texting."
-        }
+    def ai_group_concierge_endpoint(request: Request, body: dict):
+        """The third endpoint that claimed to negotiate a group's calendars, book a table
+        and pre-authorise a card split. Same real answer as the other two."""
+        from modules.ai import assist
+        return guard(lambda: assist.crew_plan(
+            _graph(request), str(body.get("crew_id", "") or "").strip(),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/ai/friendship-compounding")
-    def friendship_compounding_vault_endpoint(request: Request, body: dict):
-        return {
-            "friendship_vault_active": True,
-            "meaningful_milestones": [
-                {"friend": "Hamish", "note": "Running Edinburgh Half-Marathon on Sunday", "nudge": "Send Good Luck Toast 🏅"},
-                {"friend": "Catriona", "note": "Opening new Ceramic Studio Exhibition", "nudge": "Send Warm Congratulations 🏺"},
-                {"friend": "Marco", "note": "Haven't caught up in 28 days", "nudge": "Proactive 15-min Coffee Catch-Up Nudge ☕"}
-            ],
-            "compounding_score": 98,
-            "privacy": "100% Zero-Knowledge Encrypted",
-            "message": "🌱 Friendship Compounding Vault Synced! 3 thoughtful relationship nudges to deepen lifelong human bonds."
-        }
+    def ai_friendship_compounding_endpoint(request: Request, body: dict):
+        """Who you have not seen in a while.
+
+        Listed three friends with invented notes and nudges. The reconnect module has ranked
+        real people by contact decay since Sprint 1, and this endpoint never read it.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.reconnect(_graph(request),
+                                              account_id=_ai_caller(request),
+                                              claude=_claude(request)))
 
     @router.post("/ai/vitality-circadian-flow")
-    def vitality_circadian_flow_endpoint(request: Request, body: dict):
-        return {
-            "vitality_engine_active": True,
-            "circadian_rhythm_sync": {
-                "morning_lux_window": "07:30 AM – 08:30 AM (15 mins outdoor sunlight exposure recommended)",
-                "optimal_zone2_window": "04:30 PM – 05:45 PM (Coastal Trail Run / Cycle)",
-                "melatonin_wind_down": "09:30 PM (Blue-light filter & herbal chamomile tea)",
-                "recommended_sleep_time": "10:30 PM – 06:30 AM (8.0 Hours Targeted)"
-            },
-            "longevity_score": 94,
-            "weekly_contrast_therapy": "2x 90°C Sauna + 4°C Plunge sessions booked",
-            "message": "🧬 Vitality & Circadian Flow Optimized! Sunlight, zone-2 movement, and deep restorative sleep aligned."
+    def ai_vitality_circadian_flow_endpoint(request: Request):
+        """Sleep and rhythm nudges.
+
+        `longevity_score` is gone -- nothing here measures longevity. What is real is the
+        circadian nudge the routines module computes from your own logged sleep, so this
+        returns that and says plainly that no wearable is connected.
+        """
+        from modules.routines import sleep_nudges
+        # Returns None when there are no sleep records at all, which is the normal state of
+        # a fresh account — "we have nothing logged" is the honest nudge, not a crash.
+        nudge = guard(lambda: sleep_nudges.generate_circadian_nudge(_graph(request))) or {
+            "nudge": None, "empty": True,
+            "suggestion": "No sleep logged yet. Log a night or two and this starts saying "
+                          "something specific to you.",
         }
+        return {**nudge, "wearable_connected": False,
+                "no_score": ("No longevity or vitality score: nothing in this app measures "
+                             "either, and the numbers that used to be here were constants.")}
 
     @router.post("/ai/regret-minimization")
-    def regret_minimization_bucketlist_endpoint(request: Request, body: dict):
-        return {
-            "regret_minimization_active": True,
-            "life_vision_score": 96,
-            "top_aspirational_quests": [
-                {
-                    "quest": "⛵ Sunset Catamaran Sailing & Stargazing Expedition",
-                    "status": "SCHEDULED_THIS_WEEK",
-                    "milestone": "4 Crew Members Joined · Belém Harbor"
-                },
-                {
-                    "quest": "🏺 Master Pottery Wheel Throwing & Stoneware Glazing",
-                    "status": "IN_PROGRESS",
-                    "milestone": "2/4 Studio Sessions Completed"
-                },
-                {
-                    "quest": "📸 Curate & Print 35mm Analog Photo Book",
-                    "status": "DRAFTING",
-                    "milestone": "18 Negatives Developed @ Alfama Collective"
-                }
-            ],
-            "be_present_reminder": "You only get this exact Tuesday once in your life. Live it fully and without hesitation.",
-            "message": "🌟 Regret Minimization Framework Synced! Transforming lifelong dreams into actionable, memory-rich real-world moments."
-        }
+    def ai_regret_minimization_endpoint(request: Request, body: dict):
+        """Your goals, as you wrote them.
+
+        `life_vision_score: 92` and a list of aspirational quests with milestones were
+        literals. Your actual goals have been in the horizon modules since Sprint 1.
+        """
+        from modules.ai import reflect
+        return guard(lambda: reflect.purpose(_graph(request),
+                                             account_id=_ai_caller(request),
+                                             claude=_claude(request)))
 
     @router.post("/ai/wealth-value-optimizer")
-    def wealth_value_optimizer_endpoint(request: Request, body: dict):
-        return {
-            "wealth_optimizer_active": True,
-            "fulfillment_roi_metric": "High Memory Dividends / Euro Spent",
-            "optimized_allocations": [
-                {"category": "Real-World Shared Dinners & Outings", "roi": "★★★★★ 98% (High Memory Value)"},
-                {"category": "Craft Mastery & Tools (Pottery/Cameras/Bikes)", "roi": "★★★★★ 95% (Flow State Generator)"},
-                {"category": "Passive Streaming Subscriptions Cut", "savings": "€48 / month redirected to travel & adventures"}
-            ],
-            "total_annual_memory_dividends": "€576 saved and reinvested in real-world human connection.",
-            "message": "💰 Wealth & Life Value Optimizer Synced! Cutting passive digital waste and amplifying high-memory real-world experiences."
-        }
+    def ai_wealth_value_optimizer_endpoint(request: Request):
+        """What outings have actually cost.
+
+        Returned a "fulfilment ROI" per spending category -- a ratio between money and
+        fulfilment, and it had neither. The ledger does hold real splits.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.spending(_graph(request),
+                                             account_id=_ai_caller(request),
+                                             claude=_claude(request)))
 
     @router.post("/ai/stoic-presence-mirror")
-    def stoic_presence_gratitude_mirror_endpoint(request: Request, body: dict):
-        memory = body.get("moment", "Warm laughing conversation over sourdough bread with Alex at sunset").strip()
-        gratitude = body.get("gratitude", "Health, clear blue ocean, and good friends").strip()
-        return {
-            "reflection_logged": True,
-            "daily_peak_moment": memory,
-            "gratitude_anchor": gratitude,
-            "stoic_wisdom": "Memento Vivere — Remember to truly live. Wealth is the ability to fully experience life.",
-            "lifetime_gratitude_count": 142,
-            "privacy": "Encrypted Local Secure Enclave",
-            "message": "🕊️ Stoic Reflection Logged! Daily peak moment etched into your lifelong gratitude tapestry."
-        }
+    def ai_stoic_presence_mirror_endpoint(request: Request, body: dict):
+        """Write down something worth remembering.
+
+        It claimed to log a peak moment and a gratitude anchor and stored nothing --
+        `lifetime_gratitude_count` was a constant. Reflections are real owner-scoped rows
+        now, private to you, and the count is a count.
+        """
+        from modules.ai import reflect
+        note = str(body.get("note", "") or body.get("gratitude_anchor", "") or "").strip()
+        if not note:
+            return {"logged": False,
+                    "recent": reflect.entries(_graph(request), limit=5),
+                    "total": reflect.count(_graph(request)),
+                    "privacy": "yours only — never shared, never scored"}
+        return guard(lambda: reflect.log(_graph(request), note,
+                                         kind=str(body.get("kind", "gratitude") or "gratitude")))
 
     @router.post("/seeding/zero-user-event-crawler")
     def zero_user_event_crawler_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "crawler_active": True,
-            "city": city,
-            "sources_aggregated": [
-                {"source": "Resident Advisor (RA)", "events_ingested": 42, "category": "Underground Electronic & Ambient Listening"},
-                {"source": "Luma (lu.ma)", "events_ingested": 38, "category": "Tech, Founder & Creative Salons"},
-                {"source": "Dice.fm & Eventbrite", "events_ingested": 84, "category": "Indie Live Music & Stand-Up Comedy"},
-                {"source": "Local Culture Substacks & City Calendars", "events_ingested": 56, "category": "Art Crawls, Farmers Markets & Film Revivals"}
-            ],
-            "total_verified_events": 220,
-            "quality_filter_pass_rate": "92% High-Vibe Approved",
-            "message": f"📡 Zero-User Autonomous Crawler Ingested 220 Verified Live Events in {city}! Instant rich content with 0 app users needed."
-        }
+        """Find a venue's calendar from its homepage and subscribe to it.
+
+        Listed 220 "verified events" aggregated from Resident Advisor, Luma, Dice.fm and
+        "Local Culture Substacks". The real crawler this app has is feed discovery: give it
+        a venue's website and it finds the ICS nobody knows the URL of.
+        """
+        from modules.feeds import ingest
+        _operator(request)
+        url = str(body.get("url", "") or "").strip()
+        if not url:
+            raise HTTPException(
+                status_code=400,
+                detail="a venue website to crawl — this discovers calendars, it does not "
+                       "scrape ticketing sites it has no agreement with")
+        return guard(lambda: ingest.discover_feeds(
+            _graph(request), url, add=bool(body.get("add")),
+            city=_seed_city(body)))
 
     @router.post("/seeding/tastemaker-curation")
-    def tastemaker_hidden_gem_curation_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            gems = [
-                {"name": "Eisbachwelle River Surfing Watch & Man Versus Machine Espresso", "insider_score": 98, "vibe": "River rapids flow, flat white coffee, warm outdoor terrace", "timing": "Daily from 07:00 AM", "neighborhood": "Englischer Garten"},
-                {"name": "Hirschgarten Historic Chestnut Long-Tables & Steinkrug Radi", "insider_score": 96, "vibe": "Shaded 200-year chestnut trees, fresh salted radish, cold Augustiner", "timing": "Daily from 11:30 AM", "neighborhood": "Neuhausen"},
-                {"name": "Müller'sches Volksbad Art Nouveau Roman Bath & Sauna", "insider_score": 95, "vibe": "1901 Neo-Baroque vaulted ceiling, Finnish sauna & cold plunge pool", "timing": "Tuesday – Sunday from 09:00 AM", "neighborhood": "Isar Riverfront"}
-            ]
-        else:
-            gems = [
-                {"name": "Hidden Courtyard Natural Wine & Vinyl Pop-up", "insider_score": 98, "vibe": "Candlelit, Japanese analog sound system, biodynamic Pet-Nat", "timing": "Thursday – Saturday from 06:00 PM", "neighborhood": "Stockbridge"},
-                {"name": "Secret Rooftop Jazz Trio Session", "insider_score": 96, "vibe": "Acoustic upright bass, sunset city skyline, intimate 30-capacity", "timing": "Sunday 05:00 PM", "neighborhood": "Old Town Loft"},
-                {"name": "Midnight 35mm Cult Cinema Revival & Chai", "insider_score": 94, "vibe": "Velvet seats, 70s French New Wave, spicy handmade masala chai", "timing": "Friday 11:30 PM", "neighborhood": "Southside Arts Pavilion"}
-            ]
-        return {
-            "curation_active": True,
-            "city": city,
-            "top_hidden_gems": gems,
-            "message": f"💎 AI Tastemaker Curated Top 3 Hidden Gems for {city}! Ranked by authenticity and atmosphere score."
-        }
+    def tastemaker_curation_endpoint(request: Request, body: dict):
+        """Curation needs curators. It listed hidden gems chosen by nobody -- this shows what is actually here and leaves the choosing to whoever is reading."""
+        return _guide(request, body, "culture")
 
     @router.post("/seeding/recurring-gravity-hubs")
-    def recurring_third_place_gravity_hubs_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            hubs = [
-                {"title": "Eisbach River Wave Dawn Patrol Surfers", "schedule": "Daily 06:30 AM", "venue": "Eisbachwelle Bridge", "real_world_crowd": "20+ river surfers & spectators with thermos coffee"},
-                {"title": "Englischer Garten Monopteros Sunset Running Club", "schedule": "Every Tuesday & Thursday 18:30", "venue": "Monopteros Hill", "real_world_crowd": "35-50 community runners followed by beer garden hydration"},
-                {"title": "Max-Joseph-Platz Open Chess & Acoustic Guitar Circle", "schedule": "Every Wednesday & Saturday 17:00", "venue": "National Theatre Steps", "real_world_crowd": "Open acoustic jam & blitz chess boards on stone steps"}
-            ]
-        else:
-            hubs = [
-                {"title": "Park Blitz Chess & Clock Ladder", "schedule": "Every Tuesday & Thursday 05:00 PM", "venue": "Meadows Park Pavilion", "real_world_crowd": "15-25 players show up naturally every week (Open drop-in)"},
-                {"title": "Sunrise Portobello Beach Dip & Sauna", "schedule": "Every Wednesday 07:00 AM", "venue": "Portobello Prom", "real_world_crowd": "30+ cold-water swimmers & portable wood sauna on sand"},
-                {"title": "Artisan Sourdough Baker's Coffee Exchange", "schedule": "Every Saturday 08:30 AM", "venue": "Leith Custom House Courtyard", "real_world_crowd": "Neighborhood bakers, roasters & fermenters open meetup"}
-            ]
-        return {
-            "gravity_hubs_synced": True,
-            "city": city,
-            "real_world_recurring_gatherings": hubs,
-            "message": f"📍 3 Recurring Real-World Gravity Hubs Loaded for {city}! Users can attend immediately and meet real crowds."
-        }
+    def recurring_gravity_hubs_endpoint(request: Request, body: dict):
+        """The places a city keeps coming back to. It reported gravity scores for venues it had invented; what is real is what is mapped and what is on the board."""
+        return _guide(request, body, "culture")
 
     @router.post("/seeding/city-culture-guide")
-    def city_culture_guide_synthesizer_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "guide_generated": True,
-            "city": city,
-            "title": f"The 7-Day Autonomous Culture & Hidden Gems Guide to {city}",
-            "weekly_highlights": [
-                {"day": "Monday", "highlight": "Acoustic Folk Session @ Royal Mile Cellar (Free Entry)"},
-                {"day": "Tuesday", "highlight": "Community Darkroom Print & Negative Swap @ Stills Loft"},
-                {"day": "Wednesday", "highlight": "Morning Dip @ Portobello & Filter Coffee Flight"},
-                {"day": "Thursday", "highlight": "Meadows Park Chess & Natural Wine Pop-Up"},
-                {"day": "Friday", "highlight": "Midnight 35mm Cinema Screening @ Filmhouse"},
-                {"day": "Saturday", "highlight": "Stockbridge Farmers Market Feast & Arthur's Seat Hike"},
-                {"day": "Sunday", "highlight": "Calton Hill Sunset Sketch Circle & Rooftop Jazz"}
-            ],
-            "status": "EDITORIAL_READY",
-            "message": f"📅 Editorial-Grade 7-Day City Culture Guide Synthesized for {city}! Complete day-by-day curated local roadmap."
-        }
+    def city_culture_guide_endpoint(request: Request, body: dict):
+        """Galleries, viewpoints and markets, from the map and the listings."""
+        return _guide(request, body, "culture")
 
     @router.post("/simulation/full-day-ux-optimizer")
     def full_day_user_simulation_endpoint(request: Request, body: dict):
@@ -4149,324 +4657,301 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/trust/web-of-trust")
     def web_of_trust_verification_endpoint(request: Request, body: dict):
-        target_user = body.get("target_user", "Elena Rostova").strip()
-        return {
-            "trust_verified": True,
-            "user": target_user,
-            "trust_score": "98/100 (Tier-1 Community Vouched)",
-            "vouching_chain": [
-                "Vouched by Marco (Co-Living Host, 14 verified dinners)",
-                "Vouched by Catriona (Ceramic Studio Master, 22 workshops)",
-                "3 Mutual Friends in ConnectOS Web of Trust"
-            ],
-            "privacy_standard": "Zero-Knowledge Proof (No phone number or government ID exposed)",
-            "community_status": "COMMUNITY_VERIFIED_BADGE",
-            "message": f"🤝 Cryptographic Web of Trust Verified for {target_user}! 3 mutual vouches confirm safety and respect without invasive KYC."
-        }
+        """Who has vouched for somebody, by name. Never a score, and never verification.
+
+        Returned `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community
+        Vouched)"` for any name you sent, with a vouching chain naming people who do not
+        exist, a `COMMUNITY_VERIFIED_BADGE`, and a `privacy_standard` of "Zero-Knowledge
+        Proof" describing a scheme implemented nowhere in this repo.
+
+        This was the most dangerous prop left, for the same reason SafeWalk was: somebody
+        who reads "98/100, community verified, three mutual vouches" meets a stranger
+        differently from somebody who knows nothing about them. It said that about everyone.
+
+        A vouch is one named person saying they know another — readable by both, withdrawable,
+        and counted rather than scored.
+        """
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        subject = body.get("subject", "") or body.get("target_user", "")
+        resolved = _named_account(request, subject) if subject else account_id
+        return guard(lambda: trust.about(_graph(request), account_id=account_id,
+                                         subject=resolved))
+
+    @router.post("/trust/vouch")
+    def trust_vouch(request: Request, body: dict):
+        """Say on the record that you know somebody."""
+        from modules.social import trust
+        account_id, handle = _signal_caller(request)
+        for_account = _named_account(request, body.get("for_account", "")
+                                     or body.get("subject", ""))
+        return guard(lambda: trust.vouch(_graph(request), account_id=account_id,
+                                         for_account=for_account, handle=handle,
+                                         note=body.get("note", "")))
+
+    @router.post("/trust/vouch/withdraw")
+    def trust_vouch_withdraw(request: Request, body: dict):
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        for_account = _named_account(request, body.get("for_account", ""))
+        return guard(lambda: trust.withdraw(_graph(request), account_id=account_id,
+                                            for_account=for_account))
+
+    @router.get("/trust/vouches")
+    def trust_vouches_given(request: Request):
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: trust.given(_graph(request), account_id=account_id))
+
+    @router.post("/trust/in-common")
+    def trust_in_common(request: Request, body: dict):
+        """Who has vouched for both of you. Often nobody, which is the useful part."""
+        from modules.social import trust
+        account_id, _ = _signal_caller(request)
+        subject = _named_account(request, body.get("subject", ""))
+        return guard(lambda: trust.in_common(_graph(request), account_id=account_id,
+                                             subject=subject))
 
     @router.post("/atlas/living-memory-map")
     def living_memory_atlas_endpoint(request: Request, body: dict):
-        return {
-            "atlas_active": True,
-            "memory_pins_count": 48,
-            "recent_geo_memories": [
-                {"location": "Calton Hill (Edinburgh)", "memory": "Sunset sketch circle & acoustic jam with Catriona", "date": "Yesterday"},
-                {"location": "Eisbachwelle (Munich)", "memory": "River surfing cheer & Man Versus Machine espresso", "date": "Last Week"},
-                {"location": "Miradouro de Santa Catarina (Lisbon)", "memory": "Sunset Bossa Nova & natural Pet-Nat toast", "date": "Last Month"}
-            ],
-            "time_capsule_status": "1 Time-Capsule Locked @ Arthur's Seat (Unlocks in 342 days when you revisit with Alex)",
-            "message": "🗺️ Living Real-World Memory Atlas Synced! 48 physical moments pinned to Earth with 1 locked time-capsule."
-        }
+        """Places you have actually been, from your own rows.
+
+        Reported 48 pins and three geo memories — a sketch circle on Calton Hill with
+        Catriona, river surfing at the Eisbachwelle — for every account, on an empty
+        database, plus a "Time-Capsule Locked @ Arthur's Seat (Unlocks in 342 days when you
+        revisit with Alex)": a countdown to a place you had never been, with somebody who
+        does not exist, implemented nowhere.
+
+        Check-ins record a place name, not a position — there is no background location in
+        this app — so this is a list of places rather than a map of points.
+        """
+        from modules.personal import atlas
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: atlas.pins(_graph(request), account_id=account_id,
+                                        city=body.get("city", "")))
 
     @router.post("/impact/regenerative-earth")
-    def regenerative_earth_eco_quests_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "eco_quests_active": True,
-            "city": city,
-            "collective_city_impact": {
-                "plastic_removed_kg": 4820,
-                "trees_and_pollinators_planted": 1240,
-                "active_clean_crews": 18
-            },
-            "spontaneous_eco_quests": [
-                {"title": "Arthur's Seat 2-Minute Trail Sweep", "reward": "Eco-Karma +50", "crew": "Sunday Trail Runners (14 people)"},
-                {"title": "Portobello Coastal Microplastic Sift", "reward": "Free Hot Filter Coffee @ Beach Shack", "crew": "Morning Swimmers"},
-                {"title": "Meadows Community Wildflower Seed Bombing", "reward": "Pollinator Steward Badge", "crew": "Neighborhood Gardeners"}
-            ],
-            "message": f"🌱 Regenerative Earth Hub Synced for {city}! 4,820 kg plastic cleaned & 1,240 native trees planted collectively."
-        }
+    def impact_regenerative_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reported trees nobody planted. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or "rewilding"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/impact/zero-waste-pantry")
-    def zero_waste_communal_pantry_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "pantry_synced": True,
-            "city": city,
-            "meals_rescued_this_month": 340,
-            "available_rescued_delicacies": [
-                {"item": "Freshly Baked Organic Sourdough Boules (4x)", "donor": "Stockbridge Artisan Bakery", "availability": "Free pickup in next 45 mins"},
-                {"item": "Farm-Fresh Organic Heirloom Greens & Veg", "donor": "Saturday Market Stall", "availability": "Open Community Box @ Custom House"},
-                {"item": "Warm Homemade Veggie Curry (6 Portions)", "donor": "Chef Marcus (Supper Club Surplus)", "availability": "Bring your own container"}
-            ],
-            "message": f"🍲 Zero-Waste Food Sharing Synced for {city}! 340 meals rescued this month & shared with neighbors."
-        }
+    def impact_pantry_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it reported meals nobody rescued. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or "food rescue"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/impact/compassion-listener-network")
-    def compassion_peer_listener_network_endpoint(request: Request, body: dict):
-        vibe = body.get("vibe", "Feeling Overwhelmed & Seeking a Gentle Ear").strip()
-        return {
-            "listener_network_ready": True,
-            "matched_peer_listener": {
-                "name": "Sarah (Certified Compassionate Listener)",
-                "experience": "4 years active listening & empathetic counseling",
-                "format": "Warm Voice Call or Quiet Botanical Garden Tea Walk",
-                "wait_time": "Under 3 minutes",
-                "cost": "100% Free & Stigma-Free Community Support"
-            },
-            "message": "🧠 Mental Health Sanctuary & Peer Listener Network Active! Immediate empathetic human presence with zero stigma."
-        }
+    def impact_listener_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it matched you with a trained listener; there is no training or vetting here. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("vibe", "") or "").strip() or "listening"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/impact/intergenerational-guild")
-    def intergenerational_mentorship_guild_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "guild_synced": True,
-            "city": city,
-            "active_exchanges": [
-                {"elder": "Arthur (74, Master Carpenter)", "young_learner": "Liam (22, Student)", "exchange": "Japanese Dovetail Joinery ⇄ iPad Digital Illustration"},
-                {"elder": "Margaret (68, Sourdough & Fermenter)", "young_learner": "Chloe (26, Designer)", "exchange": "Traditional Fermentation ⇄ Smart Home & Music Setup"},
-                {"elder": "Hamish (71, Chess Master)", "young_learner": "Noor (19, Coder)", "exchange": "Endgame Tactics ⇄ Python Game Coding"}
-            ],
-            "community_impact": "Dissolving age-based isolation and weaving intergenerational lifelong friendships.",
-            "message": f"🕊️ Intergenerational Mentorship Guild Synced for {city}! 3 active elder-youth wisdom exchanges creating deep community bonds."
-        }
+    def impact_guild_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it paired you with an elder who does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or str(body.get("skill", "") or "").strip() or "guild"
+        return {**_synergy_match(request, body, activity, "Impact"), "activity": activity}
 
     @router.post("/os/master-controller")
     def universal_master_controller_endpoint(request: Request, body: dict):
-        active_mode = body.get("mode", "High Growth & Adventure").strip()
-        city = body.get("city", "Edinburgh").strip()
-        return {
-            "master_controller_online": True,
-            "city": city,
-            "active_mode": active_mode,
-            "orchestrated_subsystems": {
-                "ai_butler_v4": "Active (Serendipity & Proactive Concierge)",
-                "circadian_vitality": "Synchronized (07:30 AM Lux Window / 09:30 PM Melatonin Shield)",
-                "global_event_radar": "220+ Verified Events Ingested (RA, Luma, Dice)",
-                "payment_gateways": "Stripe + PayPal + Apple Pay 1-Tap Split Ready",
-                "mesh_and_wearables": "BLE 5.3 Mesh P2P + AirPods Spatial Audio Online",
-                "planetary_impact": "Eco-Quests + Zero-Waste Pantry + Intergenerational Guild Synced",
-                "web_of_trust": "Zero-Knowledge Community Verified (98/100)"
-            },
-            "system_health": "100% Operational (898+ Unit/Integration Tests Verified)",
-            "message": f"👑 Universal ConnectOS Master Controller Online! Orchestrating all 50+ subsystems in '{active_mode}' for {city}."
-        }
+        """What is actually configured on this instance.
+
+        Reported `master_controller_online: True` and orchestration of "50+ subsystems" —
+        an AI Butler v4, 220+ verified events, Stripe and Apple Pay ready, BLE 5.3 mesh and
+        spatial audio online, a web of trust "Zero-Knowledge Community Verified (98/100)" —
+        and closed with `system_health: "100% Operational (898+ Tests Verified)"`. Every
+        line was a constant, several described systems that do not exist, and a status page
+        that always says OK is worse than none: it is the one screen whose whole job is to
+        be believed.
+
+        Each line is derived now — a key is set or it is not, a table has rows or it does
+        not — and the things this app genuinely cannot do are listed rather than omitted.
+        """
+        from modules.platform import overview
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: overview.system(_graph(request), account_id=account_id))
 
     @router.post("/seeding/underground-vinyl-radar")
     def underground_vinyl_music_radar_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            sessions = [
-                {"title": "Unter Deck Krautrock & Analog Synth Night", "venue": "Unter Deck (Sendlinger Tor)", "time": "Tonight 21:00", "vibe": "Analog tapes, craft lager & vintage synths"},
-                {"title": "Unterfahrt Audiophile Blue Note Jazz Session", "venue": "Jazzclub Unterfahrt (Haidhausen)", "time": "Thursday 19:30", "vibe": "Original 1960s vinyl pressings & craft drinks"},
-                {"title": "Rote Sonne Minimal Acid & Ambient Pop-up", "venue": "Rote Sonne (Maximiliansplatz)", "time": "Saturday 23:00", "vibe": "Custom analog sound system & modular synth live"}
-            ]
-        else:
-            sessions = [
-                {"title": "Vaults Analog Ambient & Dub Techno Listening Night", "venue": "Underground Vault Studio", "time": "Tonight 21:00", "vibe": "Warm 100% Vinyl & Herbal Highballs"},
-                {"title": "Hidden Attic Jazz Kissa Session", "venue": "St Stephen Street Loft", "time": "Thursday 19:30", "vibe": "Blue Note 1960s Pressings & Single Origin Filter"},
-                {"title": "Courtyard Bossa Nova & Rare Groove Pop-up", "venue": "Leith Secret Mews", "time": "Saturday 16:00", "vibe": "Sunlight, Natural Wine & Brazilian Vinyl"}
-            ]
-        return {
-            "vinyl_radar_active": True,
-            "city": city,
-            "curated_underground_sessions": sessions,
-            "message": f"🎙️ Underground Vinyl & Secret DJ Radar Synced for {city}! 3 intimate analog sessions discovered."
-        }
+        """Records and live music. Was a list of named club nights with times and vibes."""
+        return _guide(request, body, "vinyl")
 
     @router.post("/seeding/culinary-popup-drops")
     def culinary_popup_drops_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            drops = [
-                {"title": "Artisan Warm Sourdough Brezen & Organic Obatzda Drop", "bakery": "Julius Brantner Brothandwerk (Schwabing)", "time": "Saturday 08:00 AM", "quantity": "50 portions only"},
-                {"title": "Secret 12-Hour Bavarian Crispy Pork Belly Ramen Test Kitchen", "chef": "Chef Hitoshi x Munich Kitchen", "time": "Friday 18:30", "access": "Password-only entrance via Glockenbach alley"},
-                {"title": "Alpine Foraged Wild Herbs & Natural Pet-Nat Tasting Dinner", "host": "Bavarian Alpine Foragers", "time": "Sunday 19:00", "access": "6 spots remaining"}
-            ]
-        else:
-            drops = [
-                {"title": "Cardamom & Wild Blueberry Sourdough Brioche Drop", "bakery": "Micro-Loft Bakery (Stockbridge)", "time": "Saturday 08:00 AM", "quantity": "40 portions only"},
-                {"title": "Secret 12-Hour Tonkotsu Ramen Test Kitchen", "chef": "Chef Kenji Pop-up", "time": "Friday 18:30", "access": "Password-only entrance via alleyway"},
-                {"title": "Wild Coastal Foraged 5-Course Tasting Dinner", "host": "Highland Foragers Collective", "time": "Sunday 19:00", "access": "6 spots remaining"}
-            ]
-        return {
-            "culinary_drops_active": True,
-            "city": city,
-            "exclusive_food_drops": drops,
-            "message": f"🥐 Culinary Secret Pop-Up Drops Synced for {city}! 3 hyper-exclusive micro-batch foodie experiences tracked."
-        }
+        """Food, markets and pop-ups. Was named chefs at named addresses, tonight, every night."""
+        return _guide(request, body, "food")
+
+    # ---- City guides: slices of a city, from the map and the board ---------
+    #
+    # Fourteen endpoints promised curated local knowledge and all fourteen branched on the
+    # word "munich" in the request -- say it and you got hand-written Isar river swims and
+    # Krautrock nights, say anything else and you got Edinburgh's. They are one question
+    # asked fourteen ways, and there are now two real sources to answer it with: the
+    # OpenStreetMap places city.places seeds, and what people and venue feeds actually put
+    # on the board.
+
+    def _guide(request: Request, body: dict, name: str) -> dict:
+        from modules.city import guide
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = str(body.get("city", "") or "").strip()
+        if not city and viewer_id:
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), viewer_id)
+        if not city:
+            return {"view": name, "empty": True, "needs_city": True,
+                    "places": [], "meetups": [], "events": [],
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: guide.view(_graph(request), city, name, viewer_id=viewer_id))
+
+    @router.get("/city/guide")
+    def city_guide_endpoint(request: Request, city: str = "", view: str = "culture"):
+        """Any slice, by name. The fourteen below are named shortcuts into this."""
+        return _guide(request, {"city": city}, view)
+
+    @router.get("/city/guide/views")
+    def city_guide_views_endpoint(request: Request):
+        from modules.city import guide
+        return {"views": guide.views()}
 
     @router.post("/seeding/wild-nature-trails")
     def wild_nature_trails_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            spots = [
-                {"title": "Flaucher Isar River Gravel Pebble Swim & Campfire", "distance": "3km south", "difficulty": "Easy", "gpx_cached": True, "water_quality": "Pristine Alpine River Melt"},
-                {"title": "Perlacher Forst Pine Trail Gravel Run & Lookout", "distance": "8km south", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "Dark Sky Class 3"},
-                {"title": "Walchensee Alpine Turquoise Fjord Day Excursion", "distance": "65km south", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "360° Bavarian Alps Panorama"}
-            ]
-        else:
-            spots = [
-                {"title": "Gullane Hidden Sea Cave & Wild Cold Plunge", "distance": "28km east", "difficulty": "Moderate", "gpx_cached": True, "stargazing_rating": "Dark Sky Class 3"},
-                {"title": "Pentland Hills Unmapped Waterfall Scramble", "distance": "12km south", "difficulty": "Easy-Moderate", "gpx_cached": True, "water_quality": "Pristine Mountain Stream"},
-                {"title": "Blackford Hill Sunset Stargazing Lookout", "distance": "4km south", "difficulty": "Easy", "gpx_cached": True, "stargazing_rating": "360° Skyline Panorama"}
-            ]
-        return {
-            "wilderness_radar_active": True,
-            "city": city,
-            "secret_nature_spots": spots,
-            "offline_maps_ready": "All GPX trail tracks and topographical maps cached for 100% offline navigation.",
-            "message": f"⛰️ Wild Nature & Hidden Wilderness Coordinates Synced for {city}! 3 pristine offline-ready expeditions loaded."
-        }
+        """Trails, parks and swim spots that are actually on the map.
+
+        Returned hand-written walks with distances, difficulty ratings and "GPX cached" for
+        any city -- a claim about terrain nobody had surveyed.
+        """
+        return _guide(request, body, "trails")
 
     @router.post("/seeding/literary-salon-radar")
     def literary_salon_radar_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            salons = [
-                {"title": "Literaturhaus Munich Philosophical Salon & Wine", "venue": "Literaturhaus Salvatorplatz", "time": "Friday 19:00", "topic": "Walter Benjamin & The Arcades"},
-                {"title": "Buchhandlung L. Werner Architecture & Poetry Circle", "venue": "Residenzstraße Studio", "time": "Wednesday 20:00", "entry": "Bring a poem or design manifesto"},
-                {"title": "Werkstattkino Midnight 35mm Script Reading", "venue": "Fraunhoferstraße Basement", "time": "Saturday 23:00", "entry": "Craft beer & hot pretzels provided"}
-            ]
-        else:
-            salons = [
-                {"title": "Candlelit Typewriter Poetry & Spoken Word Circle", "venue": "Typewronger Books Courtyard", "time": "Wednesday 20:00", "entry": "Bring a poem or favorite passage"},
-                {"title": "Existential Philosophy & Stoic Wine Salon", "venue": "Writers' Museum Cellar", "time": "Friday 19:00", "topic": "Marcus Aurelius on City Flourishing"},
-                {"title": "Midnight 35mm Script Reading Guild", "venue": "Old Town Independent Cinema Loft", "time": "Saturday 23:00", "entry": "Hot cider provided"}
-            ]
-        return {
-            "literary_radar_active": True,
-            "city": city,
-            "curated_salons": salons,
-            "message": f"📚 Literary Salons & Independent Bookshop Radar Synced for {city}! 3 enriching intellectual gatherings tracked."
-        }
+        """Books, readings and quiet rooms. Was a salon with a host and a reading list."""
+        return _guide(request, body, "literary")
 
     @router.post("/seeding/social-viral-pulse")
-    def social_viral_pulse_scraper_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            signals = [
-                {"signal": "Reddit r/Munich Spike", "venue": "Chinesischer Turm Biergarten", "velocity": "+280% mentions today", "insight": "Unannounced brass band sunset jam under chestnut trees"},
-                {"signal": "Instagram Geo-Tag Surge", "venue": "Eisbachwelle Englischer Garten", "velocity": "64 tags in past 2 hours", "insight": "Summer night floodlight river surfing session active"},
-                {"signal": "TikTok Micro-Viral Clip", "venue": "Speakeasy Bar Salon Pauli", "velocity": "22.5k views", "insight": "Hidden door behind telephone booth in Maxvorstadt"}
-            ]
-        else:
-            signals = [
-                {"signal": "Reddit r/Edinburgh Spike", "venue": "Courtyard Natural Wine Bar", "velocity": "+320% mentions today", "insight": "Unannounced courtyard DJ & wood-fired pizza pop-up"},
-                {"signal": "Instagram Geo-Tag Surge", "venue": "Leith Shore Floating Sauna", "velocity": "48 tags in past 2 hours", "insight": "Sunset cold plunge & sauna session active right now"},
-                {"signal": "TikTok Micro-Viral Clip", "venue": "Secret Bookshop Hidden Speakeasy", "velocity": "14.2k views", "insight": "Hidden bookshelf doorway with bespoke cocktails"}
-            ]
-        return {
-            "viral_pulse_active": True,
-            "city": city,
-            "social_signals_detected": signals,
-            "message": f"📱 Social & Viral Pulse Scraper Active for {city}! 3 trending real-world surges detected."
-        }
+    def social_viral_pulse_endpoint(request: Request, body: dict):
+        """Where people are actually going, by the only measure this app has: who said yes.
+
+        It reported trending venues with view counts and a virality index. Nothing here
+        counts views or shares, and there is no social graph to be viral across.
+        """
+        from modules.city import guide
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = str(body.get("city", "") or "").strip()
+        if not city and viewer_id:
+            from modules.city import synergy
+            city = synergy.city_for(_graph(request), viewer_id)
+        if not city:
+            return {"meetups": [], "empty": True, "needs_city": True,
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: guide.busiest(_graph(request), city, viewer_id=viewer_id))
 
     @router.post("/seeding/live-footfall-anomalies")
     def live_footfall_anomalies_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            hotspots = [
-                {"zone": "Monopteros Hill Englischer Garten", "anomaly_type": "Cluster of 45 people @ 19:45", "probable_event": "Sunset acoustic guitar & bongo jam"},
-                {"zone": "Flaucher Isar Gravel Banks", "anomaly_type": "Density spike +210% @ 18:00", "probable_event": "Spontaneous twilight pebble barbecue & river dip"},
-                {"zone": "Gärtnerplatz Roundabout Steps", "anomaly_type": "Evening pedestrian surge", "probable_event": "Open-air social terrace gathering with gelato & spritz"}
-            ]
-        else:
-            hotspots = [
-                {"zone": "Old Town Cobblestone Close", "anomaly_type": "Cluster of 35 people @ 20:15", "probable_event": "Acoustic folk flash-jam session"},
-                {"zone": "Calton Hill North Slope", "anomaly_type": "Elevated gathering @ sunset", "probable_event": "Spontaneous golden hour sketch & yoga circle"},
-                {"zone": "Portobello Prom West", "anomaly_type": "Morning footfall density +180%", "probable_event": "Sunday sunrise beach run & cold swim club"}
-            ]
-        return {
-            "anomaly_detector_active": True,
-            "city": city,
-            "detected_footfall_hotspots": hotspots,
-            "confidence_score": "96.2% Footfall Anomaly Accuracy",
-            "message": f"🗺️ Live Footfall & OpenStreetMap Anomaly Radar Synced for {city}! 3 real-world secret gatherings detected."
-        }
+        """Footfall needs sensors nobody has installed.
+
+        It reported live crowd density per venue with anomaly percentages. There is no
+        source for that and no honest approximation of it, so this says so and hands back
+        the nearest real thing -- how many people have actually said they are going
+        somewhere.
+        """
+        from modules.city import guide
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = str(body.get("city", "") or "").strip()
+        nearest = {}
+        if city:
+            nearest = guard(lambda: guide.busiest(_graph(request), city,
+                                                  viewer_id=viewer_id))
+        return guide.unavailable(
+            "live footfall",
+            "no sensor, camera or telemetry source is connected, and there is no honest "
+            "way to infer crowd density from a graph of meetups",
+            alternative=nearest)
 
     @router.post("/seeding/editorial-press-scraper")
-    def editorial_cultural_press_scraper_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            recs = [
-                {"source": "Süddeutsche Zeitung Kultur", "highlight": "Open-air cinema under the stars at Olympiapark"},
-                {"source": "Mit Vergnügen München", "highlight": "Secret cinnamon knot & flat white pop-up in Schwabing"},
-                {"source": "Resident Advisor Munich", "highlight": "Analog sound system launch party at Blitz Club river terrace"}
-            ]
-        else:
-            recs = [
-                {"source": "The Skinny", "highlight": "Underground Scottish Comedy Fringe Previews @ The Monkey Barrel"},
-                {"source": "The Infatuation", "highlight": "Micro-bakery pistachio cardamom pastries in New Town"},
-                {"source": "Resident Advisor Editorial", "highlight": "Analog sound system launch party at Custom House Leith"}
-            ]
-        return {
-            "editorial_scraper_active": True,
-            "city": city,
-            "publications_crawled": ["Süddeutsche Zeitung Kultur", "Mit Vergnügen", "Resident Advisor", "TimeOut"],
-            "editorial_recommendations": recs,
-            "message": f"📰 Editorial Cultural Press & Substack Scraper Synced for {city}! Top critic picks ingested."
-        }
+    def editorial_press_scraper_endpoint(request: Request, body: dict):
+        """This app does not scrape publications.
+
+        It claimed to be pulling editorial picks from named city magazines. Scraping
+        publications with no agreement to do so is somebody else's work taken without
+        asking, and it is not something to build quietly. What this app does instead is
+        subscribe to feeds a venue or publication *publishes* -- which is the same content,
+        offered rather than taken.
+        """
+        from modules.city import guide
+        from modules.feeds import ingest
+        url = str(body.get("url", "") or "").strip()
+        found = {}
+        if url:
+            _operator(request)
+            found = guard(lambda: ingest.discover_feeds(
+                _graph(request), url, add=bool(body.get("add")),
+                city=str(body.get("city", "") or "").strip()))
+        return guide.unavailable(
+            "editorial scraping",
+            "this app does not scrape publications it has no agreement with; pass a `url` "
+            "and it will look for a feed that site actually publishes",
+            alternative=found)
 
     @router.post("/seeding/weather-tide-triggers")
     def weather_tide_activity_triggers_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            triggers = [
-                {"trigger": "River Surf Wave Telemetry", "condition": "Isar discharge 45 m³/s (Optimal Standing Wave)", "action": "Invites Englischer Garten dawn surf crew"},
-                {"trigger": "Biergarten Golden Sunset Window", "condition": "22°C Clear Sky · Sunset 20:45", "action": "Pre-reserves long wooden table at Chinesischer Turm"},
-                {"trigger": "Alps Panorama Stargazing Alert", "condition": "0% Cloud Cover · Mountain Föhn Wind", "action": "Auto-plans twilight bike ride to Perlacher Mugl lookout"}
-            ]
-            conditions = "22°C Sunny · 6 km/h Breeze · 0% Clouds"
-        else:
-            triggers = [
-                {"trigger": "Golden Hour Stargazing Alert", "condition": "0% clouds + Kp 4.8 Northern Lights index", "action": "Auto-invites 4-person dark-sky circle to Blackford Hill"},
-                {"trigger": "Glassy Waters Sea Kayak & Swim", "condition": "Wind < 5 knots + high tide at 18:30", "action": "Pre-notifies coastal water sports squad"},
-                {"trigger": "Terrace Natural Wine & Sun Soak", "condition": "Sunny 19°C afternoon window", "action": "Pre-reserves sunlit terrace table at Artisan Loft"}
-            ]
-            conditions = "19°C Sunny · 4 knots wind · 0% Cloud Cover"
-        return {
-            "weather_engine_active": True,
-            "city": city,
-            "current_conditions": conditions,
-            "spontaneous_weather_triggers": triggers,
-            "message": f"☀️ Weather & Tide-Triggered Spontaneous Activity Engine Synced for {city}! 3 climate-perfect outings generated."
-        }
+        """Same thing, including sea state.
+
+        The old version branched on the word "munich" in the request and returned
+        hand-written Isar river-surf telemetry; everything else got Edinburgh's.
+        """
+        from modules.city import conditions
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: conditions.triggers(_graph(request), city))
 
     @router.post("/vision/intake")
     def ai_vision_poster_intake_endpoint(request: Request, body: dict):
+        """A poster you photographed, turned into a real event.
+
+        Ported from the other line of work, which built this properly — it stores what you
+        actually pass. Its defaults were removed: an empty body created "Midnight Vinyl
+        Listening: Japanese Jazz & Ambient" at "St Stephen Street Loft" in your graph, so a
+        stray request wrote an event you had never been to and could not tell from a real
+        one.
+        """
         graph = _graph(request)
         session = graph.session("events", {"events:read", "events:write", "places:write"})
         
-        raw_text = body.get("text", "Midnight Vinyl Listening: Japanese Jazz & Ambient")
-        title = body.get("title", "Midnight Vinyl Listening: Japanese Jazz & Ambient")
-        venue = body.get("venue", "St Stephen Street Loft")
+        raw_text = body.get("text", "")
+        title = body.get("title", "")
+        venue = body.get("venue", "")
         
         event_id = session.create_entity("event", {
             "title": title,
             "place": venue,
-            "date": body.get("date", "Friday 21:00"),
-            "cost": body.get("cost", "£5 or BYOB"),
+            "date": body.get("date", ""),
+            "cost": body.get("cost", ""),
             "source": "Physical Street Flyer OCR",
             "raw_text": raw_text
         }, source="vision_intake", confidence=0.95)
@@ -4484,338 +4969,105 @@ def build_router(auth) -> APIRouter:
             "processing_time_ms": 420,
             "message": f"📸 Physical Street Flyer OCR Intake Successful! Extracted and seeded event '{title}' into ConnectOS graph."
         }
-
     @router.post("/seeding/live-external-api-ingest")
     def live_external_api_ingestion_endpoint(request: Request, body: dict):
-        city = body.get("city", "Edinburgh").strip()
-        city_lower = city.lower()
-        
-        lat, lon = ("48.1351", "11.5820") if ("munich" in city_lower or "münchen" in city_lower) else ("55.9533", "-3.1883")
-        wiki_page = "Englischer_Garten" if ("munich" in city_lower or "münchen" in city_lower) else "Edinburgh_Festival_Fringe"
-        
-        live_weather = {"temp_c": 22.4, "wind_kmh": 7.2, "status": "LIVE_TELEMETRY"}
-        try:
-            url = f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current_weather=true"
-            req = urllib.request.Request(url, headers={"User-Agent": "ConnectOS/1.0"})
-            with urllib.request.urlopen(req, timeout=3) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                cw = data.get("current_weather", {})
-                live_weather = {
-                    "temp_c": cw.get("temperature", 22.4),
-                    "wind_kmh": cw.get("windspeed", 7.2),
-                    "time": cw.get("time"),
-                    "status": "LIVE_HTTP_200_OK"
-                }
-        except Exception:
-            pass
+        """Live readings for a city, from the outside.
 
-        live_cultural_events = []
-        try:
-            wiki_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{wiki_page}"
-            req1 = urllib.request.Request(wiki_url, headers={"User-Agent": "ConnectOS/1.0 (contact@connectos.app)"})
-            with urllib.request.urlopen(req1, timeout=3) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                live_cultural_events.append({
-                    "title": data.get("title", wiki_page.replace("_", " ")),
-                    "source": "Wikipedia REST API v1 (Live)",
-                    "extract": data.get("extract", "Renowned cultural hub.")[:140] + "...",
-                    "status": "INGESTED_LIVE"
-                })
-        except Exception:
-            live_cultural_events.append({
-                "title": wiki_page.replace("_", " "),
-                "source": "Wikipedia REST API (Cached Fallback)",
-                "extract": "Historic landmark park and cultural gathering space.",
-                "status": "CACHED_FALLBACK"
-            })
-
-        return {
-            "live_ingestion_complete": True,
-            "city": city,
-            "live_weather": live_weather,
-            "live_cultural_events": live_cultural_events,
-            "connected_apis": [
-                "Open-Meteo Live Marine/Atmospheric Telemetry",
-                "Wikipedia Live REST API v1",
-                "OpenStreetMap Overpass Geocoding Engine",
-                "Luma / RA Headless Discovery Feeds"
-            ],
-            "message": f"🌐 Real-Time Live External APIs Ingested for {city}! Live weather: {live_weather.get('temp_c')}°C, live festival encyclopedia synced."
-        }
+        This one did make a real Open-Meteo call -- and then fell back to a hardcoded
+        22.4 °C on any failure, from a lat/lon table with exactly two cities in it. The
+        geocoder places any city now, and a failed fetch is a status rather than a plausible
+        temperature.
+        """
+        from modules.city import conditions
+        city = _seed_city(body)
+        if not city:
+            raise HTTPException(status_code=400, detail="which city?")
+        return guard(lambda: conditions.read(_graph(request), city,
+                                             refresh=bool(body.get("refresh"))))
 
     @router.post("/nightlife/party-radar")
-    def nightlife_party_and_club_radar_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        graph = _graph(request)
-        session = graph.session("events", {"events:read", "events:write", "places:read", "places:write"})
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            clubs = [
-                {
-                    "name": "🔥 Blitz Club (VOID Sound System)",
-                    "genre": "Deep Techno, House & Open-Air River Terrace",
-                    "timing": "Tonight 23:00 – 08:00",
-                    "location": "Museumsinsel / Isar Riverbank",
-                    "insider_tip": "World's most advanced acoustic sound treatment; open-air terrace overlooking Isar rapids",
-                    "door_policy": "Relaxed vibe, no photos on dancefloor",
-                    "queue_status": "Fast-Pass Lane Available"
-                },
-                {
-                    "name": "🚂 Bahnwärter Thiel (Alternative Wonderland)",
-                    "genre": "Electronic, Live Modular, Global Grooves & Bonfires",
-                    "timing": "Tonight 20:00 – Late",
-                    "location": "Viehhof / Schlachthofviertel",
-                    "insider_tip": "Stacked shipping containers, vintage subway cars, open-air fire pits & hidden DJ booths",
-                    "door_policy": "Eclectic, creative & open to all",
-                    "queue_status": "Express Entry Open"
-                },
-                {
-                    "name": "⚡ Rote Sonne (Basement Underground)",
-                    "genre": "Hypnotic Techno, Electro & Acid",
-                    "timing": "Tonight 23:30 – 07:00",
-                    "location": "Maximiliansplatz Basement",
-                    "insider_tip": "Intimate dark basement room with analog strobe array",
-                    "door_policy": "Dance-first atmosphere",
-                    "queue_status": "Guestlist Pre-Check In"
-                }
-            ]
-        elif "edinburgh" in city_lower:
-            clubs = [
-                {
-                    "name": "🔥 Sneaky Pete's (Legendary 100-Cap Sweatbox)",
-                    "genre": "Underground House, Techno & Indie Electro",
-                    "timing": "Tonight 23:00 – 03:00",
-                    "location": "Cowgate Old Town",
-                    "insider_tip": "Resident Advisor top-rated intimate sweatbox with unmatched energy",
-                    "door_policy": "Intimate & high energy",
-                    "queue_status": "Fast-Pass Active"
-                },
-                {
-                    "name": "⚡ Cabaret Voltaire (Subterranean Stone Caverns)",
-                    "genre": "Tech-House & Deep Underground Bass",
-                    "timing": "Tonight 22:30 – 03:00",
-                    "location": "Blair Street Vaults",
-                    "insider_tip": "Ancient 18th-century vaulted stone chambers with two sound zones",
-                    "door_policy": "Casual, friendly & vibrant",
-                    "queue_status": "Express Vault Entry"
-                },
-                {
-                    "name": "🎪 The Bongo Club (Midnight Bass & Soul)",
-                    "genre": "Afrobeat, UK Bass, Funk & Drum & Bass",
-                    "timing": "Tonight 23:00 – 03:00",
-                    "location": "Cowgate Central",
-                    "insider_tip": "Non-profit arts & sound venue run by creative community",
-                    "door_policy": "Welcoming & diverse",
-                    "queue_status": "Pre-Reserved Table"
-                }
-            ]
-        else:
-            clubs = [
-                {
-                    "name": "🔥 Lux Frágil (Waterfront River Giant)",
-                    "genre": "World-Class House, Disco & Minimal",
-                    "timing": "Tonight 23:30 – 06:00",
-                    "location": "Santa Apolónia Waterfront",
-                    "insider_tip": "Iconic rooftop terrace facing sunrise over Tagus river",
-                    "door_policy": "Dress creative & confident",
-                    "queue_status": "VIP Terrace Sync"
-                },
-                {
-                    "name": "⚡ Ministerium Club",
-                    "genre": "Raw Industrial Techno",
-                    "timing": "Tonight 00:00 – 07:00",
-                    "location": "Praça do Comércio Arches",
-                    "insider_tip": "Historical arched warehouse with bone-shaking sound system",
-                    "door_policy": "Underground focus",
-                    "queue_status": "Fast-Track Guestlist"
-                }
-            ]
-        
-        # Persist venues in graph if new
-        for club in clubs:
-            existing = session.find_entities("place", {"name": club["name"]}, limit=1)
-            if not existing:
-                session.create_entity("place", {
-                    "name": club["name"],
-                    "city": city,
-                    "vibe": club["genre"],
-                    "address": club["location"],
-                    "insider_tip": club["insider_tip"]
-                }, source="nightlife_radar", confidence=1.0)
+    def nightlife_party_radar_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
 
-        return {
-            "nightlife_radar_active": True,
-            "city": city,
-            "curated_clubs_and_parties": clubs,
-            "message": f"🔥 Nightlife & Party Radar Synced for {city}! {len(clubs)} top verified underground clubs & warehouse sessions ready."
-        }
+        Used to be a literal: it listed four parties with invented headliners and door times. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or "nightlife"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/nightlife/secret-speakeasies")
-    def secret_speakeasy_bars_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        graph = _graph(request)
-        session = graph.session("places", {"places:read", "places:write"})
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            bars = [
-                {
-                    "name": "🍸 Bar Salon Pauli (Telephone Booth Entrance)",
-                    "entrance": "Step inside vintage red phone booth in Maxvorstadt and dial 4-digit code",
-                    "vibe": "Velvet banquettes, low candlelight, bespoke Japanese highballs & bourbon",
-                    "address": "Maxvorstadt Secret Alley",
-                    "code_of_conduct": "Discreet, no flash photography"
-                },
-                {
-                    "name": "🧪 Zephyr Bar (Avant-Garde Molecular Mixology)",
-                    "entrance": "Unmarked wooden door next to art bookstore",
-                    "vibe": "Infused spirits, botanical smoke bubbles, world-class cocktail artistry",
-                    "address": "Müllerstraße (Glockenbachviertel)",
-                    "code_of_conduct": "Intimate seating only"
-                },
-                {
-                    "name": "🏛️ Goldene Bar Terrace (Colonnade Sunset Cocktails)",
-                    "entrance": "Rear colonnade terrace of Haus der Kunst overlooking the park",
-                    "vibe": "1930s gilded murals, live bossa nova vinyl, fresh mint juleps in sunset breeze",
-                    "address": "Prinzregentenstraße 1",
-                    "code_of_conduct": "Open-air sunset chic"
-                }
-            ]
-        elif "edinburgh" in city_lower:
-            bars = [
-                {
-                    "name": "🍸 Panda & Sons (Barbershop Bookcase Entrance)",
-                    "entrance": "Walk into vintage barbershop, pull the secret false bookcase to descend",
-                    "vibe": "1920s Prohibition speakeasy, sub-zero freeze distilled cocktail alchemy",
-                    "address": "79 Queen Street",
-                    "code_of_conduct": "Cocktail enthusiasts"
-                },
-                {
-                    "name": "🧪 Bramble Bar (Unmarked Basement Brass Plaque)",
-                    "entrance": "Descend stone steps beneath dry cleaners; look for tiny brass 82A plaque",
-                    "vibe": "Low stone ceilings, hip-hop vinyl, world-renowned gin & botanical cocktails",
-                    "address": "16A Queen Street Basement",
-                    "code_of_conduct": "Cozy and buzzin"
-                },
-                {
-                    "name": "🔮 Hoot The Redeemer (Fortune Teller Coin Entrance)",
-                    "entrance": "Insert arcade token into vintage mechanical fortune teller to open heavy door",
-                    "vibe": "Victorian funfair underworld, alcoholic boozy ice cream & bourbon slushies",
-                    "address": "7 Hanover Street Sub-Basement",
-                    "code_of_conduct": "Playful and spirited"
-                }
-            ]
-        else:
-            bars = [
-                {
-                    "name": "🍸 Red Frog Speakeasy (Hidden Frog Buzzer)",
-                    "entrance": "Press secret buzzer on antique gold frog statue beside heavy wooden door",
-                    "vibe": "Dimly lit speakeasy with clandestine cellar room",
-                    "address": "Praça da Alegria",
-                    "code_of_conduct": "Ring and whisper password"
-                },
-                {
-                    "name": "🕯️ Foxtrot (Art Deco Doorbell Den)",
-                    "entrance": "Ring vintage brass doorbell; peephole opens to inspect guest",
-                    "vibe": "Stained glass, grandfather clocks, roaring fireplace & craft beer",
-                    "address": "Rua Nova da Piedade",
-                    "code_of_conduct": "Classic bohemian"
-                }
-            ]
-        
-        # Persist speakeasies in graph
-        for bar in bars:
-            existing = session.find_entities("place", {"name": bar["name"]}, limit=1)
-            if not existing:
-                session.create_entity("place", {
-                    "name": bar["name"],
-                    "city": city,
-                    "entrance": bar["entrance"],
-                    "vibe": bar["vibe"],
-                    "address": bar["address"]
-                }, source="secret_speakeasies", confidence=1.0)
+    def nightlife_speakeasies_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
 
-        return {
-            "speakeasies_active": True,
-            "city": city,
-            "secret_cocktail_dens": bars,
-            "message": f"🍸 Secret Speakeasy & Cocktail Bar Radar Synced for {city}! {len(bars)} hidden doors & entrance passcodes unlocked."
-        }
+        Used to be a literal: it handed out a door password for a bar that does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("password", "") or "").strip() or "speakeasy"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/nightlife/guestlist-vip")
-    def nightlife_fastpass_guestlist_endpoint(request: Request, body: dict):
-        venue = body.get("venue", "Blitz Club").strip()
-        crew_size = int(body.get("crew_size", 2))
-        graph = _graph(request)
-        session = graph.session("events", {"events:read", "events:write"})
-        
-        existing = session.find_entities("event", {"title": f"VIP Guestlist @ {venue}"}, limit=1)
-        event_id = existing[0]["id"] if existing else session.create_entity("event", {
-            "title": f"VIP Guestlist @ {venue}",
-            "venue": venue,
-            "crew_size": crew_size,
-            "fastpass_code": "CONNECT-VIP-882",
-            "status": "confirmed"
-        }, source="guestlist_vip", confidence=1.0)
+    def nightlife_guestlist_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
 
-        return {
-            "guestlist_confirmed": True,
-            "event_id": event_id,
-            "venue": venue,
-            "crew_size": crew_size,
-            "fastpass_code": "CONNECT-VIP-882",
-            "entry_curfew": "Before 01:00 AM for guaranteed queue bypass",
-            "perks_included": [
-                "Queue-Bypass Fast Lane Entrance",
-                "Complimentary Welcome Highball / Club-Mate",
-                "Auto-Split Tab across Squad Ledger"
-            ],
-            "message": f"🎟️ Fast-Pass Guestlist & Queue Bypass Confirmed for {venue} ({crew_size} guests)! Show badge at VIP door."
-        }
+        Used to be a literal: it confirmed a guestlist spot; there is no venue integration to confirm one with. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("venue", "") or "").strip() or "guestlist"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/nightlife/crew-pregame")
-    def pregame_crew_and_safe_walk_endpoint(request: Request, body: dict):
-        destination = body.get("destination", "Blitz Club").strip()
-        city = body.get("city", "Munich").strip()
-        graph = _graph(request)
-        session = graph.session("crews", {"crews:read", "crews:write", "places:write"})
-        
-        existing = session.find_entities("place", {"name": "Gärtnerplatz Terrace & Spriz Pop-Up"}, limit=1)
-        if not existing:
-            session.create_entity("place", {"name": "Gärtnerplatz Terrace & Spriz Pop-Up", "city": city, "vibe": "Pregame spritz terrace"}, source="crew_pregame", confidence=1.0)
+    def nightlife_pregame_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
 
-        return {
-            "pregame_squad_matched": True,
-            "destination": destination,
-            "city": city,
-            "pregame_gathering": {
-                "venue": "Gärtnerplatz Terrace & Spriz Pop-Up",
-                "time": "Tonight 21:15",
-                "squad": [
-                    {"name": "Lukas (Techno Enthusiast)", "vibe": "Going to Blitz · Trust 98"},
-                    {"name": "Sophie (Sound Designer)", "vibe": "Loves VOID sound system · Trust 96"},
-                    {"name": "Jan (Photographer)", "vibe": "Local guide · Trust 95"}
-                ]
-            },
-            "safewalk_home_escort": {
-                "status": "ARMED_FOR_0400_AM",
-                "buddy": "Lukas (Lives 3 blocks from your place)",
-                "live_gps_radar": "Active in background with 1-tap SOS"
-            },
-            "message": f"🍻 Pre-Game Squad & SafeWalk Home Escort Synced for {destination}! Meeting at 21:15 before heading to the club."
-        }
+        Used to be a literal: it assembled a pregame crew out of names. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("destination", "") or "").strip() or "pregame"
+        return {**_synergy_match(request, body, activity, "Nightlife"), "activity": activity}
 
     @router.post("/journal/daily-reflection-synthesis")
     def daily_reflection_synthesis_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        date_str = body.get("date", "Today").strip()
-        graph = _graph(request)
-        claude = _claude(request)
-        return daily_synthesis.synthesize_daily_reflection(graph, city=city, date_str=date_str, claude=claude)
+        """A day's reflection, from your own rows.
+
+        This was the most brazen prop in the repo, because it did not invent a venue or a
+        number — it invented your day. Send it "Munich" and it told you, in the first
+        person, that you had watched dawn surfers on the Eisbach wave and shared sourdough
+        pretzels with new local friends, then thanked a man called Lukas for a speakeasy
+        passcode. A branch per city and nothing else: two people in the same city got the
+        same memories, and so did somebody who had spent the day in bed.
+
+        Where you are does not tell anybody what they did, so the city is gone. It reads
+        check-ins, moments, notes and spending, names the row behind every line, and says
+        plainly when a day has nothing in it.
+        """
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: journal.day(_graph(request), account_id=account_id,
+                                         date=body.get("date", ""),
+                                         claude=_claude(request)))
+
+    @router.get("/journal/week")
+    def journal_week(request: Request, days: int = 7):
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: journal.week(_graph(request), account_id=account_id,
+                                          days=days, claude=_claude(request)))
 
     @router.post("/voice/copilot-chat")
     def voice_copilot_chat_endpoint(request: Request, body: dict):
-        query = body.get("query", "What's happening nearby tonight?").strip()
-        city = body.get("city", "Munich").strip()
+        """An answer built from what your graph actually holds.
+
+        Ported from the other line of work, which gathers real places, events, goals and
+        people rather than returning prose. Its defaults were removed: it answered about
+        "Munich" for a caller who named no city, which is the same guess this repo removed
+        everywhere else.
+        """
+        query = body.get("query", "").strip()
+        city = body.get("city", "").strip()
         graph = _graph(request)
         claude = _claude(request)
         
@@ -4876,153 +5128,93 @@ def build_router(auth) -> APIRouter:
             "action_tag": action_tag,
             "message": f"🎙️ Voice AI Copilot Generated Spoken Answer for '{query}' in {city}."
         }
-
     @router.post("/export/universal-markdown")
     def universal_markdown_export_endpoint(request: Request, body: dict):
-        format_type = body.get("format", "Obsidian").strip()
-        graph = _graph(request)
-        return universal_markdown.export_markdown_vault(graph, format_type=format_type)
+        """Everything you own, as Markdown, in this response.
+
+        Reported 48 vault files, "42 connected friends with bilateral trust indices", "18
+        hidden gems, vinyl lofts & speakeasy access passcodes", and a `download_url` to a zip
+        on connectos.app that was never written, on a host this deployment does not serve.
+        The sample preview was a hand-written note about a day in Munich carrying a
+        `presence_score: 98.5%`. Nothing was exported, and somebody who clicked it believed
+        their data was safe.
+
+        This is the export itself rather than a link to one: a URL means a file has to exist
+        somewhere later, and the thing it replaces reported one that never existed at all.
+        Credentials and their hashes are excluded — they are not your data, and an export is
+        a file that ends up in a lot of places.
+        """
+        from modules.personal import export
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: export.markdown(_graph(request), account_id=account_id))
+
+    @router.get("/export/universal-markdown.md")
+    def universal_markdown_file(request: Request):
+        """The same export as one Markdown file, for saving straight to disk."""
+        from modules.personal import export
+        account_id, _ = _signal_caller(request)
+        text = guard(lambda: export.as_single_file(_graph(request), account_id=account_id))
+        return Response(content=text, media_type="text/markdown; charset=utf-8")
 
     @router.post("/workshops/micro-masterclasses")
-    def micro_masterclasses_endpoint(request: Request, body: dict):
-        city = body.get("city", "Munich").strip()
-        graph = _graph(request)
-        session = graph.session("events", {"events:read", "events:write", "places:write"})
-        
-        city_lower = city.lower()
-        if "munich" in city_lower or "münchen" in city_lower:
-            classes = [
-                {
-                    "title": "📷 35mm Analog Street Photography Walk",
-                    "mentor": "Hanna (Leica Master & Street Photographer)",
-                    "schedule": "Saturday 14:00 (60 mins)",
-                    "location": "Maxvorstadt Architecture Quarter",
-                    "capacity": "6 spots (2 remaining)",
-                    "vibe": "Manual exposure, framing light & shadow on stone colonnades"
-                },
-                {
-                    "title": "🍞 Wild Sourdough Fermentation Science",
-                    "mentor": "Florian (Artisan Baker)",
-                    "schedule": "Sunday 10:30 (75 mins)",
-                    "location": "Schwabing Artisan Hearth",
-                    "capacity": "8 spots (Sold Out / Waitlist Open)",
-                    "vibe": "Hydration percentages, wild starter microbiology & scoring techniques"
-                },
-                {
-                    "title": "❄️ Isar Alpine Cold Plunge & Wim Hof Breathwork",
-                    "mentor": "Dr. Markus (Sports Physiologist)",
-                    "schedule": "Wednesday 07:00 (45 mins)",
-                    "location": "Flaucher River Pebble Bank",
-                    "capacity": "12 spots (Open drop-in)",
-                    "vibe": "Vagus nerve activation, box breathing & ice-cold river immersion"
-                }
-            ]
-        else:
-            classes = [
-                {
-                    "title": "📷 35mm Analog Photography & Darkroom Print",
-                    "mentor": "Catriona (Edinburgh Darkroom Guild)",
-                    "schedule": "Saturday 14:00 (60 mins)",
-                    "location": "Leith Shore Loft",
-                    "capacity": "6 spots (1 remaining)",
-                    "vibe": "Silver halide exposure & black & white chemistry"
-                },
-                {
-                    "title": "☕ Single-Origin Cupping & Sensory Chemistry",
-                    "mentor": "Alasdair (Head Roaster)",
-                    "schedule": "Sunday 11:00 (60 mins)",
-                    "location": "Stockbridge Roastery",
-                    "capacity": "8 spots (3 remaining)",
-                    "vibe": "Altitude, washed vs anaerobic fermentation cupping flight"
-                }
-            ]
-            
-        # Ensure persisted in graph
-        for c in classes:
-            existing = session.find_entities("event", {"title": c["title"]}, limit=1)
-            if not existing:
-                session.create_entity("event", {
-                    "title": c["title"],
-                    "topic": "workshop",
-                    "category": "masterclass",
-                    "city": city,
-                    "schedule": c["schedule"],
-                    "place": c["location"],
-                    "mentor": c["mentor"],
-                    "vibe": c["vibe"]
-                }, source="micro_masterclasses", confidence=1.0)
+    def workshops_masterclass_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
 
-        return {
-            "workshops_active": True,
-            "city": city,
-            "micro_masterclasses": classes,
-            "message": f"🤝 {len(classes)} Verified Neighborhood Micro-Masterclasses Synced for {city}! 60-min high-impact craft sessions."
-        }
+        Used to be a literal: it scheduled a masterclass with a named tutor. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("skill", "") or "").strip() or str(body.get("city", "") or "").strip() or "masterclass"
+        return {**_synergy_match(request, body, activity, "Workshops"), "activity": activity}
 
     @router.post("/travel/layover-discovery")
     def travel_layover_discovery_endpoint(request: Request, body: dict):
         hub = body.get("hub", "Munich Airport (MUC)").strip()
         layover_hours = float(body.get("layover_hours", 4.5))
-        safe_hours = max(0.5, round(layover_hours - 1.5, 1))
-        
-        hub_lower = hub.lower()
-        if "edi" in hub_lower or "edinburgh" in hub_lower:
-            route_name = "Royal Mile & Ancient Stone Close Express"
-            transit = "Edinburgh Trams (32 mins to Princes Street)"
-            stops = [
-                {"time": "11:00", "action": "Catch Tram from Edinburgh Airport to St Andrew Square"},
-                {"time": "11:45", "action": "Walk Cockburn Street and explore Typewronger Books courtyard"},
-                {"time": "12:30", "action": "Warm cardamom bun & single origin pour-over @ Milkman Coffee"},
-                {"time": "13:15", "action": "Tram return to EDI Airport with automated gate GPS alert"}
-            ]
-        elif "lis" in hub_lower or "lisbon" in hub_lower:
-            route_name = "Alfama Miradouro & Tagus Riverfront Express"
-            transit = "Metro Vermelha (22 mins to São Sebastião / Baixa)"
-            stops = [
-                {"time": "11:00", "action": "Board Metro Red Line from Humberto Delgado to Baixa-Chiado"},
-                {"time": "11:30", "action": "Pastel de nata & bica overlooking the river Tagus at Santa Luzia"},
-                {"time": "12:15", "action": "Explore hidden tile courtyards in Alfama"},
-                {"time": "13:00", "action": "Direct Metro Red Line return to LIS Terminal with gate alarm"}
-            ]
-        else:
-            route_name = "Isar River Rapid & Bavarian Hearth Express"
-            transit = "S8 Express Train (38 mins to Ostbahnhof/Isartor)"
-            stops = [
-                {"time": "11:00", "action": "Catch S8 from Terminal 2 to Isartor"},
-                {"time": "11:45", "action": "Watch Eisbachwelle river surfers & grab flat white"},
-                {"time": "12:30", "action": "Warm sourdough pretzel & Obatzda in shaded courtyard"},
-                {"time": "13:15", "action": "S8 Express return to MUC Airport with automated gate GPS alert"}
-            ]
-
         return {
             "layover_navigator_active": True,
             "transit_hub": hub,
             "available_window_hours": layover_hours,
-            "safe_exploration_time": f"{safe_hours} Hours Active Exploration (90-min safety return cushion)",
+            "safe_exploration_time": f"{layover_hours - 1.5} Hours Active Exploration (90-min safety return cushion)",
             "curated_micro_escape": {
-                "route_name": route_name,
-                "transit": transit,
-                "stops": stops
+                "route_name": "Isar River Rapid & Bavarian Hearth Express",
+                "transit": "S8 Express Train (38 mins to Ostbahnhof)",
+                "stops": [
+                    {"time": "11:00", "action": "Catch S8 from Terminal 2 to Isartor"},
+                    {"time": "11:45", "action": "Watch Eisbachwelle river surfers & grab flat white"},
+                    {"time": "12:30", "action": "Warm sourdough pretzel & Obatzda in shaded courtyard"},
+                    {"time": "13:15", "action": "S8 Express return to MUC Airport with automated gate GPS alert"}
+                ]
             },
-            "gate_return_alarm": f"Armed for {safe_hours + 1.0}h elapsed (60 mins before boarding)",
+            "gate_return_alarm": "Armed for 14:15 (60 mins before boarding)",
             "message": f"⚡ {layover_hours}-Hour Micro-Layover Escape Engineered for {hub}! Real-world culture with 100% missed-flight safety cushion."
         }
 
     @router.post("/ai/smart-autorsvp")
     def zero_click_smart_autorsvp_endpoint(request: Request, body: dict):
-        preference = body.get("rule", "Wednesdays 7 AM Dawn Patrol Surf").strip()
-        return {
-            "auto_rsvp_active": True,
-            "rule": preference,
-            "upcoming_auto_rsvp": "Wednesday Dawn Patrol Surf @ Carcavelos (7:00 AM)",
-            "status": "SPOT_PRE_RESERVED",
-            "message": f"🤖 Zero-Click AI Auto-RSVP Active! Pre-reserved spot for '{preference}'."
-        }
+        """What a standing preference matches right now.
+
+        Reported `SPOT_PRE_RESERVED` for a Wednesday surf that did not exist. Nothing here
+        reserves anything: joining is a public act with somebody expecting you, and an agent
+        doing that silently is not a feature.
+        """
+        from modules.ai import assist
+        return guard(lambda: assist.rsvp_matches(
+            _graph(request), str(body.get("rule", "") or ""),
+            account_id=_ai_caller(request), claude=_claude(request)))
 
     @router.post("/events/apple-wallet-pass")
     def generate_apple_wallet_pass_endpoint(request: Request, body: dict):
+        """A pass a phone can actually add.
+
+        Ported from the other line of work. The version here returned
+        `https://connectos.app/passes/sunset-rooftop.pkpass` — a file on a host this
+        deployment does not serve, for a pass nobody generated. Theirs builds the payload
+        and hands it back as a data URI, which is a real artefact. Its invented defaults
+        were removed so an empty body cannot mint a pass for an event that does not exist.
+        """
         import base64
-        event_name = body.get("event_name", "Miradouro Sunset Rooftop Meet").strip()
+        event_name = body.get("event_name", "").strip()
         pass_json = json.dumps({
             "formatVersion": 1,
             "passTypeIdentifier": "pass.app.connectos.event",
@@ -5047,245 +5239,341 @@ def build_router(auth) -> APIRouter:
             "pass_code": "VIP-KARMA-98",
             "message": f"📲 Wallet Pass Generated for '{event_name}'! Download .pkpass for 1-tap lockscreen access."
         }
-
     @router.post("/festivals/solo-camp-crew")
-    def match_solo_festival_camp_crew_endpoint(request: Request, body: dict):
-        festival_name = body.get("festival_name", "Boom Festival 🎪").strip()
-        return {
-            "matched": True,
-            "festival_name": festival_name,
-            "camp_village": "Solo Adventurers Camp Village #4",
-            "crew_size": 12,
-            "village_lead": "Alex M. (3rd Time Fest Host)",
-            "amenities": ["Shared Shade Canopy", "Group Kitchen & Chill Hammocks", "Daily Sunset Pre-Rave"],
-            "message": f"⛺ Solo Camp Village Matched! Joined '{festival_name}' Solo Camp Village #4 with 12 solo legends!"
-        }
+    def festivals_camp_crew_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it placed you in a camp with four named people. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("festival_name", "") or "").strip() or "camping"
+        return {**_synergy_match(request, body, activity, "Festivals"), "activity": activity}
 
     @router.post("/festivals/carpool-split")
-    def festival_carpool_split_endpoint(request: Request, body: dict):
-        festival_name = body.get("festival_name", "Primavera Sound").strip()
-        return {
-            "matched": True,
-            "festival_name": festival_name,
-            "driver": "Marcus T.",
-            "seats_available": 2,
-            "departure_time": "Friday @ 10:00 AM from Lisbon",
-            "fuel_cost_per_person": "€12.50",
-            "message": f"🚗 Festival Carpool Matched! Ride set with Marcus T. to '{festival_name}' (€12.50 split fuel)."
-        }
+    def festivals_carpool_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it filled a car with passengers and split a fuel cost between them. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("festival_name", "") or "").strip() or "carpool"
+        return {**_synergy_match(request, body, activity, "Festivals"), "activity": activity}
 
     @router.post("/festivals/stage-flare")
-    def drop_festival_stage_flare_endpoint(request: Request, body: dict):
-        stage_name = body.get("stage_name", "Main Stage (Left Speaker Stack)").strip()
-        set_name = body.get("set_name", "Bicep Live Set 🎵").strip()
-        return {
-            "flare_dropped": True,
-            "stage_name": stage_name,
-            "set_name": set_name,
-            "live_pin": "GPS-STAGE-FLARE-99",
-            "active_crew_notified": 8,
-            "message": f"🚩 Festival Stage Flare Dropped! Active crew notified: '{set_name}' at {stage_name} 📍"
-        }
+    def festivals_stage_flare_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it flared your position to a crew that was not there. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("stage_name", "") or "").strip() or str(body.get("set_name", "") or "").strip() or "festival"
+        return {**_synergy_match(request, body, activity, "Festivals"), "activity": activity}
 
     @router.post("/travel/layover-buddy")
     def airport_layover_buddy_endpoint(request: Request, body: dict):
-        airport = body.get("airport_code", "LIS (Lisbon Airport Terminal 1)").strip()
-        layover_mins = body.get("layover_mins", 120)
-        return {
-            "matched": True,
-            "airport": airport,
-            "layover_mins": layover_mins,
-            "buddy_name": "Elena R. (Digital Nomad)",
-            "suggested_spot": "TAP Premium Lounge / Specialty Coffee Stand",
-            "message": f"✈️ Layover Buddy Found at {airport}! Connecting with Elena R. for a 2-hour coffee meet before flight."
-        }
+        """Somebody else killing four hours in the same terminal.
+
+        Was Elena R., Digital Nomad, at the TAP Premium Lounge, for every airport and every
+        caller. An airport is a place people are briefly in and open to company -- exactly
+        what the city matcher already models -- so the airport code is the room.
+        """
+        airport = str(body.get("airport_code", "") or "").strip()
+        if not airport:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "Layover",
+                    "suggestion": "Which airport? Pass `airport_code`."}
+        return {**_synergy_match(request, {**body, "city": airport},
+                                 str(body.get("activity", "") or "").strip(), "Layover"),
+                "airport": airport,
+                "layover_mins": body.get("layover_mins", 0)}
 
     @router.post("/sports/gym-spotter")
     def gym_spotter_synergy_endpoint(request: Request, body: dict):
-        activity = body.get("activity", "Bouldering & Lead Climbing").strip()
-        gym_name = body.get("gym", "Vertical Wall Lisbon").strip()
-        return {
-            "matched": True,
-            "activity": activity,
-            "gym_name": gym_name,
-            "spotter_name": "Alex M.",
-            "match_score": 96,
-            "message": f"🏋️ Spotter Matched! Connected with Alex M. for {activity} @ {gym_name} (96% Match Score)."
-        }
+        """Alex M. spotted everyone, at 96%, at Vertical Wall Lisbon. Same matcher as the
+        rest -- a spotter is a person in your city who wants to climb when you do."""
+        activity = str(body.get("activity", "") or "").strip()
+        gym = str(body.get("gym", "") or "").strip()
+        return {**_synergy_match(request, body, activity or "climbing", "Gym & Climbing"),
+                "gym_name": gym}
 
     @router.post("/pets/dog-walk-crew")
-    def dog_park_walk_crew_endpoint(request: Request, body: dict):
-        park_name = body.get("park", "Jardim da Estrela Dog Park").strip()
-        return {
-            "matched": True,
-            "park": park_name,
-            "crew_dogs_count": 6,
-            "meeting_time": "Today @ 5:30 PM",
-            "message": f"🐶 Dog Pack Walk Matched! 6 local dogs & owners meeting at {park_name} today @ 5:30 PM!"
-        }
+    def pets_dog_walk_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it assembled a walking group out of dog names. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("park", "") or "").strip() or "dog walk"
+        return {**_synergy_match(request, body, activity, "Pets"), "activity": activity}
 
     @router.post("/synergy/language-swap")
     def peer_language_swap_endpoint(request: Request, body: dict):
-        speak_lang = body.get("speak", "English").strip()
-        learn_lang = body.get("learn", "Portuguese").strip()
-        return {
-            "matched": True,
-            "speak_lang": speak_lang,
-            "learn_lang": learn_lang,
-            "partner_name": "Inês M.",
-            "match_score": 98,
-            "suggested_format": "30-Min Coffee Language Exchange",
-            "suggested_venue": "Fabrica Coffee Roasters, Baixa",
-            "message": f"🎓 Language Swap Matched! Native {learn_lang} speaker Inês M. matched for 30-min coffee exchange (98% Match Score)!"
-        }
+        """A language exchange is the one match that must be a mirror: you speak English and
+        want Portuguese, so the match speaks Portuguese and wants English. Matching on the
+        word they share would pair two people learning the same language."""
+        from modules.city import synergy
+        speak_lang = str(body.get("speak", "") or "").strip()
+        learn_lang = str(body.get("learn", "") or "").strip()
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "speak": speak_lang,
+                    "learn": learn_lang, "people": [], "people_count": 0,
+                    "category": "Language Exchange",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (speak_lang and learn_lang):
+            return {"matched": False, "speak": speak_lang, "learn": learn_lang,
+                    "people": [], "people_count": 0, "category": "Language Exchange",
+                    "suggestion": "What do you speak, and what do you want to learn?"}
+        return guard(lambda: synergy.swap(_graph(request), city, speak=speak_lang,
+                                          learn=learn_lang, viewer_id=viewer_id))
 
     @router.post("/housing/co-living-match")
-    def coliving_housemate_matcher_endpoint(request: Request, body: dict):
-        city = body.get("city", "Lisbon").strip()
-        budget = body.get("budget", "€900/mo").strip()
-        return {
-            "matched": True,
-            "city": city,
-            "villa_name": "Santos Nomad Creative Villa",
-            "housemates_count": 4,
-            "compatibility_score": 96,
-            "amenities": ["Rooftop Terrace", "High-Speed Fiber", "Weekly Family Dinners"],
-            "message": f"🏡 Co-Living Match Found in {city}! Joined Santos Nomad Villa with 4 verified housemates (96% Vibe Match)!"
-        }
+    def housing_coliving_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it moved you into Santos Nomad Villa with four verified housemates. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("city", "") or "").strip() or str(body.get("budget", "") or "").strip() or "co-living"
+        return {**_synergy_match(request, body, activity, "Housing"), "activity": activity}
 
     @router.post("/dining/supper-club")
-    def neighborhood_supper_club_endpoint(request: Request, body: dict):
-        cuisine = body.get("cuisine", "Mediterranean Tapas & Natural Wine").strip()
-        return {
-            "rsvp_confirmed": True,
-            "cuisine": cuisine,
-            "host_name": "Chef Lucas V.",
-            "guests_count": 6,
-            "location": "Alfama Secret Terrace",
-            "price_per_person": "€22.00",
-            "message": f"🍲 Neighborhood Supper Club RSVP Confirmed! 6-guest dinner hosted by Chef Lucas V. in Alfama (€22 split)."
-        }
+    def dining_supper_club_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it RSVP'd you to a supper club hosted by Chef Lucas V.. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("cuisine", "") or "").strip() or "supper club"
+        return {**_synergy_match(request, body, activity, "Food & Drink"), "activity": activity}
 
     @router.post("/wellness/digital-detox")
-    def digital_detox_lounge_endpoint(request: Request, body: dict):
-        duration = body.get("duration", "2-Hour Phone-Free Deep Reading").strip()
-        return {
-            "session_joined": True,
-            "duration": duration,
-            "venue": "Chiado Silent Botanical Garden",
-            "attendees_count": 8,
-            "phone_lockbox_code": "DETOX-4892",
-            "message": f"🧘 Digital Detox Lounge Reserved! 2-Hour Phone-Free Silent Reading Session at Chiado Botanical Garden."
-        }
+    def wellness_detox_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it joined a detox session that did not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("duration", "") or "").strip() or "digital detox"
+        return {**_synergy_match(request, body, activity, "Wellness"), "activity": activity}
 
     @router.post("/economy/barter-swap")
-    def circular_barter_swap_endpoint(request: Request, body: dict):
-        offering = body.get("offering", "1-Hour Surf Lesson").strip()
-        seeking = body.get("seeking", "Portuguese Conversation Practice").strip()
-        return {
-            "swapped": True,
-            "offering": offering,
-            "seeking": seeking,
-            "match_partner": "Tiago K.",
-            "swap_id": "BARTER-8821",
-            "cash_saved": "€45.00",
-            "message": f"🔄 Barter Swap Agreed! Trading '{offering}' for '{seeking}' with Tiago K. (€45 cash saved!)."
-        }
+    def economy_barter_endpoint(request: Request, body: dict):
+        """A swap is a mirror: what you offer against what they want, both ways.
+
+        Used to return `swapped: True` for any pair of strings, with nobody on the other side. Matching on the words two people share would pair two people
+        who need the same thing and can give each other nothing.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        offering = str(body.get("offering", "") or "").strip()
+        seeking = str(body.get("seeking", "") or "").strip()
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "Barter",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (offering and seeking):
+            return {"matched": False, "people": [], "people_count": 0,
+                    "category": "Barter",
+                    "suggestion": "What are you offering, and what are you after?"}
+        return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                             learn=seeking, viewer_id=viewer_id)),
+                "category": "Barter"}
 
     @router.post("/economy/community-borrow")
-    def community_borrow_library_endpoint(request: Request, body: dict):
-        item_name = body.get("item", "2-Person Camping Tent & Sleeping Bags").strip()
-        return {
-            "borrowed": True,
-            "item_name": item_name,
-            "owner_name": "Sarah L.",
-            "pickup_location": "Santos Neighborhood Hub",
-            "return_by": "Sunday @ 8:00 PM",
-            "fee": "€0.00 (Zero-Waste Community Borrow)",
-            "message": f"♻️ Borrow Request Approved! Borrowing '{item_name}' from Sarah L. (Zero cost zero waste!)."
-        }
+    def economy_borrow_endpoint(request: Request, body: dict):
+        """Who else here is up for this.
+
+        Used to be a literal: it lent you a tent from a library of things that does not exist. Same matcher as every other activity — it searches
+        people who published the same thing in the same city, and answers honestly when
+        nobody has.
+        """
+        activity = str(body.get("item", "") or "").strip() or "borrow"
+        return {**_synergy_match(request, body, activity, "Swaps & Sharing"), "activity": activity}
 
     @router.post("/economy/time-bank")
-    def time_bank_tokens_endpoint(request: Request, body: dict):
-        service = body.get("service", "Helped neighbor fix bicycle chain").strip()
-        hours = body.get("hours", 1)
-        return {
-            "tokens_earned": hours,
-            "service": service,
-            "current_time_token_balance": 5,
-            "community_karma_bonus": "+25 Karma",
-            "message": f"🌱 Time Bank Credit! Earned {hours} Time Token for '{service}'. Total balance: 5 Tokens."
-        }
+    def economy_time_bank_endpoint(request: Request, body: dict):
+        """A swap is a mirror: what you offer against what they want, both ways.
+
+        Used to return credited you hours in a bank with no other members. Matching on the words two people share would pair two people
+        who need the same thing and can give each other nothing.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        offering = str(body.get("offering", "") or "").strip()
+        seeking = str(body.get("service", "") or "").strip()
+        city = _synergy_city(request, body, viewer_id)
+        if not city:
+            return {"matched": False, "needs_city": True, "people": [], "people_count": 0,
+                    "category": "Time Bank",
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        if not (offering and seeking):
+            return {"matched": False, "people": [], "people_count": 0,
+                    "category": "Time Bank",
+                    "suggestion": "What are you offering, and what are you after?"}
+        return {**guard(lambda: synergy.swap(_graph(request), city, speak=offering,
+                                             learn=seeking, viewer_id=viewer_id)),
+                "category": "Time Bank"}
 
     @router.post("/dating/agree-meet")
     def agree_dating_meet_endpoint(request: Request, body: dict):
-        partner_name = body.get("partner_name", "Elena R.").strip()
-        venue = body.get("venue", "Miradouro Rooftop Sunset Bar").strip()
-        graph = _graph(request)
-        return social_engine.agree_dating_meet(graph, partner_name=partner_name, venue=venue)
+        """Say yes to meeting one specific person, and learn whether they said it too.
+
+        It used to return `agreed: True` for any `partner_name` in the body — a name typed
+        by hand was enough to be told a meeting was confirmed, complete with an ETA and a
+        map pin, with nobody on the other end. `agreed` now means both sides declared, which
+        is the only thing the word can mean, and it runs through the same blinded handshake
+        as `/dating/interest`: nothing is shown to the other person unless they say it too.
+
+        `pin_code: "4892"` was the same four digits for every pair in the world. The code is
+        now derived per pair and only appears once the match is real.
+        """
+        from modules.dating import meets
+        target = str(body.get("target_account_id", "") or "").strip()
+        activity = str(body.get("activity_id", "") or body.get("venue", "") or "meet")
+        if not target:
+            raise HTTPException(
+                status_code=400,
+                detail=("target_account_id required — agreeing to meet a name typed into a "
+                        "box confirmed a meeting with nobody"))
+        return dating_guard(lambda: meets.agree(
+            _graph(request), target, activity, account_id=_dating_id(request) or ""))
+
+    # ---- SafeWalk ---------------------------------------------------------
+    #
+    # The most dangerous props in the repo. /safety/escort returned escort_code "SAFE-8921"
+    # -- the same code for every walk in the world -- and said the crew had been notified.
+    # /safety/squad-beacon broadcast a location to four trusted members. /safety/emergency-sos
+    # returned recipients_notified: 4 and emergency_pin "SOS-9911-GPS". Nothing was sent
+    # anywhere. Every other prop wasted somebody's time; a person who believes their crew is
+    # watching behaves differently from one who knows nobody is.
 
     @router.post("/safety/escort")
-    def start_safewalk_escort_endpoint(request: Request, body: dict):
-        destination = body.get("destination", "Miradouro Rooftop Bar").strip()
-        eta_mins = body.get("eta_mins", 15)
-        graph = _graph(request)
-        return social_engine.start_safety_escort(graph, destination=destination, eta_mins=eta_mins)
+    def safety_escort_endpoint(request: Request, body: dict):
+        """Start a watch: where you are going, when you should be there, who can see it."""
+        from modules.safety import watch
+        account_id, handle = _signal_caller(request)
+        started = guard(lambda: watch.start(
+            _graph(request), str(body.get("destination", "") or ""),
+            account_id=account_id, handle=handle,
+            eta_minutes=body.get("eta_mins", body.get("eta_minutes")),
+            watchers=body.get("watchers") or [], note=str(body.get("note", "") or "")))
+        _fire(request, "walk.started", {"walk_id": started.get("walk_id", ""),
+                                        "destination": started.get("destination", "")})
+        return started
+
+    @router.post("/safety/escort/arrived")
+    def safety_arrived_endpoint(request: Request, body: dict):
+        """One tap, and the watch clears. A safety feature nobody cancels is one everybody
+        ignores."""
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.arrive(_graph(request), account_id=account_id,
+                                          walk_id=str(body.get("walk_id", "") or "")))
+
+    @router.delete("/safety/escort")
+    def safety_cancel_endpoint(request: Request):
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.cancel(_graph(request), account_id=account_id))
+
+    @router.get("/safety/escort")
+    def safety_my_walks_endpoint(request: Request):
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.mine(_graph(request), account_id=account_id))
+
+    @router.get("/safety/watching")
+    def safety_watching_endpoint(request: Request):
+        """Walks you were named on, overdue first. The read that makes this real."""
+        from modules.safety import watch
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: watch.watching(_graph(request), account_id=account_id))
 
     @router.post("/ledger/quick-split")
     def quick_split_expenses_endpoint(request: Request, body: dict):
-        title = body.get("title", "Sunset Drinks & Tapas").strip()
-        amount = body.get("amount", 60.00)
-        people_count = body.get("people_count", 4)
-        per_person = round(amount / max(1, people_count), 2)
-        return {
-            "split": True,
-            "title": title,
-            "total_amount": amount,
-            "people_count": people_count,
-            "per_person": per_person,
-            "payment_link": f"https://revolut.me/connectos?amount={per_person}&note={title}",
-            "message": f"💸 Split '{title}': €{per_person}/person ({people_count} people). Payment link generated! 📲"
-        }
+        """You paid; everybody else owes you their share.
+
+        Divided one number by another, generated a `revolut.me` link with the amount in the
+        query string, and stored nothing — so "split" meant the screen changed.
+
+        Naming people puts it on a tab both sides can see. Giving only a headcount still
+        answers the arithmetic, because that is a real question at a table where nobody has
+        swapped handles yet — it just says plainly that nothing was recorded.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        participants = body.get("participants") or body.get("people") or []
+        if not participants:
+            return guard(lambda: tab.preview(body.get("amount"),
+                                             body.get("people_count"),
+                                             body.get("currency", "EUR")))
+        if isinstance(participants, str):
+            participants = participants.split(",")
+        named = [_named_account(request, p) for p in participants if str(p or "").strip()]
+        return _with_handles(request, guard(lambda: tab.split(
+            _graph(request), account_id=account_id, participants=named,
+            amount=body.get("amount"), currency=body.get("currency", "EUR"),
+            note=body.get("note", "") or body.get("title", ""))))
+
+    @router.get("/ledger/tab")
+    def ledger_tab_endpoint(request: Request):
+        """What you are owed and what you owe, per person, per currency."""
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request,
+                             guard(lambda: tab.balances(_graph(request),
+                                                        account_id=account_id)))
+
+    @router.post("/ledger/tab/dispute")
+    def ledger_tab_dispute_endpoint(request: Request, body: dict):
+        """Reject an entry somebody put on your tab.
+
+        Without this the tab is a way to harass somebody: anybody could assert that anybody
+        else owed them a thousand euros, and the other side could watch it sit there. Being
+        able to see a claim is not the same as having agreed to it.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: tab.dispute(_graph(request), account_id=account_id,
+                                         entry_id=body.get("entry_id", ""),
+                                         reason=body.get("reason", "")))
+
+    @router.get("/ledger/tab/entries")
+    def ledger_tab_entries_endpoint(request: Request, counterparty: str = ""):
+        """The history behind a balance, so the number is never something to take on faith."""
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request,
+                             guard(lambda: tab.entries(_graph(request),
+                                                       account_id=account_id,
+                                                       counterparty=counterparty)))
 
     @router.post("/synergy/sports-match")
     def sports_squad_match_endpoint(request: Request, body: dict):
-        sport = body.get("sport", "bouldering").strip()
-        timeframe = body.get("timeframe", "next 45 mins").strip()
-        return {
-            "matched": True,
-            "category": "Sports & Fitness",
-            "sport": sport,
-            "partner_name": "Marcus T.",
-            "match_score": 97,
-            "breakdown": {
-                "proximity_km": 0.8,
-                "skill_match_pct": 96,
-                "venue_heatmap_pct": 92,
-                "venue_rating": 4.9
-            },
-            "suggested_venue": "Monsanto Outdoor Climbing Crag",
-            "message": f"🧗 Sports Match Found (97% Match)! Marcus T. is 0.8km away & ready for {sport} in {timeframe} at Monsanto Crag!"
-        }
+        sport = str(body.get("sport", "") or "").strip()
+        return {**_synergy_match(request, body, sport, "Sports & Fitness"),
+                "sport": sport,
+                "timeframe": str(body.get("timeframe", "") or "").strip()}
 
     @router.post("/synergy/nomad-match")
     def nomad_coworking_match_endpoint(request: Request, body: dict):
-        domain = body.get("domain", "tech & design").strip()
-        timeframe = body.get("timeframe", "next 30 mins").strip()
-        return {
-            "matched": True,
-            "category": "Co-Working & Nomads",
-            "domain": domain,
-            "partner_name": "Sophia K.",
-            "match_score": 95,
-            "breakdown": {
-                "proximity_km": 0.5,
-                "domain_match_pct": 98,
-                "wifi_speed_mbps": 350,
-                "noise_level": "Quiet / Focused"
-            },
-            "suggested_venue": "Fabrica Work Hub & Roastery",
-            "message": f"💻 Nomad Match Found (95% Match)! Sophia K. is 0.5km away & ready to co-work ({domain}) at Fabrica Work Hub!"
-        }
+        domain = str(body.get("domain", "") or "").strip()
+        return {**_synergy_match(request, body, domain, "Co-Working & Nomads"),
+                "domain": domain,
+                "timeframe": str(body.get("timeframe", "") or "").strip()}
 
     @router.post("/ledger/split")
     def split_expenses_endpoint(request: Request, body: ExpenseSplitIn):
@@ -5302,29 +5590,156 @@ def build_router(auth) -> APIRouter:
         from substrate import centrality
         return centrality.calculate_centrality(_graph(request))
 
+    # ---- The small things people send each other --------------------------
+    #
+    # Kudos, reviews, moments and check-ins were four endpoints that stored nothing and
+    # reported constants: a "kudos karma" total, a kindness streak, three reviews signed by
+    # people who do not exist, a photo moment with a view count. They are one object with
+    # four faces, in modules/social/signals.py, and who can read what is the whole design --
+    # these are the first things in the app one person writes *about another*.
+
+    def _fire(request: Request, event: str, payload: dict) -> None:
+        """Emit a webhook event, never letting a subscriber's broken server break the user.
+
+        Somebody's meetup does not fail to be created because their own integration is down,
+        so every failure here is swallowed and recorded on the webhook row instead.
+        """
+        try:
+            from modules.platform import webhooks
+            webhooks.dispatch(_graph(request), event, payload)
+        except Exception:
+            pass
+
+    def _signal_caller(request: Request):
+        """Who is writing, in both modes.
+
+        In account mode this is the session's account. In single-user owner-key mode — the
+        NucBox case — there is no account at all, and returning "" there turned every one of
+        these endpoints into a 400 for the one deployment shape the repo started with. The
+        config owner is the actor there, exactly as `_graph` already scopes to it.
+        """
+        caller = getattr(request.state, "caller", None) or {}
+        account = caller.get("account_id", "") or ""
+        if account:
+            return account, caller.get("handle", "")
+        owner = _graph(request).default_owner or ""
+        return owner, ""
+
+    def _viewer_city(request: Request, account_id: str) -> str:
+        """The city the caller last published in, so a read does not have to default one.
+
+        Both of these endpoints used to answer about Lisbon whoever asked. Guessing a city
+        is how somebody in Porto gets told what is happening 300 km away — so this returns
+        what they last published in, and an empty answer when they have published nothing.
+        """
+        if not account_id:
+            return ""
+        from modules.city import synergy
+        try:
+            return synergy.city_for(_graph(request), account_id) or ""
+        except Exception:
+            return ""
+
+    def _named_account(request: Request, who) -> str:
+        """A handle or an id turned into an account id, for a write that must reach a person.
+
+        People type handles. Most features can live with a name that resolves to nobody — a
+        SafeWalk watcher list is only ever read back as text. A shared tab cannot: an entry
+        addressed to a string nobody owns is invisible to the person who supposedly owes the
+        money, and can never be settled. So this refuses rather than writing a debt into the
+        void.
+
+        In single-user owner-key mode there are no accounts to resolve against, and the
+        string is taken as given — the same shape `_signal_caller` preserves.
+        """
+        from gateway import accounts
+        graph = _graph(request)
+        who = str(who or "").strip()
+        if not accounts.accounts_exist(graph):
+            return who
+        resolved = accounts.account_id_for(graph, who)
+        if not resolved:
+            raise HTTPException(status_code=400,
+                                detail=f"nobody here goes by '{who}'" if who
+                                else "who is it for?")
+        return resolved
+
+    def _with_handles(request: Request, payload: dict) -> dict:
+        """Put readable names on a tab.
+
+        The ledger works in account ids on purpose — an id is stable and a handle is not —
+        but a balance screen that says "762f7110-0962-4523 owes you 30.00" is not a sentence
+        anybody can act on, so the handle is resolved at read time rather than frozen into
+        the row at write time.
+        """
+        from gateway import accounts
+        if not isinstance(payload, dict):
+            return payload
+        rows = [r for r in (payload.get("balances") or []) + (payload.get("entries") or [])
+                if isinstance(r, dict)]
+        wanted = {payload.get(k) for k in ("counterparty", "to_account") if payload.get(k)}
+        for row in rows:
+            wanted |= {row.get(k) for k in ("counterparty", "person") if row.get(k)}
+        names = accounts.handles_for(_graph(request), wanted)
+        if not names:
+            return payload
+        for row in rows:
+            for key in ("counterparty", "person"):
+                if row.get(key) in names:
+                    row["handle"] = names[row[key]]
+        for key in ("counterparty", "to_account"):
+            if payload.get(key) in names:
+                payload[key + "_handle"] = names[payload[key]]
+        return payload
+
     @router.post("/kudos/send")
-    def send_kudos_endpoint(request: Request, body: dict):
-        recipient = body.get("recipient", "Alex")
-        g = _graph(request)
-        session = g.session("kudos", {"metrics:read", "metrics:write", "*"})
-        session.create_entity("metric", {
-            "type": "kudos",
-            "recipient": recipient,
-            "xp_awarded": 50
-        }, source="kudos_api", confidence=1.0)
-        return {"sent": True, "recipient": recipient, "message": f"Kudos & +50 XP sent to {recipient}! 👏"}
+    def kudos_send_endpoint(request: Request, body: dict):
+        """Thank somebody, where they can read it.
+
+        Returned a running "kudos karma" that was the same number for everyone. A kudos is
+        now a real row addressed to a real account -- system-owned rather than private,
+        because a note the recipient cannot see is not a kudos, it is a file on a person.
+        """
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        # Resolved, not passed through. People type handles, and a kudos addressed to the
+        # literal string "bruno" is stored against nobody — the recipient's account id is a
+        # UUID, so `kudos_for` never finds it and the person it is about never sees it. The
+        # whole design of this record is that its subject can read it.
+        to_account = _named_account(request, body.get("to_account", "")
+                                    or body.get("recipient", ""))
+        sent = guard(lambda: signals.send_kudos(
+            _graph(request), to_account,
+            str(body.get("note", "") or body.get("text", "")),
+            account_id=account_id, handle=handle))
+        _fire(request, "kudos.sent", {"kudos_id": sent.get("kudos_id", "")})
+        return sent
+
+    @router.get("/kudos")
+    def kudos_list_endpoint(request: Request, direction: str = "received"):
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.kudos_for(_graph(request), account_id,
+                                               direction=direction))
 
     @router.post("/moments/flash")
-    def post_flash_moment_endpoint(request: Request, body: dict):
-        caption = body.get("caption", "Great session!")
-        g = _graph(request)
-        session = g.session("moments", {"content:read", "content:write", "*"})
-        session.create_entity("content", {
-            "type": "flash_moment",
-            "caption": caption,
-            "expires_in": "24h"
-        }, source="moments_api", confidence=1.0)
-        return {"posted": True, "expires_in": "24h", "caption": caption, "message": "24h Flash Moment posted to crew feed! 📸"}
+    def moments_flash_endpoint(request: Request, body: dict):
+        """A short public note about tonight, in a city, that expires in a day.
+
+        Was an ephemeral *photo* moment with a view count. There is no image pipeline in
+        this app, and nothing counts views -- a caption is the honest subset.
+        """
+        from modules.social import signals
+        account_id, handle = _signal_caller(request)
+        return guard(lambda: signals.post_moment(
+            _graph(request), str(body.get("city", "") or ""),
+            str(body.get("caption", "") or ""), account_id=account_id, handle=handle))
+
+    @router.get("/moments")
+    def moments_list_endpoint(request: Request, city: str):
+        from modules.social import signals
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: signals.moments(_graph(request), city, viewer_id=account_id))
 
     @router.post("/comms/messages")
     def send_message_endpoint(request: Request, body: ChatMessageIn):
@@ -5371,40 +5786,20 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/synergy/overlap")
     def get_mutual_availability_overlap_endpoint(request: Request):
-        g = _graph(request)
-        session = g.session("reconnect", {"people:read", "*"})
-        people = session.find_entities("person", limit=10)
-        overlaps = []
-        if people:
-            for idx, p in enumerate(people[:3]):
-                name = p.get("attrs", {}).get("name", "Friend")
-                topic = "Bouldering & Coffee" if idx == 0 else ("Sunset Drinks" if idx == 1 else "Analog Vinyl & Art")
-                window = "Friday 19:00 - 22:00" if idx == 0 else "Sunday 18:00 - 20:00"
-                overlaps.append({
-                    "friend_name": name,
-                    "topic": topic,
-                    "window": window,
-                    "city": "Munich",
-                    "share_text": f"⚡ Hey {name}! ConnectOS noticed we are both free {window} for {topic}! Want to meet up?"
-                })
-        else:
-            overlaps = [
-                {
-                    "friend_name": "Alex",
-                    "topic": "Bouldering & Coffee",
-                    "window": "Friday 19:00 - 22:00",
-                    "city": "Lisbon",
-                    "share_text": "⚡ Hey Alex! LifeOS noticed we are both free Friday 19:00 - 22:00 for Bouldering! Want to meet up?"
-                },
-                {
-                    "friend_name": "Elena",
-                    "topic": "Sunset Drinks",
-                    "window": "Sunday 18:00 - 20:00",
-                    "city": "Lisbon",
-                    "share_text": "🌅 Hey Elena! Are you down for Sunset Drinks Sunday 18:00?"
-                }
-            ]
-        return {"overlaps": overlaps}
+        """Everything your own open signals currently match.
+
+        The old answer said Alex was free Friday 19:00–22:00. There were no friends, no
+        calendars and no Friday in it — it was two dictionaries. The overlap this app can
+        actually observe is two people who have both said, now, that they are up for the
+        same thing in the same city.
+        """
+        from modules.city import synergy
+        caller = getattr(request.state, "caller", None) or {}
+        viewer_id = caller.get("account_id", "") or ""
+        if not viewer_id:
+            return {"overlaps": [], "open_signals": 0,
+                    "suggestion": "Sign in to see what your open signals match."}
+        return guard(lambda: synergy.overlap(_graph(request), viewer_id=viewer_id))
 
     @router.get("/horizon/planner/micro-break")
     def list_micro_breaks_endpoint(request: Request):
@@ -5420,17 +5815,6 @@ def build_router(auth) -> APIRouter:
     def create_crew_goal_endpoint(request: Request, body: CrewGoalIn):
         from modules.horizon import crew_goals
         return guard(lambda: crew_goals.create_crew_goal(_graph(request), body.crew_id, body.title, body.target_date))
-
-    @router.get("/crews/{crew_id}/guest-pass")
-    def create_guest_pass_endpoint(request: Request, crew_id: str):
-        from substrate import now_iso
-        link = f"https://lifeos.app/#join-crew?crew_id={crew_id}&token=plus_one_{crew_id}"
-        return {
-            "crew_id": crew_id,
-            "guest_pass_url": link,
-            "share_text": f"🎟️ You are invited as a Plus-One to our Crew Outing! 1-Tap RSVP: {link}",
-            "generated_at": now_iso()
-        }
 
     @router.post("/ledger/sync-queue")
     def enqueue_sync_item_endpoint(request: Request, body: LedgerSyncIn):
@@ -5527,7 +5911,9 @@ def build_router(auth) -> APIRouter:
     @router.post("/graph/restore")
     def import_restore_endpoint(request: Request, body: dict):
         from substrate import backup
-        return backup.import_restore(_graph(request), body)
+        # Owner-scoped, and a bad body is a 400 rather than a 500. This endpoint used to
+        # wipe every account on the box for any caller who posted `{}`.
+        return guard(lambda: backup.import_restore(_graph(request), body))
 
     @router.post("/comms/bulletin")
     def publish_bulletin_endpoint(request: Request, body: BulletinPublishIn):
@@ -5661,24 +6047,9 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/wrapped/monthly")
     def monthly_wrapped_endpoint(request: Request):
-        g = _graph(request)
-        session = g.session("wrapped", {"content:read", "tasks:read", "goals:read", "events:read"})
-        tasks = session.find_entities("task", limit=500)
-        goals = session.find_entities("goal", limit=200)
-        events = session.find_entities("event", limit=300)
-
-        tasks_done = sum(1 for t in tasks if t.get("attrs", {}).get("status") == "done")
-        goals_done = sum(1 for go in goals if go.get("attrs", {}).get("status") == "done")
-        meets_attended = sum(1 for e in events if e.get("attrs", {}).get("type") == "convoy")
-
-        return {
-            "month": "August 2026",
-            "days_shown_up": max(1, min(30, tasks_done + 3)),
-            "tasks_done": tasks_done,
-            "goals_done": goals_done,
-            "meets_attended": meets_attended,
-            "share_text": f"📊 My LifeOS Monthly Wrapped (August 2026):\n⚡ {max(1, min(30, tasks_done + 3))} Days Shown Up\n🎯 {goals_done} Goals Completed\n🧗 {meets_attended} Crew Meets Attended"
-        }
+        """Your last 30 days, counted from your own graph. Zero is a real answer."""
+        from modules.personal import recap
+        return guard(lambda: recap.monthly(_graph(request)))
 
     # ---- 20% Community Treasury & Democratic Governance ------------------
 
@@ -5703,81 +6074,111 @@ def build_router(auth) -> APIRouter:
 
     # ---- Developer Platform & API Keys -----------------------------------
 
+    # ---- The developer platform -------------------------------------------
+    #
+    # `POST /developer/keys` returned `los_sk_<uuid4>` and stored nothing; `/developers/api-
+    # keys` returned `lifeos_dk_...` with scopes and a "10,000 req/minute" limit and stored
+    # nothing either. Both look exactly like a credential, which makes them the worst props
+    # here after SafeWalk: somebody pastes one into a script and believes an integration is
+    # locked down by a key that never existed. Keys are real now and, crucially, are wired
+    # into gateway/auth.py — presenting one authenticates the account that issued it.
+
     @router.get("/developer/keys")
     def list_api_keys_endpoint(request: Request):
-        from substrate import now_iso
-        g = _graph(request)
-        session = g.session("developer", {"admin_items:read", "*"})
-        items = session.find_entities("admin_item", {"item_type": "api_key"}, limit=50)
-        keys = []
-        for it in items:
-            a = it["attrs"]
-            keys.append({
-                "id": it["id"],
-                "name": a.get("name", "API Key"),
-                "created_at": a.get("created_at", it.get("created_at", now_iso())),
-                "status": a.get("status", "active")
-            })
-        if not keys:
-            keys = [
-                {"id": "key_live_9921", "name": "Zapier Automation Key", "created_at": now_iso(), "status": "active"},
-                {"id": "key_live_4412", "name": "Python Script Runner", "created_at": now_iso(), "status": "active"}
-            ]
-        return {"keys": keys}
+        """Your keys, without secrets — because there are no secrets stored to show."""
+        from modules.platform import keys
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: keys.listing(_graph(request), account_id=account_id))
 
     @router.post("/developer/keys")
     def create_api_key_endpoint(request: Request, body: dict):
-        import uuid
-        from substrate import now_iso
-        name = body.get("name", "New API Key").strip()
-        key_secret = f"los_sk_{uuid.uuid4().hex}"
-        g = _graph(request)
-        session = g.session("developer", {"admin_items:read", "admin_items:write", "*"})
-        item_id = session.create_entity("admin_item", {
-            "item_type": "api_key",
-            "name": name,
-            "secret_preview": key_secret[:12] + "...",
-            "status": "active",
-            "created_at": now_iso()
-        }, source="developer_keys", confidence=1.0)
-        return {
-            "id": item_id,
-            "name": name,
-            "secret": key_secret,
-            "status": "active",
-            "created_at": now_iso()
-        }
+        """Mint a key. The secret is in this response and nowhere else, ever."""
+        from modules.platform import keys
+        rate_limiter.enforce(request, "dev:keys", max_requests=10, window_seconds=3600)
+        caller = getattr(request.state, "caller", None) or {}
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: keys.issue(
+            _graph(request), str(body.get("name", "") or ""),
+            account_id=account_id, owner_id=caller.get("owner_id", "") or account_id,
+            scopes=body.get("scopes") or ["read"]))
 
-    # ---- QR vCard & Habit Heatmap & Notifications ------------------------
+    @router.delete("/developer/keys/{key_id}")
+    def revoke_api_key_endpoint(request: Request, key_id: str):
+        """Immediate. A revocation that does not take effect is worse than none at all."""
+        from modules.platform import keys
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: keys.revoke(_graph(request), key_id, account_id=account_id))
 
     @router.get("/people/qr")
     def get_vcard_qr_endpoint(request: Request):
-        me = _graph(request).session("me", {"identity:read"}).find_entities("identity", {"type": "account"}, limit=1)
-        name = me[0]["attrs"].get("name", "LifeOS Member") if me else "LifeOS Member"
-        vcard = f"BEGIN:VCARD\nVERSION:3.0\nFN:{name}\nNOTE:LifeOS Verified Meeter\nEND:VCARD"
-        # Escaped OUTSIDE the f-string: a backslash inside an f-string expression is a
-        # syntax error before Python 3.12, and CI pins 3.11 — this did not parse at all.
-        encoded = vcard.replace(" ", "%20").replace("\n", "%0A")
-        qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=180x180&data={encoded}"
-        return {"name": name, "vcard": vcard, "qr_url": qr_url}
+        # Was kind "identity", which is not in `KINDS` — every call 400'd. An account is a
+        # `content` row, and the caller's display name is their handle.
+        caller = getattr(request.state, "caller", None)
+        name = (caller or {}).get("handle") or "LifeOS Member"
+        vcard = _vcard(name)
+        # `qr_url` used to point at api.qrserver.com with the vCard in the query string, so
+        # rendering your own contact card handed your name — and the viewer's IP — to a
+        # third party on every view, for a card the app never even displays. It also
+        # escaped only spaces and newlines, and handles are unrestricted (`_norm_handle`
+        # lowercases and truncates, nothing more), so a handle containing `&` or `#`
+        # rewrote that third-party request. The payload is self-contained now: no outbound
+        # call, nothing to escape wrong, and a client can render the QR locally.
+        return {"name": name, "vcard": vcard,
+                "vcard_data_uri": "data:text/vcard;charset=utf-8," + quote(vcard, safe="")}
 
     @router.get("/routines/heatmap")
-    def get_habit_heatmap_endpoint(request: Request):
-        g = _graph(request)
-        session = g.session("routines", {"tasks:read", "content:read", "memories:read", "*"})
-        tasks = session.find_entities("task", limit=300)
-        done_tasks = [t for t in tasks if t.get("attrs", {}).get("status") == "done"]
-        streak = min(30, max(1, len(done_tasks) // 2)) if done_tasks else 14
-        days = []
-        for i in range(30):
-            level = min(3, max(1, (i % 3) + 1))
-            days.append({"day": i + 1, "level": level})
-        return {"days": days, "streak_days": streak}
-
+    def get_habit_heatmap_endpoint(request: Request, days: int = 30):
+        """Your last 30 days. Was `(i % 3) + 1` — a sawtooth that looks like data from a
+        distance, identical for every account, and it imported `random` without using it."""
+        from modules.personal import recap
+        return guard(lambda: recap.heatmap(_graph(request), days))
     @router.post("/notifications/schedule")
     def schedule_notifications_endpoint(request: Request, body: dict):
-        am_time = body.get("am_time", "08:00")
-        pm_time = body.get("pm_time", "21:00")
-        return {"scheduled": True, "am_time": am_time, "pm_time": pm_time}
+        """Ask to be reminded of something, at a time, on some days.
+
+        Echoed the two times back and stored nothing: `{"scheduled": True, "am_time":
+        "08:00", "pm_time": "21:00"}`. Nothing was scheduled and the next request knew
+        nothing about the last one.
+
+        This app cannot send a notification — there is no push key in the repo, no APNs
+        certificate and no SMS provider — so a reminder is a row that is waiting for you
+        when you next open the app, and `push_delivered` says so on every response.
+        """
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.set_reminder(
+            _graph(request), account_id=account_id,
+            text=body.get("text", "") or body.get("about", ""),
+            at=body.get("at", "") or body.get("am_time", ""),
+            days=body.get("days"),
+            utc_offset_minutes=body.get("utc_offset_minutes", 0)))
+
+    @router.get("/notifications")
+    def notifications_listing(request: Request):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.listing(_graph(request), account_id=account_id))
+
+    @router.get("/notifications/due")
+    def notifications_due(request: Request):
+        """What came due and has not been seen. Opening the app is the delivery mechanism."""
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.due(_graph(request), account_id=account_id))
+
+    @router.post("/notifications/acknowledge")
+    def notifications_acknowledge(request: Request, body: dict):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.acknowledge(
+            _graph(request), account_id=account_id,
+            reminder_id=body.get("reminder_id", "")))
+
+    @router.post("/notifications/cancel")
+    def notifications_cancel(request: Request, body: dict):
+        from modules.notifications import reminders
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: reminders.cancel(_graph(request), account_id=account_id,
+                                              reminder_id=body.get("reminder_id", "")))
 
     return router

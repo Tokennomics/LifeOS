@@ -12,9 +12,19 @@ import pytest
 from modules.feeds import ingest
 from tools import feedsync
 
-ICS = ("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nSUMMARY:Night\n"
-       "DTSTART:20260807T230000Z\nDTEND:20260808T060000Z\nEND:VEVENT\nEND:VCALENDAR\n")
-TUE = "2026-08-04T09:00:00+00:00"
+def _ics_tomorrow():
+    """Nothing in this file passes `now=`, so every assertion here runs against the real
+    clock. A hardcoded DTSTART therefore has a shelf life of `ingest.STALE_DAYS` days from
+    the day it is typed, after which `added` drops to zero and tests about *scheduling* start
+    failing for reasons that have nothing to do with scheduling."""
+    when = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
+    return ("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nSUMMARY:Night\n"
+            f"DTSTART:{when.strftime('%Y%m%dT%H%M%SZ')}\n"
+            f"DTEND:{(when + datetime.timedelta(hours=5)).strftime('%Y%m%dT%H%M%SZ')}\n"
+            "END:VEVENT\nEND:VCALENDAR\n")
+
+
+ICS = _ics_tomorrow()
 
 
 @pytest.fixture

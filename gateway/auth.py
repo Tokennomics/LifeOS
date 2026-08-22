@@ -34,6 +34,11 @@ def make_auth_dependency(token: str):
                 return                      # the owner's own key: config-owner scope
             caller = accounts.resolve(graph, presented)
             if caller is None:
+                # An API key is the other way to be an account. This is the line that makes
+                # `/v1/developer/keys` a credential rather than a plausible string: without
+                # it a key could be issued, listed and revoked and still open nothing.
+                caller = _api_key_caller(graph, presented)
+            if caller is None:
                 raise HTTPException(status_code=401, detail="log in to continue")
             request.state.caller = caller
             return
@@ -44,6 +49,25 @@ def make_auth_dependency(token: str):
             raise HTTPException(status_code=401, detail="invalid or missing bearer token")
 
     return require_auth
+
+
+def _api_key_caller(graph: Graph, presented: str) -> dict | None:
+    """A presented API key resolved to the account that issued it.
+
+    Shaped exactly like `accounts.resolve` so everything downstream — `_actor`, `_graph`,
+    every ownership check — treats a key-authenticated request as that account and nothing
+    more. A key must never be a way to be *more* than its issuer.
+    """
+    from modules.platform import keys
+
+    if not presented.startswith(keys.PREFIX):
+        return None
+    found = keys.verify(graph, presented)
+    if found is None:
+        return None
+    return {"session_id": "", "account_id": found["account_id"],
+            "owner_id": found["owner_id"], "handle": "",
+            "via": "api_key", "key_id": found["key_id"], "scopes": found["scopes"]}
 
 
 def caller_graph(request: Request) -> Graph:

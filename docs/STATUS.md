@@ -11,7 +11,7 @@ scripts). The v0.2 PWA (`surfaces/app/www`, served by the gateway at `/app/`) ne
 reachable gateway; **Travel Mode** (`travel.html`) runs the week from a phone abroad with no
 server.
 
-**Tests:** `python -m pytest` → **874 passing** in the cloud env, gated by
+**Tests:** `python -m pytest` → **1098 passing** in the cloud env, gated by
 `.github/workflows/tests.yml`. (The 2026-07-18 brief said 24 — the code has moved on.)
 
 ### The Antigravity expansion (2026-07-29 → 08-04) — read this before believing the rest
@@ -288,6 +288,197 @@ file and still touches a trust boundary.
 - **Crews in the gateway PWA.** People tab: your crews, create (with public/invite-only),
   and a crew planner — propose times/places + quorum, record each member's availability, see
   the best night ranked, lock it in. Verified in a real browser against a live gateway.
+
+- **The shared tab** (`modules/ledger/tab.py`, 46 tests). Four endpoints handled money between
+  friends and none of them wrote a row: `/ledger/quick-split` divided one number by another and
+  returned a `revolut.me` link for an account nobody had connected, `/ledger/settle-up` reported
+  €22.50 owed to two people who do not exist, and `/ledger/gift-coffee` returned the same voucher
+  code every time. The app moves no money and now says so on every response; what it does is the
+  part that actually causes the arguments — keeping track.
+  - Money is stored as **whole cents**, never floats, and **currencies never mix** (a balance is
+    per counterparty *per currency*).
+  - **The odd cents stay with whoever paid**, so a split adds back up to what left their account.
+  - **A tip is an IOU.** With no payment rails, "I sent you €3.50" is false and "I owe you €3.50"
+    is true; the coffee you promised is the same object pointing the other way.
+  - **Either side can reject an entry.** Anybody can write a debt against anybody, so being able
+    to *see* a claim is not the same as having agreed to it. A disputed entry stops counting and
+    stays on both histories — deleting it would leave an argument with no record.
+  - A headcount with nobody named still answers the arithmetic and says plainly that it recorded
+    nothing. Verified in a browser: two accounts, one dinner, settle, and a rejected €500 claim.
+
+- **Crew polls and beacons** (`modules/crews/polls.py`, `modules/crews/beacons.py`, 34 tests).
+  `/crews/polls/vote` took any string as an option, defaulted it to "Bouldering & Drinks",
+  and stored nothing — there was no poll, and the PWA card showed three hardcoded options
+  with invented vote counts (4, 2 and 6) identical for every account. `/crews/beacon`
+  returned `broadcasted: True` for an activity it made up when the form was empty.
+  - **You vote by index into the poll's own options**, one each, changeable until it closes.
+    A tie is reported as a tie rather than resolved into a winner.
+  - **Who voted for what is visible** — deliberately not a secret ballot, because a crew
+    choosing between bouldering and dinner needs to know who is coming to each.
+  - **A beacon is answerable and expires in minutes.** `push_delivered` is false and
+    `can_see_it` counts members who *could* read it, the same honesty rule as SafeWalk.
+  - **The plus-one pass is a real invite.** It returned `token=plus_one_<the crew id>` — a
+    token derived from public information, stored nowhere, on a domain this deployment does
+    not serve. It now mints a genuine single-use 24-hour invite through the hardened
+    `crews/invites` path, and it is a POST, because minting a capability on a GET is
+    CSRF-able from any page a member visits.
+  - **Two pre-existing bugs found on the way.** `GET /crews/{crew_id}` was declared above
+    `GET /crews/polls`, so the literal route was unreachable — a static guard now checks all
+    ~480 routes for that shadowing and immediately found a second one,
+    `GET /venues/programs`. And `crews.my_crews` was wired to no endpoint, so a member who
+    joined somebody else's crew never saw it in "Your crews" — with it, every per-crew
+    surface (chat, plans, polls, beacons) was unreachable for anyone but the creator.
+
+- **Invites, sharing and being early** (`modules/growth/share.py`, 30 tests). Five endpoints
+  handed back URLs on `connectos.app` — a host this deployment does not serve — for
+  resources nothing ever created. Two of them attached **rewards that do not exist**: 100
+  karma and a free-coffee voucher for sharing an invite, a year of free VIP and
+  complimentary coffee at partner roasters for a "City Pioneer #042" badge. A fake link is
+  embarrassing; a fake promise of something free is a different kind of problem, and it is
+  the part nobody can quietly make true later.
+  - **`/viral/invite-crew` and `/seeding/golden-tickets`** mint real links through the
+    hardened `crews/invites` path — the tickets as *separate single-use* links, one per
+    person, rather than three behind one shared URL advertising an Apple Pay split this app
+    cannot perform.
+  - **`/viral/social-share` draws the card.** Nothing here rasterises images, so there is no
+    PNG; an SVG is a real image this process can produce, it carries the real link, and
+    every value in it is escaped, because a title is user input and an SVG is markup.
+  - **`/seeding/pioneer-pass` counts.** Your position among people who have actually posted
+    or published in a city, computed from real rows, with nothing attached to it.
+  - **`/nfc/tap-to-synergy` swaps a code.** It claimed an "NFC & Apple NameDrop Ephemeral
+    Handshake" and reported 94% compatibility with a named stranger for any peer string
+    sent. A web app speaks none of that; two people standing together can still read six
+    characters aloud. Single-use, ten minutes, an alphabet with no I/L/O/0/1 in it, and what
+    comes back is what both have actually published — never a score.
+
+- **Reminders and standing crew routines** (`modules/notifications/reminders.py`,
+  `modules/routines/squad.py`, `modules/calendars/feeds.py`, 38 tests).
+  `/notifications/schedule` echoed two times back and stored nothing.
+  `/routines/squad-sync` reported `synced_calendars: 5` on a crew that might have had none,
+  the same recurrence whatever you asked for, and an `ics_link` on a host this deployment
+  does not serve.
+  - **This app cannot send a notification** — no VAPID key in the repo, no `pushManager`
+    subscription, no APNs certificate, no SMS provider. A reminder is a row that is waiting
+    when you next open the app, and `push_delivered` is false on every response.
+  - **Times are local wall-clock plus an offset**, never an instant. "Remind me at 08:00"
+    means eight where you wake up, and this app is for somebody who is travelling — an
+    instant computed once in Lisbon is wrong the moment they land anywhere else.
+  - **A reminder never fires for a moment before it existed.** Setting a daily 07:00 nudge
+    at lunchtime must not announce that you missed this morning's.
+  - **A routine is a rule that expands into real dates**, and its occurrences join the
+    crew's `.ics` feed.
+  - **Calendar feed tokens** (`modules/calendars/feeds.py`). The `.ics` route sits behind
+    the session bearer token, which a calendar client cannot send — so "Subscribe: <link>"
+    was a link that 401s for everything except the signed-in app. The subscribe URL is now
+    the credential: read-only, scoped to one crew, stored as a SHA-256, expiring, revocable,
+    and never a login. An unknown or revoked token gets the same empty calendar as any
+    other, so the URL space cannot be probed.
+  - **A dead emergency card, found by walking the app.** The PWA called
+    `/v1/triage/critical`; the route is `/v1/triage/card`, so saving and loading both 404'd
+    — and it read the fields off the response envelope rather than `card`, so the form would
+    have stayed empty even with the URL fixed. Somebody's medical card was never stored.
+
+- **A day's reflection, and taking your data with you** (`modules/personal/journal.py`,
+  `modules/personal/export.py`, 26 tests).
+  - `/journal/daily-reflection-synthesis` was the most brazen prop in the repo, because it
+    did not invent a venue or a number — **it invented your day**. Send it "Munich" and it
+    told you, in the first person, that you had watched dawn surfers on the Eisbach wave and
+    shared sourdough pretzels with new local friends, then thanked a man called Lukas for a
+    speakeasy passcode. A branch per city and nothing else: two people in the same city got
+    the same memories, and so did somebody who had spent the day in bed. Where you are does
+    not tell anybody what they did, so the city is gone; it reads check-ins, moments, notes
+    and spending, and `sources` names the row behind every line.
+  - `/export/universal-markdown` reported 48 vault files, "42 connected friends with
+    bilateral trust indices", and a `download_url` to a zip on connectos.app that was never
+    written. **Nothing was exported, and somebody who clicked it believed their data was
+    safe.** The export is the response now — real Markdown, built from real rows — and the
+    PWA turns it into a download with a Blob in the tab, so no file has to exist on any
+    server. Credentials and their hashes are excluded by name.
+  - **Shared rows that are yours are in it too.** A kudos, a moment or a tab entry lives
+    under the system owner so both parties can read it, so an export walking only the owner
+    slice left out the notes people wrote you and the money on your tab — a partial export
+    presented as a whole one. It now includes system-owned rows that *name* you, and
+    nothing else; there is a test that a second account's rows never appear.
+
+- **Vouches, places, and what a month contained** (`modules/social/trust.py`,
+  `modules/personal/atlas.py`, 19 tests).
+  - `/trust/web-of-trust` was **the most dangerous prop left**, for the same reason SafeWalk
+    was: it changes how somebody behaves toward a stranger. It returned `trust_verified:
+    True` and `trust_score: "98/100 (Tier-1 Community Vouched)"` for any name sent, with a
+    vouching chain naming people who do not exist, a `COMMUNITY_VERIFIED_BADGE`, and a
+    `privacy_standard` of "Zero-Knowledge Proof" describing a scheme implemented nowhere in
+    this repo. A vouch is now one named account saying it knows another — readable by both,
+    withdrawable, **counted rather than scored**, and every response says the app verifies
+    no identity, checks no document and runs no background check. Somebody with no vouches
+    is explicitly "not a red flag and not a green one".
+  - `/atlas/living-memory-map` reported 48 pins, three memories in cities the account had
+    never visited, and a time capsule counting down 342 days to a place it had never been
+    with a person who does not exist. Pins are check-ins, reviews and moments; there is no
+    capsule, and no coordinates — a check-in is a place *name*, since nothing in this app
+    tracks position.
+  - `/vitals/social-wellness` reported a `flourishing_score` of 92, a
+    `deep_connection_index` of 95% and a `real_world_ratio` of "85% Outings / 15% Screen
+    Time" — constants, on any account, for a thing that measures no screens. It reports
+    counts over a named window now, and no score at all.
+
+- **The three dashboard reads** (`modules/platform/overview.py`, 12 tests). All three were
+  screens whose whole job was to be believed, and all three lied.
+  - `/os/master-controller` reported orchestration of "50+ subsystems" — an AI Butler v4,
+    "220+ Verified Events Ingested (RA, Luma, Dice)", "Stripe + PayPal + Apple Pay 1-Tap
+    Split Ready", "BLE 5.3 Mesh P2P + AirPods Spatial Audio Online", a web of trust at
+    98/100 — and closed with `system_health: "100% Operational (898+ Tests Verified)"`.
+    Every line was a constant, and several named systems that do not exist. **A status page
+    that always says OK is worse than no status page.** It now derives each line — a key is
+    set or it is not, a table has rows or it does not — and *lists* what this app genuinely
+    cannot do (push, payments, hardware, identity verification) rather than omitting it,
+    because silently dropping what you cannot do reads as though you can.
+  - `/city/live-globe` returned five hardcoded cities with coordinates, flare counts and
+    weather ("24°C Sunny", in Lisbon, forever), identical on a deployment installed a minute
+    ago. It counts rows now, and there are no coordinates — the lat/lon were decoration on
+    numbers that were not real either.
+  - `/feed/transparent-rules` claimed to *apply* a `real_world_weight` of 0.85 and a
+    `proximity_bias` of 0.90, stored neither, reported `doomscroll_protection: "ACTIVE"`,
+    and described a ranking this app does not implement — while calling itself transparency.
+    The weights are now **imported from `modules/discover/core`**, so the page cannot drift
+    from the code that ranks; and it is explicitly a description, not a control panel.
+
+**Prop count: 495 handlers, 42 literals (8%).** Down from 184/445 (40%) when this began. What
+remains is the payments and monetization group (needs the owner's accounts and an explicit
+go-ahead), the hardware group (mesh, wearables, AR, spatial audio — a web app cannot reach
+it), and a short tail of single endpoints.
+
+- **The last two endpoints that invented people** (`modules/city/live.py`, 14 tests).
+  `/ar/spatial-flares` returned three beacons rendered in 3D — "☕ Specialty Coffee Meetup"
+  by **Elena R. (96% Match)** at 85 metres on a bearing of 42°, a venue at "88% Density",
+  an audio space by "Alex & Crew" — with altitude offsets, as though the app knew which
+  floor they were on. There is no AR here, no compass and no position of any kind: a
+  check-in is a place *name* somebody typed. `/gallery/live-event-wall` returned two photos
+  by Elena R. and Alex M. carrying "verified PoP badges" (`POP-89F12A04`) — tokens nobody
+  issued, verifying nothing, for an image pipeline that does not exist.
+  Both now read what people actually published in the city, unexpired; with no city known
+  they answer `needs_city` rather than guessing, because guessing is how somebody in Porto
+  is told what is happening 300 km away. The PWA's globe card was worse than either — its
+  headline count, four city rows and their temperatures were **written into the markup**,
+  not fetched, above a button that only fired a toast — and it reads `/city/live-globe` now.
+
+- **`tools/verify_deploy.py`** — the check for the one path that cannot be tested anywhere
+  but a deployed box. Geocoding, Overpass and Open-Meteo have never made a live call: this
+  sandbox blocks egress (verified: all three return no connection) and CI blocks it
+  deliberately, so a green suite proves nothing about the internet. The script arrives in a
+  city against a real deployment, waits for the seed, and reports what came back — it never
+  treats "did not crash" as success, and a missing optional key is a status rather than a
+  failure. Verified by running it against a live local gateway, where it correctly **failed**
+  the two network steps naming the real cause (`ProxyError`) and exited 1.
+
+- **A guard that had never guarded anything.** `test_no_route_references_a_name_that_does_not_exist`
+  exists because a shared helper has now been silently deleted **three times** by an edit to
+  the endpoint above it. It caught none of them, for two independent reasons: it walked
+  `app.routes`, which holds ~34 of the ~495 routes (the v1 routes live on the included
+  router), and it inspected only each handler's own bytecode — while almost every handler
+  wraps its work in `guard(lambda: ...)`, a separate code object. Both fixed, and the fix
+  was verified by deleting the helper again and watching the guard name all 14 affected
+  routes. This is the third guard in this repo found to be passing while checking nothing;
+  the lesson is now explicit — **a guard is not finished until it has been seen to fail.**
 
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 

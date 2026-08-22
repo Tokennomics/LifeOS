@@ -466,6 +466,33 @@ def is_blocked(graph: Graph, crew_id: str, person_id: str) -> bool:
     return _state_of(session, crew_id, person_id) == BLOCKED
 
 
+def is_member(graph: Graph, crew_id: str, person_id: str) -> bool:
+    """Whether this person is in this crew, admins included.
+
+    The membership test for crew-scoped objects that are not the crew itself — polls and
+    beacons — so the rule lives in one place rather than being re-derived, slightly
+    differently, next to each new thing that needs it. Blocked is not a member.
+    """
+    if not (crew_id and person_id):
+        return False
+    session = graph.session(MODULE, SCOPES)
+    return _state_of(session, crew_id, person_id) in (ADMIN, MEMBER)
+
+
+def is_admin(graph: Graph, crew_id: str, person_id: str) -> bool:
+    """Whether this person administers this crew.
+
+    The public form of the admin test, so a crew-scoped feature does not have to reach into
+    `_require_admin` and guess at its `is_mine` argument — which means "the crew lives in
+    your own graph", not "you are in it", and is exactly the kind of thing that gets passed
+    `True` by a caller who wanted the second meaning.
+    """
+    if not (crew_id and person_id):
+        return False
+    session = graph.session(MODULE, SCOPES)
+    return _state_of(session, crew_id, person_id) == ADMIN
+
+
 def report(graph: Graph, crew_id: str, reporter_id: str, reason: str,
            subject_id: str | None = None, source: str = MODULE) -> dict:
     """File a report about a crew or a person in it. Reports are graph entities so they
