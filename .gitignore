@@ -13,6 +13,10 @@ surfaces/app/android/build/
 surfaces/app/android/app/build/
 surfaces/app/android/local.properties
 surfaces/app/android/.idea/
+surfaces/app/ios/App/Pods/
+surfaces/app/ios/App/build/
+*.apk
+*.aab
 
 # VPS deploy: local backup snapshots stay off GitHub
 deploy/vps/backups/

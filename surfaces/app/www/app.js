@@ -6485,4 +6485,65 @@ document.addEventListener("click", (evt) => {
   if (evt.target.closest("[data-act=open-auth]")) openAuth();
 });
 
+/* ---- Settings Dialog & Universal Markdown Vault Export ---- */
+const settingsDlg = $("#settings");
+const settingsBtn = $("#settings-btn");
+const setCloseBtn = $("#set-close");
+const setSaveBtn = $("#set-save");
+const setExportBtn = $("#set-export");
+
+if (settingsBtn && settingsDlg) {
+  settingsBtn.addEventListener("click", () => {
+    $("#set-base").value = localStorage.getItem("lifeos.base") || "";
+    $("#set-token").value = localStorage.getItem("lifeos.token") || "";
+    settingsDlg.showModal();
+  });
+}
+
+if (setCloseBtn && settingsDlg) {
+  setCloseBtn.addEventListener("click", () => settingsDlg.close());
+}
+
+if (setSaveBtn && settingsDlg) {
+  setSaveBtn.addEventListener("click", () => {
+    const base = $("#set-base").value.trim();
+    const token = $("#set-token").value.trim();
+    if (base) localStorage.setItem("lifeos.base", base);
+    else localStorage.removeItem("lifeos.base");
+    if (token) localStorage.setItem("lifeos.token", token);
+    else localStorage.removeItem("lifeos.token");
+    settingsDlg.close();
+    toast("Settings saved! ✓");
+    refresh();
+  });
+}
+
+if (setExportBtn) {
+  setExportBtn.addEventListener("click", async () => {
+    try {
+      toast("Building your export…");
+      /* This gated on `res.download_url`, which the endpoint returns as null on purpose —
+         a URL means a file has to exist on a server, and the version that reported one
+         never wrote it. So the button said "Export failed" every time. The bytes come back
+         in the response; the download is built here, in this tab, and nothing is uploaded
+         anywhere. */
+      const res = await api("/v1/export/universal-markdown", {});
+      const text = Object.entries(res.documents)
+        .map(([name, body]) => `\n\n<!-- ${name} -->\n\n${body}`).join("").trim() + "\n";
+      const url = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "lifeos-export.md";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      // `files` and `rows` are counts, because they were produced by counting.
+      toast(`Exported ${res.rows} entr${res.rows === 1 ? "y" : "ies"} across ${res.files} files.`);
+    } catch (err) {
+      toast("Export error: " + err.message);
+    }
+  });
+}
+
 refresh();

@@ -2,11 +2,17 @@
   "appId": "os.life.app",
   "appName": "LifeOS",
   "webDir": "www",
+  "backgroundColor": "#0F1420",
   "android": {
     "allowMixedContent": true
+  },
+  "ios": {
+    "preferredContentMode": "mobile",
+    "contentInset": "always"
   },
   "server": {
     "androidScheme": "https",
     "cleartext": true
   }
 }
+

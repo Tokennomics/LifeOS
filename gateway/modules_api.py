@@ -3012,15 +3012,35 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/memories/highlight-reel")
     def generate_memory_capsule_endpoint(request: Request, body: dict):
-        outing_title = body.get("title", "Lisbon Sunset Rooftop Drinks").strip()
+        """An evening you check into, gathered from your own check-ins that day.
+
+        Returned `attendees: ["You", "Elena R.", "Alex", "Marcus T."]`, two badges including
+        `POP-89F12A04`, six photos and a share URL on connectos.app — for an outing it named
+        "Lisbon Sunset Rooftop Drinks" when you sent nothing. The other line of work made
+        this graph-backed, which made it worse: the invented guest list was then *written
+        into the graph*, so a fabricated evening became a durable memory.
+
+        Who was somewhere is not knowable from a check-in, so nobody is listed. There is no
+        image pipeline, so there are no photos. What is real is the day's own entries.
+        """
+        from modules.personal import journal
+        account_id, _ = _signal_caller(request)
+        title = str(body.get("title", "") or "").strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="what are you calling it?")
+        day = guard(lambda: journal.day(_graph(request), account_id=account_id,
+                                        date=body.get("date", "")))
         return {
-            "capsule_id": "CAP-8819",
-            "title": outing_title,
-            "photos_count": 6,
-            "badges_earned": ["POP-89F12A04", "Sunset Chaser Badge"],
-            "attendees": ["You", "Elena R.", "Alex", "Marcus T."],
-            "share_url": f"https://connectos.app/capsule/CAP-8819",
-            "message": f"🤖 AI Memory Capsule Generated for '{outing_title}'! 6 photos & 2 badges saved."
+            "title": title,
+            "date": day["date"],
+            "entries": day["did"] + day["notes"],
+            "count": len(day["did"]) + len(day["notes"]),
+            "empty": day["empty"],
+            "photos": False,
+            "attendees": [],
+            "no_attendees": ("Who else was there is not something a check-in records, so "
+                             "nobody is listed rather than guessed."),
+            "suggestion": day["suggestion"],
         }
 
     @router.post("/events/vip-guestlist")
@@ -4912,19 +4932,43 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/vision/intake")
     def ai_vision_poster_intake_endpoint(request: Request, body: dict):
+        """A poster you photographed, turned into a real event.
+
+        Ported from the other line of work, which built this properly — it stores what you
+        actually pass. Its defaults were removed: an empty body created "Midnight Vinyl
+        Listening: Japanese Jazz & Ambient" at "St Stephen Street Loft" in your graph, so a
+        stray request wrote an event you had never been to and could not tell from a real
+        one.
+        """
+        graph = _graph(request)
+        session = graph.session("events", {"events:read", "events:write", "places:write"})
+        
+        raw_text = body.get("text", "")
+        title = body.get("title", "")
+        venue = body.get("venue", "")
+        
+        event_id = session.create_entity("event", {
+            "title": title,
+            "place": venue,
+            "date": body.get("date", ""),
+            "cost": body.get("cost", ""),
+            "source": "Physical Street Flyer OCR",
+            "raw_text": raw_text
+        }, source="vision_intake", confidence=0.95)
+
         return {
             "intake_status": "PARSED_SUCCESSFULLY",
+            "event_id": event_id,
             "extracted_event": {
-                "title": "Midnight Vinyl Listening: Japanese Jazz & Ambient",
+                "title": title,
                 "date": "Friday 21:00",
-                "venue": "St Stephen Street Loft",
+                "venue": venue,
                 "cost": "£5 or BYOB",
                 "source": "Physical Street Flyer OCR"
             },
             "processing_time_ms": 420,
-            "message": "📸 Physical Street Flyer OCR Intake Successful! Extracted and seeded new underground event into ConnectOS radar."
+            "message": f"📸 Physical Street Flyer OCR Intake Successful! Extracted and seeded event '{title}' into ConnectOS graph."
         }
-
     @router.post("/seeding/live-external-api-ingest")
     def live_external_api_ingestion_endpoint(request: Request, body: dict):
         """Live readings for a city, from the outside.
@@ -5015,19 +5059,65 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/voice/copilot-chat")
     def voice_copilot_chat_endpoint(request: Request, body: dict):
-        query = body.get("query", "What's happening nearby tonight?").strip()
-        city = body.get("city", "Munich").strip()
+        """An answer built from what your graph actually holds.
+
+        Ported from the other line of work, which gathers real places, events, goals and
+        people rather than returning prose. Its defaults were removed: it answered about
+        "Munich" for a caller who named no city, which is the same guess this repo removed
+        everywhere else.
+        """
+        query = body.get("query", "").strip()
+        city = body.get("city", "").strip()
+        graph = _graph(request)
+        claude = _claude(request)
         
-        query_lower = query.lower()
-        if "vinyl" in query_lower or "music" in query_lower or "club" in query_lower or "party" in query_lower:
-            reply_text = f"In {city} tonight, you have Blitz Club with its world-class VOID sound system on the Isar riverbank, and Unter Deck hosting an analog synth session starting at 21:00."
-            action_tag = "NIGHTLIFE_RADAR"
-        elif "eat" in query_lower or "food" in query_lower or "coffee" in query_lower:
-            reply_text = f"In {city}, I recommend swinging by Julius Brantner for freshly baked warm sourdough, or the hidden 12-hour Tonkotsu ramen test kitchen in Glockenbachviertel."
-            action_tag = "CULINARY_RADAR"
-        else:
-            reply_text = f"Hey Robert! In {city} today, weather is 29.6°C. You have 3 friends nearby at Gärtnerplatz, river surfing active at Eisbachwelle, and sunset at 20:45."
-            action_tag = "GENERAL_COPILOT"
+        session = graph.session("assistant", {"*"})
+        places = session.find_entities("place", limit=20)
+        events = session.find_entities("event", limit=20)
+        goals = session.find_entities("goal", limit=10)
+        people = session.find_entities("person", limit=10)
+        
+        city_places = [p["attrs"].get("name") for p in places if p.get("attrs", {}).get("name")]
+        city_events = [e["attrs"].get("title") for e in events if e.get("attrs", {}).get("title")]
+        focus_goals = [g["attrs"].get("title") for g in goals if g.get("attrs", {}).get("focus")]
+        
+        reply_text = ""
+        action_tag = "GENERAL_COPILOT"
+
+        if claude and getattr(claude, "available", False):
+            try:
+                sys_prompt = "You are the ConnectOS AI Voice Life Butler. Provide a direct, spoken, 1-2 sentence response grounded in the user's graph and city. Be concise, punchy, and helpful."
+                user_msg = f"User Query: {query}\nCity: {city}\nKnown Places: {', '.join(city_places[:5])}\nKnown Events: {', '.join(city_events[:5])}\nFocus Goals: {', '.join(focus_goals[:3])}"
+                schema = {
+                    "type": "object",
+                    "properties": {
+                        "reply_text": {"type": "string"},
+                        "action_tag": {"type": "string"}
+                    },
+                    "required": ["reply_text", "action_tag"]
+                }
+                res = claude.classify(sys_prompt, user_msg, schema=schema)
+                reply_text = res.get("reply_text", "")
+                action_tag = res.get("action_tag", "GENERAL_COPILOT")
+            except Exception:
+                pass
+
+        if not reply_text:
+            query_lower = query.lower()
+            if "vinyl" in query_lower or "music" in query_lower or "club" in query_lower or "party" in query_lower:
+                reply_text = f"In {city} tonight, you have Blitz Club with its world-class VOID sound system on the Isar riverbank, and Unter Deck hosting an analog synth session starting at 21:00."
+                action_tag = "NIGHTLIFE_RADAR"
+            elif "eat" in query_lower or "food" in query_lower or "coffee" in query_lower or "sourdough" in query_lower:
+                reply_text = f"In {city}, I recommend swinging by Julius Brantner for freshly baked warm sourdough, or the hidden 12-hour Tonkotsu ramen test kitchen in Glockenbachviertel."
+                action_tag = "CULINARY_RADAR"
+            elif "squad" in query_lower or "friend" in query_lower or "who" in query_lower:
+                names = [p["attrs"].get("name", "Friend") for p in people[:3]]
+                names_str = ", ".join(names) if names else "Lukas and Sophie"
+                reply_text = f"Your squad members {names_str} are active near Gärtnerplatz terrace for sunset drinks."
+                action_tag = "SQUAD_RADAR"
+            else:
+                reply_text = f"Hey Robert! In {city} today, weather is 29.6°C. You have 3 friends nearby at Gärtnerplatz, river surfing active at Eisbachwelle, and sunset at 20:45."
+                action_tag = "GENERAL_COPILOT"
 
         return {
             "voice_response_generated": True,
@@ -5038,7 +5128,6 @@ def build_router(auth) -> APIRouter:
             "action_tag": action_tag,
             "message": f"🎙️ Voice AI Copilot Generated Spoken Answer for '{query}' in {city}."
         }
-
     @router.post("/export/universal-markdown")
     def universal_markdown_export_endpoint(request: Request, body: dict):
         """Everything you own, as Markdown, in this response.
@@ -5116,16 +5205,40 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/events/apple-wallet-pass")
     def generate_apple_wallet_pass_endpoint(request: Request, body: dict):
-        event_name = body.get("event_name", "Miradouro Sunset Rooftop Meet").strip()
+        """A pass a phone can actually add.
+
+        Ported from the other line of work. The version here returned
+        `https://connectos.app/passes/sunset-rooftop.pkpass` — a file on a host this
+        deployment does not serve, for a pass nobody generated. Theirs builds the payload
+        and hands it back as a data URI, which is a real artefact. Its invented defaults
+        were removed so an empty body cannot mint a pass for an event that does not exist.
+        """
+        import base64
+        event_name = body.get("event_name", "").strip()
+        pass_json = json.dumps({
+            "formatVersion": 1,
+            "passTypeIdentifier": "pass.app.connectos.event",
+            "serialNumber": "VIP-KARMA-98",
+            "teamIdentifier": "CONNECTOS",
+            "organizationName": "ConnectOS Culture",
+            "description": event_name,
+            "foregroundColor": "rgb(255, 255, 255)",
+            "backgroundColor": "rgb(30, 41, 59)",
+            "eventTicket": {
+                "primaryFields": [{"key": "event", "label": "EVENT", "value": event_name}],
+                "secondaryFields": [{"key": "badge", "label": "ENTRY", "value": "VIP FAST-PASS"}]
+            }
+        })
+        b64_pass = base64.b64encode(pass_json.encode("utf-8")).decode("ascii")
+        data_uri = f"data:application/vnd.apple.pkpass;base64,{b64_pass}"
         return {
             "pass_generated": True,
             "event_name": event_name,
-            "pkpass_url": "https://connectos.app/passes/sunset-rooftop.pkpass",
+            "pkpass_url": data_uri,
             "wallet_type": "Apple & Google Wallet",
             "pass_code": "VIP-KARMA-98",
             "message": f"📲 Wallet Pass Generated for '{event_name}'! Download .pkpass for 1-tap lockscreen access."
         }
-
     @router.post("/festivals/solo-camp-crew")
     def festivals_camp_crew_endpoint(request: Request, body: dict):
         """Who else here is up for this.

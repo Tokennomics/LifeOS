@@ -219,9 +219,16 @@ def test_nomad_memory_and_vip(cfg):
     assert res1.status_code == 200
     assert res1.status_code == 200
 
+    # `capsule_id: "CAP-8819"` was the same string for every capsule on every instance,
+    # alongside six photos and a guest list including Elena R. and Marcus T. A capsule is
+    # the day's own entries now, and it lists nobody, because a check-in does not record
+    # who else was there.
     res2 = client.post("/v1/memories/highlight-reel", json={"title": "Rooftop Party"})
     assert res2.status_code == 200
-    assert "CAP-" in res2.json()["capsule_id"]
+    body2 = res2.json()
+    assert body2["title"] == "Rooftop Party"
+    assert body2["attendees"] == [] and body2["photos"] is False
+    assert "CAP-" not in res2.text
 
     res3 = client.post("/v1/events/vip-guestlist", json={"venue": "Miradouro"})
     assert res3.status_code == 200

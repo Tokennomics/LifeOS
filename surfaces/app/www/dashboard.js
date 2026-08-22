@@ -10,7 +10,10 @@
 
     async function fetchJSON(endpoint, options = {}) {
         try {
-            const res = await fetch(`${API_BASE}${endpoint}`, options);
+            const token = localStorage.getItem("lifeos.token");
+            const headers = Object.assign({}, options.headers || {});
+            if (token) headers["Authorization"] = "Bearer " + token;
+            const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
             if (!res.ok) return null;
             return await res.json();
         } catch (e) {
