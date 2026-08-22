@@ -295,15 +295,40 @@ def test_no_route_references_a_name_that_does_not_exist(cfg):
     from fastapi.routing import APIRoute
 
     app = create_app(cfg)
+
+    # The v1 routes live on the INCLUDED router, not on `app.routes` — walking the app
+    # directly finds about thirty of them and checks almost nothing. This guard was written
+    # against `app.routes` and was therefore vacuous from the day it was added: it did not
+    # catch the third occurrence of the very bug it exists for, `_ai_caller` deleted by an
+    # edit to the endpoint above it. The route-shadowing guard had the same defect.
+    routes = list(app.routes)
+    for candidate in app.routes:
+        original = getattr(candidate, "original_router", None)
+        if original is not None:
+            routes.extend(original.routes)
+    checked = [r for r in routes if isinstance(r, APIRoute)]
+    assert len(checked) > 400, (
+        f"only {len(checked)} routes reached — this guard is not seeing the v1 router")
+
+    def global_loads(code):
+        """Every global name this code loads, including from nested code objects.
+
+        Recursion is the whole point: almost every handler in this file wraps its work in
+        `guard(lambda: ...)`, and a lambda is a separate code object hanging off
+        `co_consts`. Inspecting only the handler's own bytecode therefore saw none of the
+        calls that matter — which is the second reason this guard never fired.
+        """
+        for instruction in dis.get_instructions(code):
+            if instruction.opname == "LOAD_GLOBAL":
+                yield instruction.argval
+        for const in code.co_consts:
+            if hasattr(const, "co_code"):
+                yield from global_loads(const)
+
     missing = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in checked:
         handler = route.endpoint
-        for instruction in dis.get_instructions(handler.__code__):
-            if instruction.opname != "LOAD_GLOBAL":
-                continue
-            name = instruction.argval
+        for name in global_loads(handler.__code__):
             if name in handler.__globals__ or hasattr(builtins, name):
                 continue
             missing.append(f"{route.path} references {name!r}")

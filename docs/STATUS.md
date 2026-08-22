@@ -447,6 +447,39 @@ remains is the payments and monetization group (needs the owner's accounts and a
 go-ahead), the hardware group (mesh, wearables, AR, spatial audio — a web app cannot reach
 it), and a short tail of single endpoints.
 
+- **The last two endpoints that invented people** (`modules/city/live.py`, 14 tests).
+  `/ar/spatial-flares` returned three beacons rendered in 3D — "☕ Specialty Coffee Meetup"
+  by **Elena R. (96% Match)** at 85 metres on a bearing of 42°, a venue at "88% Density",
+  an audio space by "Alex & Crew" — with altitude offsets, as though the app knew which
+  floor they were on. There is no AR here, no compass and no position of any kind: a
+  check-in is a place *name* somebody typed. `/gallery/live-event-wall` returned two photos
+  by Elena R. and Alex M. carrying "verified PoP badges" (`POP-89F12A04`) — tokens nobody
+  issued, verifying nothing, for an image pipeline that does not exist.
+  Both now read what people actually published in the city, unexpired; with no city known
+  they answer `needs_city` rather than guessing, because guessing is how somebody in Porto
+  is told what is happening 300 km away. The PWA's globe card was worse than either — its
+  headline count, four city rows and their temperatures were **written into the markup**,
+  not fetched, above a button that only fired a toast — and it reads `/city/live-globe` now.
+
+- **`tools/verify_deploy.py`** — the check for the one path that cannot be tested anywhere
+  but a deployed box. Geocoding, Overpass and Open-Meteo have never made a live call: this
+  sandbox blocks egress (verified: all three return no connection) and CI blocks it
+  deliberately, so a green suite proves nothing about the internet. The script arrives in a
+  city against a real deployment, waits for the seed, and reports what came back — it never
+  treats "did not crash" as success, and a missing optional key is a status rather than a
+  failure. Verified by running it against a live local gateway, where it correctly **failed**
+  the two network steps naming the real cause (`ProxyError`) and exited 1.
+
+- **A guard that had never guarded anything.** `test_no_route_references_a_name_that_does_not_exist`
+  exists because a shared helper has now been silently deleted **three times** by an edit to
+  the endpoint above it. It caught none of them, for two independent reasons: it walked
+  `app.routes`, which holds ~34 of the ~495 routes (the v1 routes live on the included
+  router), and it inspected only each handler's own bytecode — while almost every handler
+  wraps its work in `guard(lambda: ...)`, a separate code object. Both fixed, and the fix
+  was verified by deleting the helper again and watching the guard name all 14 affected
+  routes. This is the third guard in this repo found to be passing while checking nothing;
+  the lesson is now explicit — **a guard is not finished until it has been seen to fail.**
+
 ## Hosting — VPS deployment (decided and written 2026-07-26)
 
 The owner settled the long-open NucBox-vs-VPS question in favour of a **VPS**, on the reasoning

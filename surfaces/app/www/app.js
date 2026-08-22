@@ -1447,19 +1447,18 @@ function todayView() {
   </div>`;
 
   /* ---- Interactive 3D Real-World Activity Globe ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(6,182,212,0.15)); border:1px solid rgba(16,185,129,0.3);">
+  /* Was a "3D Real-World Activity Globe" whose headline count, four city rows and their
+     temperatures were written straight into the markup — not even fetched — above a button
+     that only fired a toast. `/city/live-globe` counts real rows now, so the card reads it
+     instead of asserting a world that is not there. */
+  html += `<div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🗺️ Interactive 3D Real-World Activity Globe</h2>
-      <span class="badge good" style="font-weight:bold;">115 Active Flares</span>
+      <h2>🗺️ Where anybody actually is</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted)40;">counted, not drawn</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Live WebGL Globe: Spatial 3D view of active social flares across global hubs!</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px;">
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇵🇹 Lisbon:</strong> 14 Flares · 24°C 🌅</div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇯🇵 Tokyo:</strong> 28 Flares · 19°C 🗼</div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇺🇸 New York:</strong> 32 Flares · 22°C 🌆</div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;"><strong>🇬🇧 London:</strong> 22 Flares · 18°C 🎡</div>
-    </div>
-    <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" onclick="toast('3D Spatial Globe Canvas Rendered! 🌐');">Expand 3D Spatial Globe 🌐</button>
+    <p class="hint" style="margin-bottom:8px;">Cities this instance has activity in, by how much. No globe and no coordinates — a city here is a name people typed.</p>
+    <button class="primary" data-act="show-globe">Show me</button>
+    <div id="globe-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Nomad Passport & City Teleport ---- */
@@ -5381,6 +5380,20 @@ function wire(root) {
         <div style="font-size:12px; font-weight:700; margin-top:8px;">Cannot do</div>
         ${res.unavailable.map(u => `<div style="font-size:11px; color:var(--muted);">· ${esc(u.name)} — ${esc(u.why)}</div>`).join("")}
         <div style="font-size:11px; color:var(--muted); margin-top:8px;">${Object.entries(res.counts).map(([k, v]) => `${v} ${esc(k)}`).join(" · ")}</div>
+      </div>`;
+  }));
+
+  on("[data-act=show-globe]", () => act(async () => {
+    const res = await api("/v1/city/live-globe");
+    const out = $("#globe-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${res.cities.map(c => `<div style="font-size:13px; margin-bottom:4px;">
+             <strong>${esc(c.label || c.city)}</strong> — ${c.total} ${c.total === 1 ? "thing" : "things"}
+             <span style="color:var(--muted); font-size:11px;">${Object.entries(c.counts).map(([k, v]) => `${v} ${esc(v === 1 ? k.replace(/s$/, "") : k)}`).join(" · ")}</span>
+           </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion)}</div>` : ""}
       </div>`;
   }));
 

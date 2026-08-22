@@ -138,9 +138,17 @@ def test_proof_of_presence_and_social_battery(cfg):
 
 def test_ar_flares_and_copilot_icebreaker(cfg):
     client = TestClient(create_app(cfg))
+    # Three beacons rendered in 3D — "Elena R. (96% Match)" at 85 m on a bearing of 42°,
+    # with altitude offsets, as though the app knew which floor she was on. There is no AR
+    # here and no position of any kind. It reads what people published now, and with no
+    # city known it asks rather than guessing.
     res1 = client.get("/v1/ar/spatial-flares")
     assert res1.status_code == 200
-    assert len(res1.json()["flares"]) >= 3
+    body1 = res1.json()
+    assert body1["needs_city"] is True and body1["live"] == []
+    assert body1["augmented_reality"] is False
+    for invented in ("elena", "96%", "distance_m", "spatial_radar"):
+        assert invented not in str(body1).lower()
 
     # Three sentences about a washed Ethiopian pour-over at Fabrica, for whatever name you
     # sent — including one you typed yourself. An opener is only worth sending when it
@@ -250,9 +258,15 @@ def test_settle_photo_wall_and_quests(cfg):
     assert res1.status_code == 400
     assert "revolut" not in res1.text.lower()
 
+    # Two photos by Elena R. and Alex M. with "verified PoP badges" — POP-89F12A04 — tokens
+    # nobody issued, verifying nothing, for an image pipeline that does not exist.
     res2 = client.get("/v1/gallery/live-event-wall")
     assert res2.status_code == 200
-    assert len(res2.json()["active_photos"]) >= 2
+    body2 = res2.json()
+    assert body2["posts"] == [] and body2["photos"] is False
+    assert body2["verified_presence"] is False
+    for invented in ("elena", "alex m.", "pop-", "miradouro rooftop bar"):
+        assert invented not in str(body2).lower()
 
     # It minted a quest id and three invented landmarks with point values. It draws on the
     # two things a city really holds now: places seeded from OSM, and plans people proposed.

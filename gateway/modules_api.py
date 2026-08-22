@@ -2864,58 +2864,24 @@ def build_router(auth) -> APIRouter:
         return guard(lambda: recap.social_battery(_graph(request)))
 
     @router.get("/ar/spatial-flares")
-    def get_ar_spatial_flares_endpoint(request: Request):
-        return {
-            "ar_mode": "ACTIVE_SPATIAL_RADAR",
-            "flares": [
-                {
-                    "id": "flare-101",
-                    "type": "OUTING_BEACON",
-                    "title": "☕ Specialty Coffee Meetup",
-                    "creator": "Elena R. (96% Match)",
-                    "distance_m": 85,
-                    "bearing_deg": 42,
-                    "altitude_offset_m": 1.5,
-                    "ar_glyph": "☕",
-                    "color": "#f0a94a"
-                },
-                {
-                    "id": "flare-102",
-                    "type": "VENUE_HEATMAP",
-                    "title": "🔥 Miradouro Rooftop (88% Density)",
-                    "creator": "Official Partner Venue",
-                    "distance_m": 240,
-                    "bearing_deg": 115,
-                    "altitude_offset_m": 12.0,
-                    "ar_glyph": "🍷",
-                    "color": "#ec4899"
-                },
-                {
-                    "id": "flare-103",
-                    "type": "AUDIO_SPACE",
-                    "title": "🎙️ Live Audio Drop-In: Weekend Bouldering",
-                    "creator": "Alex & Crew",
-                    "distance_m": 310,
-                    "bearing_deg": 280,
-                    "altitude_offset_m": 0.0,
-                    "ar_glyph": "🎙️",
-                    "color": "#10b981"
-                }
-            ],
-            "message": "👓 AR Spatial Radar Active: 3 real-world social beacons rendered in your 3D view!"
-        }
+    def get_ar_spatial_flares_endpoint(request: Request, city: str = ""):
+        """What is live in a city right now — from rows, with nothing placed in space.
 
-    # ---- /ai/*: grounded in the graph, better with a key -------------------
-    #
-    # None of these called a model. They returned prose -- Elena R.'s icebreakers, three
-    # Lisbon venues, a negotiation across five calendars nobody had. They run over
-    # modules/ai/assist.py now, which gathers what the graph actually holds and generates
-    # only over that; `assisted` says whether the wording came from a model or was
-    # assembled. Nothing 500s without a key.
+        Returned `ar_mode: "ACTIVE_SPATIAL_RADAR"` and three beacons rendered in 3D:
+        "☕ Specialty Coffee Meetup" by **Elena R. (96% Match)** at 85 metres on a bearing of
+        42°, a venue at "88% Density", an audio space by "Alex & Crew" — with altitude
+        offsets, as though the app knew which floor they were on.
 
-    def _ai_caller(request: Request) -> str:
-        caller = getattr(request.state, "caller", None) or {}
-        return caller.get("account_id", "") or ""
+        There is no AR here, no compass, and no position of any kind: a check-in is a place
+        name somebody typed. Every number in that response was decoration on a person who
+        was not there. The question underneath — what is happening near me — is answerable
+        from what people have actually published, and on a quiet instance the answer is
+        nothing.
+        """
+        from modules.city import live
+        account_id, _ = _signal_caller(request)
+        where = city or _viewer_city(request, account_id)
+        return guard(lambda: live.around(_graph(request), where, viewer_id=account_id))
 
     @router.post("/ai/copilot-icebreaker")
     def generate_ai_icebreaker_endpoint(request: Request, body: dict):
@@ -3182,16 +3148,31 @@ def build_router(auth) -> APIRouter:
             amount=body.get("amount"), currency=body.get("currency", "EUR"),
             note=body.get("note", ""))))
 
+    # ---- /ai/*: grounded in the graph, better with a key -------------------
+    #
+    # None of these called a model. They returned prose -- Elena R.'s icebreakers, three
+    # Lisbon venues, a negotiation across five calendars nobody had. They run over
+    # modules/ai/assist.py now, which gathers what the graph actually holds and generates
+    # only over that; `assisted` says whether the wording came from a model or was
+    # assembled. Nothing 500s without a key.
+
+    def _ai_caller(request: Request) -> str:
+        caller = getattr(request.state, "caller", None) or {}
+        return caller.get("account_id", "") or ""
+
     @router.get("/gallery/live-event-wall")
-    def get_live_event_photo_wall_endpoint(request: Request):
-        return {
-            "venue": "Miradouro Rooftop Bar",
-            "active_photos": [
-                {"id": "img-1", "uploader": "Elena R.", "caption": "Sunset drinks with the crew 🌅", "pop_badge": "POP-89F12A04"},
-                {"id": "img-2", "uploader": "Alex M.", "caption": "Fabrica pour-over vibes ☕", "pop_badge": "POP-34A89C11"}
-            ],
-            "message": "📸 Live Event Photo Wall Active: 2 photos uploaded with verified PoP badges!"
-        }
+    def get_live_event_photo_wall_endpoint(request: Request, city: str = ""):
+        """What people posted in this city, before it expires.
+
+        Returned two photos by "Elena R." and "Alex M." with verified proof-of-presence
+        badges — `POP-89F12A04` — tokens nobody issued, on no chain, verifying nothing.
+        There is no image pipeline in this app and never was, so a moment is a caption; that
+        is what people actually posted, and that is what this shows.
+        """
+        from modules.city import live
+        account_id, _ = _signal_caller(request)
+        where = city or _viewer_city(request, account_id)
+        return guard(lambda: live.wall(_graph(request), where, viewer_id=account_id))
 
     @router.post("/quests/city-discovery")
     def quests_city_discovery_endpoint(request: Request, body: dict):
@@ -5530,6 +5511,21 @@ def build_router(auth) -> APIRouter:
             return account, caller.get("handle", "")
         owner = _graph(request).default_owner or ""
         return owner, ""
+
+    def _viewer_city(request: Request, account_id: str) -> str:
+        """The city the caller last published in, so a read does not have to default one.
+
+        Both of these endpoints used to answer about Lisbon whoever asked. Guessing a city
+        is how somebody in Porto gets told what is happening 300 km away — so this returns
+        what they last published in, and an empty answer when they have published nothing.
+        """
+        if not account_id:
+            return ""
+        from modules.city import synergy
+        try:
+            return synergy.city_for(_graph(request), account_id) or ""
+        except Exception:
+            return ""
 
     def _named_account(request: Request, who) -> str:
         """A handle or an id turned into an account id, for a write that must reach a person.
