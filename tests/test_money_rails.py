@@ -14,7 +14,10 @@ import pytest
 
 from modules.money import rails
 
-SECRET = "whsec_test_not_a_real_key"
+# Not spelled in Stripe's namespace on purpose: `test_no_vendor_credential_prefixes_are_committed`
+# flags anything shaped like a real credential, because demo data that looks like a leak
+# reads as one to every scanner including GitHub's. It is only ever an HMAC key here.
+SECRET = "a-signing-key-for-this-suite-only"
 BODY = b'{"id":"evt_1","type":"checkout.session.completed"}'
 
 
@@ -35,7 +38,7 @@ def test_nothing_is_configured_by_default():
 
 
 def test_a_processor_becomes_available_when_its_keys_are_set(monkeypatch):
-    monkeypatch.setenv("LIFEOS_STRIPE_SECRET_KEY", "sk_test_x")
+    monkeypatch.setenv("LIFEOS_STRIPE_SECRET_KEY", "a-placeholder-api-key")
     assert rails.status("stripe")["available"] is True
     assert rails.status("stripe")["missing"] == []
     # PayPal needs two, and one is not enough.
@@ -81,7 +84,7 @@ def test_a_tampered_body_is_refused():
 def test_a_signature_from_another_secret_is_refused():
     stamp = int(time.time())
     with pytest.raises(rails.SignatureError):
-        rails.verify_webhook(BODY, _sign(BODY, stamp, "whsec_someone_else"), secret=SECRET)
+        rails.verify_webhook(BODY, _sign(BODY, stamp, "a-different-signing-key"), secret=SECRET)
 
 
 def test_a_replayed_signature_expires():
@@ -101,7 +104,7 @@ def test_a_header_without_a_signature_is_refused():
 def test_a_rolling_secret_pair_still_verifies():
     """Stripe sends two v1 signatures while a secret is being rotated."""
     stamp = int(time.time())
-    stale = hmac.new(b"whsec_previous", f"{stamp}.".encode() + BODY,
+    stale = hmac.new(b"the-previous-signing-key", f"{stamp}.".encode() + BODY,
                      hashlib.sha256).hexdigest()
     live = _sign(BODY, stamp).split("v1=")[1]
     out = rails.verify_webhook(BODY, f"t={stamp},v1={stale},v1={live}", secret=SECRET)

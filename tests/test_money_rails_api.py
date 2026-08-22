@@ -16,7 +16,10 @@ from gateway import rate_limiter
 from gateway.main import create_app
 
 PW = "correct-horse-battery"
-SECRET = "whsec_test_not_a_real_key"
+# Not spelled in Stripe's namespace on purpose: `test_no_vendor_credential_prefixes_are_committed`
+# flags anything shaped like a real credential, because demo data that looks like a leak
+# reads as one to every scanner including GitHub's. It is only ever an HMAC key here.
+SECRET = "a-signing-key-for-this-suite-only"
 
 
 @pytest.fixture(autouse=True)
