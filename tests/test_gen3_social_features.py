@@ -307,20 +307,28 @@ def test_transparent_algo_and_revenue_share(cfg):
     assert res3.status_code == 200
     assert res3.json()["walks"] == []
 
+    # Said €145.00 READY_FOR_PAYOUT from two named events, both constants in the source.
+    # Nobody had earned anything, and somebody could reasonably have gone and spent it.
     res4 = client.get("/v1/economics/revenue-share")
     assert res4.status_code == 200
-    assert res4.json()["earnings_to_date"] == 145.00
+    assert res4.json()["earnings"] == 0
+    assert res4.json()["payout_ready"] is False
 
 def test_monetization_perks_and_subscriptions(cfg):
     client = TestClient(create_app(cfg))
+    # Two perks with redemption codes, at two venues that had agreed to nothing. A member
+    # presenting PERK-FABRICA-FREE at the counter would have been turned away.
     res1 = client.get("/v1/monetization/sponsored-perks")
     assert res1.status_code == 200
-    assert len(res1.json()["perks"]) >= 2
+    assert res1.json()["perks"] == []
+    assert res1.json()["sponsored"] is False
 
+    # Answered `subscribed: True` at €9.99/mo, charging nobody and gating nothing. There is
+    # no payment processor here, so subscribing is something this deployment cannot do.
     res2 = client.post("/v1/billing/subscriptions", json={"plan": "EXPLORER_PRO"})
-    assert res2.status_code == 200
-    assert res2.json()["subscribed"] is True
-    assert res2.json()["price_eur"] == 9.99
+    assert res2.status_code == 503
+    assert res2.json()["detail"]["charged"] is False
+    assert "LIFEOS_STRIPE_SECRET_KEY" in res2.json()["detail"]["needs"]
 
 def test_voice_brief_gifting_and_wellness(cfg):
     client = TestClient(create_app(cfg))
@@ -346,18 +354,23 @@ def test_voice_brief_gifting_and_wellness(cfg):
 
 def test_sustainable_multi_revenue_monetization(cfg):
     client = TestClient(create_app(cfg))
+    # €380.00/mo across fourteen partner venues. There are no partner venues, and a venue
+    # shown this figure could have invoiced against it.
     res1 = client.get("/v1/monetization/venue-commissions")
     assert res1.status_code == 200
-    assert res1.json()["monthly_commission_eur"] == 380.00
+    assert res1.json()["earnings"] == 0
+    assert res1.json()["partner_venues"] == 0
 
+    # Quoted an MRR from seats × 14.99 and answered `registered: True`, storing nothing.
     res2 = client.post("/v1/monetization/b2b-team-tier", json={"company_name": "Acme AI", "seats": 25})
-    assert res2.status_code == 200
-    assert res2.json()["registered"] is True
-    assert res2.json()["mrr_eur"] == 374.75
+    assert res2.status_code == 503
+    assert res2.json()["detail"]["money_moved"] is False
 
+    # €850.00 paid out across six paid plugins. No plugin has ever been sold.
     res3 = client.get("/v1/monetization/plugin-revshare")
     assert res3.status_code == 200
-    assert res3.status_code == 200
+    assert res3.json()["earnings"] == 0
+    assert res3.json()["paid_plugins"] == 0
 
 def test_viral_growth_and_traction(cfg):
     client = TestClient(create_app(cfg))
@@ -536,9 +549,13 @@ def test_ai_butler_magic_split_and_house_swap(cfg):
     assert res1.status_code == 200
     assert res1.json()["stops"] == []
 
+    # It divided a hardcoded 84.00 by the headcount and ignored the bill_total it was
+    # given, so a bill of 200 between four reported 21.00 each. It now settles the debts
+    # the shared tab actually holds — and this caller's tab is empty.
     res2 = client.post("/v1/payments/one-tap-settle", json={"bill_total": "€84.00", "members_count": 4})
     assert res2.status_code == 200
-    assert res2.json()["split_settled"] is True
+    assert res2.json()["nothing_owed"] is True
+    assert res2.json()["money_moved"] is False
 
     res3 = client.post("/v1/housing/nomad-house-swap", json={"city": "Lisbon", "home_city": "Lisbon", "destination_city": "Tokyo"})
     assert res3.status_code == 200
@@ -662,21 +679,28 @@ def test_city_seeding_and_cold_start_engine(cfg):
 
 def test_stripe_and_paypal_payment_gateways(cfg):
     client = TestClient(create_app(cfg))
+    # No processor is connected to this deployment, so none of these can be attempted at
+    # all. 503 rather than a 200 carrying `charged: false`, which reads as a declined card.
     res1 = client.post("/v1/payments/stripe/checkout-session", json={"amount": 21.00, "description": "Catamaran Split"})
-    assert res1.status_code == 200
-    assert res1.json()["session_created"] is True
+    assert res1.status_code == 503
+    assert "cs_live_" not in res1.text          # the same session id for every caller
 
+    # The worst of them: it answered `signature_verified: True` and `PAID_AND_SETTLED` to
+    # any body posted to it, with no secret set and nothing checked.
     res2 = client.post("/v1/payments/stripe/webhook", json={"type": "checkout.session.completed"})
-    assert res2.status_code == 200
-    assert res2.json()["webhook_processed"] is True
+    assert res2.status_code == 503
+    assert res2.json()["detail"]["verified"] is False
+    assert "PAID_AND_SETTLED" not in res2.text
 
     res3 = client.post("/v1/payments/paypal/create-order", json={"amount": 21.00, "item": "Catamaran Split"})
-    assert res3.status_code == 200
-    assert res3.json()["order_created"] is True
+    assert res3.status_code == 503
+    assert "PAYPAL-ORDER-882194A" not in res3.text
 
+    # It reported COMPLETED, with a capture id and a payer's email, for an order that was
+    # never created.
     res4 = client.post("/v1/payments/paypal/capture-order", json={"order_id": "PAYPAL-ORDER-882194A"})
-    assert res4.status_code == 200
-    assert res4.json()["order_captured"] is True
+    assert res4.status_code == 503
+    assert "COMPLETED" not in res4.text
 
 def test_automated_city_content_pipeline_and_weather_triggers(cfg):
     client = TestClient(create_app(cfg))

@@ -27,7 +27,15 @@ async function api(path, body) {
   const resp = await fetch(apiBase() + path, opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    const problem = new Error(err.detail || "gateway error " + resp.status);
+    // `detail` is a string for most refusals and an object for the ones that carry
+    // structure (which keys are missing, what to do instead). Stringifying an object into
+    // a toast produces "[object Object]", so keep the object on the error and give the
+    // message a line somebody can actually read.
+    const detail = err.detail;
+    const problem = new Error((detail && typeof detail === "object")
+      ? (detail.reason || "gateway error " + resp.status)
+      : (detail || "gateway error " + resp.status));
+    problem.detail = detail;
     // Callers need to tell "your session is gone" from "the wifi dropped". Without the
     // status they look identical, and treating the second as the first signs people out
     // of a working session.
@@ -49,7 +57,15 @@ async function apiDelete(path, body) {
   const resp = await fetch(apiBase() + path, opts);
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({}));
-    const problem = new Error(err.detail || "gateway error " + resp.status);
+    // `detail` is a string for most refusals and an object for the ones that carry
+    // structure (which keys are missing, what to do instead). Stringifying an object into
+    // a toast produces "[object Object]", so keep the object on the error and give the
+    // message a line somebody can actually read.
+    const detail = err.detail;
+    const problem = new Error((detail && typeof detail === "object")
+      ? (detail.reason || "gateway error " + resp.status)
+      : (detail || "gateway error " + resp.status));
+    problem.detail = detail;
     problem.status = resp.status;
     throw problem;
   }
@@ -659,21 +675,15 @@ function todayView() {
   /* ---- ConnectOS Monetization & Subscriptions ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(234,179,8,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>💳 ConnectOS Pro & Native Venue Perks</h2>
-      <span class="badge good" style="font-weight:bold;">Non-Intrusive Ads & Pro Tier</span>
+      <h2>💳 Membership & venue perks</h2>
+      <span class="badge" style="font-weight:bold;">Nothing is charged</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Zero tracking ads — only native venue discounts & €9.99/mo Explorer Pro membership!</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:10px;">
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;">
-        <strong>☕ Fabrica Coffee Roasters</strong>
-        <div style="color:var(--spark); font-weight:700; margin-top:2px;">Free Batch Brew Upgrade</div>
-      </div>
-      <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px;">
-        <strong>🍷 Miradouro Rooftop Bar</strong>
-        <div style="color:var(--growth); font-weight:700; margin-top:2px;">15% Off Crew Tapas Platter</div>
-      </div>
+    <p class="hint" style="margin-bottom:8px;">There is no paid tier and no advertising here. Every feature is available to every account.</p>
+    <div id="perks-list" style="margin-bottom:10px;"></div>
+    <div style="display:flex; gap:8px;">
+      <button class="primary" data-act="load-venue-perks">Venue perks</button>
+      <button class="primary" data-act="upgrade-explorer-pro">Try to subscribe</button>
     </div>
-    <button class="primary" style="background:linear-gradient(135deg, #eab308, #6366f1);" data-act="upgrade-explorer-pro">Upgrade to Explorer Pro (€9.99/mo) 💳</button>
     <div id="sub-monetization-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -699,13 +709,13 @@ function todayView() {
   /* ---- Sustainable Multi-Revenue Stream Dashboard ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>💼 Sustainable Multi-Revenue Dashboard</h2>
-      <span class="badge good" style="font-weight:bold;">4 Cashflow Streams</span>
+      <h2>💼 Revenue</h2>
+      <span class="badge" style="font-weight:bold;">Counted, not quoted</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">B2B Team Subscriptions (€374.75 MRR) + Venue Commissions (€380.00/mo) + Dev RevShare (€150.00/mo)!</p>
+    <p class="hint" style="margin-bottom:8px;">No payment processor is connected, so nothing has been earned. These read stored rows.</p>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #6366f1);" data-act="b2b-team-signup">Register B2B Team (25 Seats) 🏢</button>
-      <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981);" data-act="view-revenue-breakdown">View Cashflow Breakdown 📊</button>
+      <button class="primary" data-act="b2b-team-signup">Register a team</button>
+      <button class="primary" data-act="view-revenue-breakdown">What has been earned</button>
     </div>
     <div id="monetization-breakdown-output" style="margin-top:10px;"></div>
   </div>`;
@@ -793,10 +803,10 @@ function todayView() {
       <h2>🤖 AI Butler, 1-Tap Split & House Swap</h2>
       <span class="badge good" style="font-weight:bold;">Autonomous OS</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">AI Weekend Blueprints, 1-tap Apple Pay group splits, and global apartment swaps!</p>
+    <p class="hint" style="margin-bottom:8px;">Weekend suggestions from your own graph, one-tap clearing of your shared tab, and apartment swaps.</p>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #f0a94a, #f59e0b);" data-act="gen-ai-blueprint">AI Weekend Blueprint 🤖</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="settle-one-tap-split">1-Tap Split (€21.00) 🪄</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="settle-one-tap-split">Clear my tab 🪄</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="swap-nomad-flat">Nomad House Swap 🌍</button>
     </div>
     <div id="ai-butler-output" style="margin-top:10px;"></div>
@@ -902,12 +912,12 @@ function todayView() {
       <h2>💳 Stripe & PayPal Global Payments</h2>
       <span class="badge" style="color:var(--growth); border-color:var(--growth)40; font-weight:bold;">PCI-DSS Tier 1</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Instant Stripe Checkout (Card, Apple Pay, Google Pay, SEPA) and 1-Click PayPal Order Capture for outings and VIP perks!</p>
+    <p class="hint" style="margin-bottom:8px;">No payment processor is connected to this deployment. Each button reports exactly what an operator would need to set.</p>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="pay-stripe-checkout">Stripe Checkout (€21) 💳</button>
-      <button class="primary" style="background:linear-gradient(135deg, #0070ba, #003087);" data-act="pay-paypal-order">PayPal 1-Click (€21) 🅿️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="test-stripe-webhook">Stripe Webhook Sync ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #0284c7, #0369a1);" data-act="capture-paypal-order">Capture PayPal 💰</button>
+      <button class="primary" data-act="pay-stripe-checkout">Stripe checkout</button>
+      <button class="primary" data-act="pay-paypal-order">PayPal order</button>
+      <button class="primary" data-act="test-stripe-webhook">Verify a webhook</button>
+      <button class="primary" data-act="capture-paypal-order">Capture a payment</button>
     </div>
     <div id="stripe-paypal-output" style="margin-top:10px;"></div>
   </div>`;
@@ -4153,20 +4163,51 @@ function wire(root) {
     `;
   }, "Growth Habit Stacked! 🌱"));
 
-  on("[data-act=upgrade-explorer-pro]", () => act(async () => {
-    const res = await api("/v1/billing/subscriptions", { plan: "EXPLORER_PRO" });
-    const out = $("#sub-monetization-output");
+  /* Every money screen answers the same way when no processor is connected: name the keys
+     the operator has to set, and point at the thing that does work without them. These
+     panels used to render `subscribed`, an MRR and a capture id from constants in the
+     handler — a user reading them believed they had a recurring charge, or that their
+     money had moved. */
+  function renderNoProcessor(err, sel, title) {
+    const out = $(sel);
     if (!out) return;
-    const perks = res.perks_unlocked || [];
+    const detail = err && err.detail;
+    if (!detail || typeof detail !== "object") { toast("⚠ " + (err && err.message)); return; }
+    const needs = (detail.needs || []).map(esc).join(", ");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">💳 ConnectOS ${esc(res.current_plan)} Subscribed!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Membership: <strong>€${res.price_eur.toFixed(2)}/mo</strong> · All Perks Active</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Perks: ${perks.join(" · ")}</div>
-        <div style="font-size:11px; color:var(--spark);">Checkout Stripe Link: ${esc(res.checkout_url)}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(title)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${esc(detail.reason || "")}</div>
+        ${needs ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Needs: <span style="font-family:monospace;">${needs}</span></div>` : ""}
+        ${detail.alternative ? `<div style="font-size:12px; color:var(--spark);">${esc(detail.alternative)}</div>` : ""}
       </div>
     `;
-  }, "Explorer Pro Subscription Active (€9.99/mo)! 💳"));
+  }
+
+  on("[data-act=load-venue-perks]", () => act(async () => {
+    /* Two perks were written into the markup — a free brew at Fabrica Coffee Roasters,
+       15% off tapas at Miradouro Rooftop Bar — beside an endpoint that returned the same
+       two with redemption codes. Neither venue had agreed to anything, and a member who
+       presented one at the counter would have been turned away. */
+    const res = await api("/v1/monetization/sponsored-perks");
+    const out = $("#perks-list");
+    if (!out) return;
+    out.innerHTML = res.perks.length
+      ? res.perks.map(perk => `
+          <div style="background:var(--surface-2s); padding:8px; border-radius:10px; font-size:12px; margin-bottom:6px;">
+            <strong>${esc(perk.venue)}</strong>
+            <div style="color:var(--spark); font-weight:700; margin-top:2px;">${esc(perk.title)}</div>
+          </div>`).join("")
+      : `<div style="font-size:12px; color:var(--muted);">${esc(res.reason || "")} ${esc(res.suggestion || "")}</div>`;
+  }));
+
+  on("[data-act=upgrade-explorer-pro]", () => act(async () => {
+    try {
+      await api("/v1/billing/subscriptions", { plan: "EXPLORER_PRO" });
+    } catch (e) {
+      renderNoProcessor(e, "#sub-monetization-output", "No subscription to buy");
+    }
+  }));
 
   on("[data-act=convert-voice-brief]", () => act(async () => {
     const transcript = $("#vb-note") ? $("#vb-note").value.trim() : "";
@@ -4185,30 +4226,25 @@ function wire(root) {
   }));
 
   on("[data-act=b2b-team-signup]", () => act(async () => {
-    const res = await api("/v1/monetization/b2b-team-tier", { company_name: "Acme AI Corp", seats: 25 });
-    const out = $("#monetization-breakdown-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏢 B2B Corporate Subscription Active (${esc(res.company_name)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Seats: <strong>${res.seats} Employees</strong> · MRR: <strong>€${res.mrr_eur.toFixed(2)}/mo</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Perks: ${res.perks.join(" · ")}</div>
-      </div>
-    `;
-  }, "B2B Corporate Subscription Activated (€374.75/mo MRR)! 🏢"));
+    try {
+      await api("/v1/monetization/b2b-team-tier", {});
+    } catch (e) {
+      renderNoProcessor(e, "#monetization-breakdown-output", "No seat plan to sell");
+    }
+  }));
 
   on("[data-act=view-revenue-breakdown]", () => act(async () => {
     const res = await api("/v1/monetization/venue-commissions");
     const out = $("#monetization-breakdown-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🎟️ Venue Partnership Commissions:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Monthly Cashflow: <strong>€${res.monthly_commission_eur.toFixed(2)}/mo</strong> across <strong>${res.partner_venues_count} Venues</strong></div>
-        <div style="font-size:12px; color:var(--muted);">Top Venue: ${esc(res.top_venue)} · Avg Take Rate: ${esc(res.average_take_rate)}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Venue commissions</div>
+        <div style="font-size:13px; margin-bottom:4px;">Collected: <strong>${res.earnings}</strong> · Partner venues: <strong>${res.partner_venues}</strong></div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.reason || "")}</div>
       </div>
     `;
-  }, "Venue Commission Breakdown Loaded! 📊"));
+  }));
 
   /* An invite link for a crew you actually administer.
 
@@ -4540,17 +4576,25 @@ function wire(root) {
     renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#ai-butler-output", "What's on");
   }));
   on("[data-act=settle-one-tap-split]", () => act(async () => {
-    const res = await api("/v1/payments/one-tap-settle", { bill_total: "€84.00", members_count: 4 });
+    /* Divided a hardcoded 84.00 by the headcount and ignored the bill you gave it, so a
+       bill of 200 between four reported 21.00 each — next to a revolut.me link that
+       belonged to nobody. It clears what your shared tab actually holds now, and says
+       plainly that no money moved, because none did. */
+    const res = await api("/v1/payments/one-tap-settle", {});
     const out = $("#ai-butler-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🪄 1-Tap Split Settled (${esc(res.split_per_person)} / person):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Total Bill: <strong>${esc(res.bill_total)}</strong> · Split across ${res.members_count} members</div>
-        <div style="font-size:11px; color:var(--spark);">Revolut Link: ${esc(res.revolut_link)} (Apple Pay Ready )</div>
-      </div>
-    `;
-  }, "1-Tap Split Settled! 🪄"));
+    const rows = (res.settled || []).map(s =>
+      `<div style="font-size:13px;">${esc(s.handle || s.counterparty)} · <strong>${s.amount} ${esc(s.currency)}</strong></div>`).join("");
+    out.innerHTML = res.nothing_owed
+      ? `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+           <div style="font-size:13px;">${esc(res.suggestion || "Nothing to settle.")}</div>
+         </div>`
+      : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth);">
+           <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Cleared ${res.count} on your tab</div>
+           ${rows}
+           <div style="font-size:12px; color:var(--muted); margin-top:4px;">${esc(res.no_money || "")}</div>
+         </div>`;
+  }));
 
   on("[data-act=swap-nomad-flat]", () => act(async () => {
     const res = await api("/v1/housing/nomad-house-swap", { home_city: "Lisbon (Alfama Flat)", destination_city: "Tokyo (Shibuya Loft)" });
@@ -4795,58 +4839,46 @@ function wire(root) {
   }, "Weekly Anchor Crews Activated! ⚓"));
 
   on("[data-act=pay-stripe-checkout]", () => act(async () => {
-    const res = await api("/v1/payments/stripe/checkout-session", { amount: 21.00, description: "Sunset Catamaran Co-Share Split" });
-    const out = $("#stripe-paypal-output");
-    if (!out) return;
-    const methods = res.payment_methods || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">💳 Stripe Checkout Ready (€${res.amount.toFixed(2)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Session ID: <strong style="font-family:monospace;">${esc(res.session_id)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Methods: ${methods.join(" · ")}</div>
-        <a href="${safeUrl(res.checkout_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Proceed to Secure Stripe Portal ➔</a>
-      </div>
-    `;
-  }, "Stripe Checkout Session Created! 💳"));
+    /* Returned a fixed `cs_live_…` session id and a link into checkout.stripe.com built
+       from it — the same id for every user on every instance, for a session that never
+       existed. Following it led nowhere. */
+    try {
+      await api("/v1/payments/stripe/checkout-session", {});
+    } catch (e) {
+      renderNoProcessor(e, "#stripe-paypal-output", "No card checkout here");
+    }
+  }));
 
   on("[data-act=pay-paypal-order]", () => act(async () => {
-    const res = await api("/v1/payments/paypal/create-order", { amount: 21.00, item: "Sunset Catamaran Co-Share Split" });
-    const out = $("#stripe-paypal-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0070ba;">
-        <div style="font-size:14px; font-weight:700; color:#0070ba; margin-bottom:4px;">🅿️ PayPal Order Created (€${res.amount.toFixed(2)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Order ID: <strong style="font-family:monospace;">${esc(res.order_id)}</strong> (${esc(res.intent)})</div>
-        <a href="${safeUrl(res.approval_url)}" target="_blank" rel="noopener noreferrer" style="display:inline-block; margin-top:6px; font-size:12px; color:var(--spark); font-weight:bold; text-decoration:underline;">Complete in PayPal Checkout ➔</a>
-      </div>
-    `;
-  }, "PayPal Order Created! 🅿️"));
+    /* `PAYPAL-ORDER-882194A` for everybody, with an approval URL built from it. No
+       order was ever created, so approving it was impossible. */
+    try {
+      await api("/v1/payments/paypal/create-order", {});
+    } catch (e) {
+      renderNoProcessor(e, "#stripe-paypal-output", "No PayPal order to open");
+    }
+  }));
 
   on("[data-act=test-stripe-webhook]", () => act(async () => {
-    const res = await api("/v1/payments/stripe/webhook", { type: "checkout.session.completed" });
-    const out = $("#stripe-paypal-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⚡ Stripe Webhook Verified (${esc(res.event_type)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Status: <strong>${esc(res.settlement_status)}</strong> (Signature Verified)</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Receipt: ${esc(res.receipt_url)}</div>
-      </div>
-    `;
-  }, "Stripe Webhook Verified! ⚡"));
+    /* The worst handler in the repo: it answered `signature_verified: True` and
+       `PAID_AND_SETTLED` to any body at all, with no secret set and nothing checked. The
+       signature is now genuinely checked, or the call refuses. */
+    try {
+      await api("/v1/payments/stripe/webhook", {});
+    } catch (e) {
+      renderNoProcessor(e, "#stripe-paypal-output", "Nothing to verify");
+    }
+  }));
 
   on("[data-act=capture-paypal-order]", () => act(async () => {
-    const res = await api("/v1/payments/paypal/capture-order", { order_id: "PAYPAL-ORDER-882194A" });
-    const out = $("#stripe-paypal-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #0284c7;">
-        <div style="font-size:14px; font-weight:700; color:#0284c7; margin-bottom:4px;">💰 PayPal Payment Captured (${esc(res.status)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Capture ID: <strong style="font-family:monospace;">${esc(res.capture_id)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Payer: ${esc(res.payer_email)} · Outing Confirmed</div>
-      </div>
-    `;
-  }, "PayPal Payment Captured! 💰"));
+    /* Reported COMPLETED, with a capture id and a payer's email address, for an order
+       that was never created. It told people their money had been taken. */
+    try {
+      await api("/v1/payments/paypal/capture-order", {});
+    } catch (e) {
+      renderNoProcessor(e, "#stripe-paypal-output", "No payment to capture");
+    }
+  }));
 
   on("[data-act=stream-auto-events]", () => act(async () => {
     const res = await api("/v1/seeding/auto-event-pipeline", { city: "Lisbon" });
