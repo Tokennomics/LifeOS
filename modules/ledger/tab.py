@@ -385,3 +385,42 @@ def entries(graph: Graph, *, account_id: str, counterparty: str = "",
     items.sort(key=lambda e: e["created_at"], reverse=True)
     return {"entries": items[:limit], "total": len(items), "empty": not items,
             "counterparty": counterparty}
+
+
+def settle_all(graph: Graph, *, account_id: str, currency: str = "",
+               note: str = "", source: str = MODULE) -> dict:
+    """Clear every debt you owe, in one call.
+
+    `/payments/one-tap-settle` promised exactly this and delivered a constant: it computed
+    each share from a hardcoded 84.00 whatever the caller passed, so settling a bill of 200
+    between four people reported 21.00 each. This settles what the tab actually holds.
+
+    Only debts *you* owe move. Money owed **to** you is not something you can clear by
+    tapping a button on your own phone — that is the other person's to settle, and a
+    one-tap that quietly wiped both directions would erase what you are owed.
+    """
+    if not account_id:
+        raise TabError("sign in first")
+    wanted = _currency(currency) if str(currency or "").strip() else ""
+
+    owed = [(person, code, -cents)
+            for (person, code), cents in _net(graph, account_id).items()
+            if cents < 0 and (not wanted or code == wanted)]
+    owed.sort(key=lambda row: (row[1], row[0]))
+
+    settled, cleared = [], {}
+    for person, code, cents in owed:
+        entry_id = _write(graph, kind=SETTLEMENT, debtor=account_id, creditor=person,
+                          cents=cents, currency=code, note=_text(note), source=source)
+        settled.append({"counterparty": person, "amount": _money(cents),
+                        "currency": code, "entry_id": entry_id})
+        cleared[code] = round(cleared.get(code, 0) + _money(cents), 2)
+
+    # `clear` must mean "you owe nothing", not "this call succeeded". With a currency
+    # filter, debts in every other currency are still standing, and reporting clear there
+    # would tell somebody they were square when they were not.
+    still_owed = any(cents < 0 for cents in _net(graph, account_id).values())
+    return {"settled": settled, "count": len(settled), "cleared": cleared,
+            "clear": not still_owed, "nothing_owed": not settled,
+            "money_moved": False, "no_money": NO_MONEY,
+            "suggestion": ("You do not owe anybody on your tab." if not settled else "")}

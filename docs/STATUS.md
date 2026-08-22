@@ -442,10 +442,53 @@ file and still touches a trust boundary.
     The weights are now **imported from `modules/discover/core`**, so the page cannot drift
     from the code that ranks; and it is explicitly a description, not a control panel.
 
-**Prop count: 495 handlers, 42 literals (8%).** Down from 184/445 (40%) when this began. What
-remains is the payments and monetization group (needs the owner's accounts and an explicit
-go-ahead), the hardware group (mesh, wearables, AR, spatial audio — a web app cannot reach
-it), and a short tail of single endpoints.
+**Prop count: 495 handlers, 24 literals (5%).** Down from 184/445 (40%) when this began. What
+remains is the hardware group (mesh, wearables, biometrics, edge replication — a web app
+cannot reach it) and a short tail of single endpoints: `/venues/program(s)`,
+`/community/*`, `/dao/community-treasury`, `/events/*`, the two `/simulation/*` runners,
+`/spaces/audio`, `/audio/lounge-spaces`, `/voice/crew-huddle`, `/routing/group-nav`,
+`/memories/analog-film-swap`, `/travel/layover-discovery`, `/seeding/anchor-outings`,
+`/people/qr`, `/native/app-store-manifest`.
+
+**The audit tool had been overstating by more than double.** `tools/audit_props.py` read
+only each handler's own body, so the ~46 handlers that do their work through a shared
+helper (`_synergy_match`, `_conditions_for`) counted as literals — it reported 81 where the
+truth was 35. It resolves helpers first now. A count that overstates is a count people stop
+reading, which is the same failure mode as a status page that always says OK.
+
+### Money — the eleven handlers that made claims about somebody's cash
+
+Everywhere else in this app an invented number is a bad first impression. In this group it
+was a statement that money had moved, and people act on those.
+
+- `/payments/stripe/webhook` answered `signature_verified: True` and `settlement_status:
+  "PAID_AND_SETTLED"` to **any** body posted to it, with no secret configured and nothing
+  checked — the exact claim a webhook exists to make trustworthy, made unconditionally. It
+  now runs Stripe's real scheme: HMAC-SHA256 over `timestamp.rawbody`, constant-time
+  compared across a rolling secret pair, inside a replay window. With no secret set it
+  raises rather than reporting `verified: false`, because "cannot check" and "checked and
+  rejected" are different answers and only one of them is true.
+- `/payments/paypal/capture-order` reported `COMPLETED` with a capture id and a payer's
+  email for an order that was never created. `/payments/stripe/checkout-session` returned a
+  fixed `cs_live_…` id, so two users' receipts were byte-identical.
+- `/economics/revenue-share` said €145.00 `READY_FOR_PAYOUT`; `/monetization/venue-commissions`
+  €380.00/month from fourteen partner venues; `/monetization/plugin-revshare` €850.00 paid
+  out. Every figure was a constant. A host could have spent the 145; a venue could have
+  invoiced for the 380. These now count stored rows, which is zero, and say so.
+- `/billing/subscriptions` answered `subscribed: True` at €9.99/month, charging nobody and
+  gating nothing — every listed "perk" was already free to every account.
+- `/monetization/sponsored-perks` handed out `PERK-FABRICA-FREE` at a café that had agreed
+  to nothing. A member who presented it at the counter would have been turned away.
+- `/payments/one-tap-settle` divided a hardcoded 84.00 by the headcount and ignored the
+  `bill_total` passed in, so a bill of 200 between four reported 21.00 each. **It is now a
+  real feature**: `tab.settle_all` clears every debt you owe on the shared tab in one call.
+  Only what *you* owe — clearing both directions from your own phone would erase money
+  coming your way.
+
+Charging refuses with **503 naming the exact environment variables that are missing**, not
+a 200 carrying `charged: false` (which reads as a declined card) and not a 400 (which blames
+the caller for the operator's configuration). Nothing mints an identifier. 37 tests, and
+both new guards were verified by reinstating the old behaviour and watching them fail.
 
 - **The last two endpoints that invented people** (`modules/city/live.py`, 14 tests).
   `/ar/spatial-flares` returned three beacons rendered in 3D — "☕ Specialty Coffee Meetup"

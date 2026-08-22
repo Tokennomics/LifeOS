@@ -852,6 +852,16 @@ def build_router(auth) -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
+    def no_processor(processor: str):
+        """503 naming exactly which keys are missing.
+
+        503 rather than 400 because the caller did nothing wrong, and rather than a 200
+        carrying `charged: false` because that reads as a declined card. Nothing here was
+        attempted at all.
+        """
+        from modules.money import rails
+        raise HTTPException(status_code=503, detail=rails.unavailable(processor))
+
     def _seed_city(body: dict) -> str:
         """The city a seeding call is about. Every one of these used to default its own —
         Lisbon or Edinburgh, in the handler signature — so a caller who forgot got somebody
@@ -3273,59 +3283,44 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/economics/revenue-share")
     def get_creator_revenue_share_endpoint(request: Request):
-        return {
-            "earnings_to_date": 145.00,
-            "currency": "EUR",
-            "payout_status": "READY_FOR_PAYOUT",
-            "sources": [
-                {"event": "Lisbon Rooftop Sunset Meet", "share": 45.00},
-                {"event": "Specialty Coffee Crawl", "share": 100.00}
-            ],
-            "message": "💎 Community Revenue Share: €145.00 earned from host venue cashbacks!"
-        }
+        """What a host has actually earned, counted from rows.
+
+        Said €145.00 `READY_FOR_PAYOUT` from two named events. Both numbers were constants
+        in the source and no payout path exists — the most actionable false statement in
+        the repo, because somebody could reasonably go and spend it.
+        """
+        from modules.money import rails
+        account_id, _ = _signal_caller(request)
+        return rails.earnings(_graph(request), account_id=account_id)
 
     @router.get("/monetization/sponsored-perks")
     def get_sponsored_venue_perks_endpoint(request: Request):
-        return {
-            "perks": [
-                {
-                    "id": "ad-perk-1",
-                    "venue": "Fabrica Coffee Roasters",
-                    "title": "☕ Free Batch Brew Upgrade for ConnectOS Members",
-                    "badge": "Native Venue Perk",
-                    "code": "PERK-FABRICA-FREE",
-                    "privacy_policy": "Zero tracking, zero cookies. Contextual local sponsor."
-                },
-                {
-                    "id": "ad-perk-2",
-                    "venue": "Miradouro Rooftop Bar",
-                    "title": "🍷 15% Off Sunset Tapas Platter for Verified Outing Crews",
-                    "badge": "Native Venue Perk",
-                    "code": "PERK-ROOFTOP-15",
-                    "privacy_policy": "Zero tracking, zero cookies. Contextual local sponsor."
-                }
-            ],
-            "message": "🎟️ Contextual Sponsored Venue Perks Active: Zero tracking, 100% value for members!"
-        }
+        """Perks a venue has actually agreed to offer.
+
+        Listed two — a free brew upgrade at Fabrica Coffee Roasters, 15% off tapas at
+        Miradouro Rooftop Bar — each with a redemption code. Neither venue agreed to
+        anything. A member who walked in and presented `PERK-FABRICA-FREE` would have been
+        turned away, having been told by this app that it was theirs.
+        """
+        from modules.money import rails
+        return {"perks": [], "count": 0, "sponsored": False,
+                "processors": rails.processors()["processors"],
+                "reason": ("No venue has agreed a perk on this deployment. Codes are only "
+                           "listed here once a venue has actually offered one."),
+                "suggestion": "Real places and their opening hours are under /v1/venues."}
 
     @router.post("/billing/subscriptions")
     def manage_subscriptions_endpoint(request: Request, body: dict):
-        plan = body.get("plan", "EXPLORER_PRO").strip()
-        price_eur = 9.99 if plan == "EXPLORER_PRO" else 0.00
-        return {
-            "subscribed": True,
-            "current_plan": plan,
-            "price_eur": price_eur,
-            "interval": "monthly",
-            "perks_unlocked": [
-                "Unlimited Nomad Passport City Teleporting",
-                "1-Tap VIP Guestlist Fast-Pass Codes",
-                "Autonomous Squad Outing Agent",
-                "2x Social Karma Multiplier"
-            ],
-            "checkout_url": f"https://stripe.com/checkout/connectos-{plan.lower()}",
-            "message": f"💳 Subscribed to ConnectOS {plan} (€{price_eur:.2f}/mo)! All premium perks unlocked."
-        }
+        """Subscribe to a paid plan — which this deployment cannot sell.
+
+        Answered `subscribed: True` at €9.99/month and listed four perks as unlocked. It
+        charged nobody, stored nothing, and gated nothing: every one of those "perks" was
+        already available to every account. Somebody reading it would believe they had a
+        recurring charge they had never actually set up.
+
+        There is no billing here. Nothing is charged and no feature is behind a plan.
+        """
+        no_processor("stripe")
 
     @router.post("/ai/voice-brief")
     def process_voice_note_brief_endpoint(request: Request, body: dict):
@@ -3372,37 +3367,37 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/monetization/venue-commissions")
     def get_venue_commission_breakdown_endpoint(request: Request):
-        return {
-            "monthly_commission_eur": 380.00,
-            "partner_venues_count": 14,
-            "top_venue": "Miradouro Rooftop Sunset Bar (€160.00)",
-            "average_take_rate": "4.5%",
-            "message": "🎟️ Venue Partnership Commissions: €380.00/mo collected from off-peak venue referrals!"
-        }
+        """Commission actually collected from partner venues.
+
+        Reported €380.00/month across fourteen partner venues. There are no partner venues
+        and no commission agreement — a venue shown this could invoice against it.
+        """
+        from modules.money import rails
+        return {**rails.earnings(_graph(request)), "partner_venues": 0,
+                "reason": ("No venue partnership exists on this deployment and no "
+                           "commission has been collected. This counts stored rows.")}
 
     @router.post("/monetization/b2b-team-tier")
     def register_b2b_corporate_team_endpoint(request: Request, body: dict):
-        company = body.get("company_name", "Acme AI Corp").strip()
-        seats = body.get("seats", 25)
-        mrr_eur = seats * 14.99
-        return {
-            "registered": True,
-            "company_name": company,
-            "seats": seats,
-            "mrr_eur": mrr_eur,
-            "perks": ["Corporate Coffee Walk-and-Talk Matcher", "Team Offsite Outing Auto-Planner"],
-            "message": f"🏢 B2B Corporate Subscription Active for {company}: {seats} seats (€{mrr_eur:.2f}/mo MRR)!"
-        }
+        """Register a company on a paid seat plan — which cannot be sold here.
+
+        Answered `registered: True` and quoted an MRR from seats × 14.99, defaulting the
+        company to "Acme AI Corp" when none was given. Nothing was stored and nobody was
+        billed, so a company told its subscription was active had no subscription.
+        """
+        no_processor("stripe")
 
     @router.get("/monetization/plugin-revshare")
     def get_plugin_marketplace_revshare_endpoint(request: Request):
-        return {
-            "developer_payouts_eur": 850.00,
-            "platform_fee_eur": 150.00,
-            "revshare_split": "85% Developer / 15% ConnectOS Platform",
-            "active_paid_plugins": 6,
-            "message": "🛠️ Developer Marketplace RevShare: €150.00 platform revenue from 3rd-party activity plugins!"
-        }
+        """Marketplace revenue actually shared with plugin developers.
+
+        Quoted €850.00 paid out across six paid plugins. There is no paid marketplace and
+        no plugin has ever been sold, so no developer is owed anything.
+        """
+        from modules.money import rails
+        return {**rails.earnings(_graph(request)), "paid_plugins": 0,
+                "reason": ("No plugin has been sold on this deployment, so nothing has "
+                           "been earned and nothing is owed to any developer.")}
 
     @router.post("/viral/invite-crew")
     def generate_viral_invite_link_endpoint(request: Request, body: dict):
@@ -3632,18 +3627,23 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/payments/one-tap-settle")
     def one_tap_magic_split_settle_endpoint(request: Request, body: dict):
-        bill_total = body.get("bill_total", "€84.00").strip()
-        members_count = int(body.get("members_count", 4))
-        split_per_person = f"€{84.0 / members_count:.2f}"
-        return {
-            "split_settled": True,
-            "bill_total": bill_total,
-            "members_count": members_count,
-            "split_per_person": split_per_person,
-            "apple_pay_ready": True,
-            "revolut_link": "https://revolut.me/connectos-split-8921",
-            "message": f"🪄 1-Tap Split Settled! {split_per_person} charged via Apple Pay / Revolut for {members_count} members."
-        }
+        """Clear everything you owe on your tab, in one call.
+
+        The old version divided a hardcoded 84.00 by the headcount and ignored the
+        `bill_total` it was given, so settling a bill of 200 between four people reported
+        21.00 each — wrong arithmetic, presented as a receipt, next to `apple_pay_ready:
+        True` and a revolut.me link that belonged to nobody.
+
+        This settles the debts the tab actually holds. Only what you owe: what is owed *to*
+        you is the other person's to clear, and wiping both directions would erase money
+        coming your way.
+        """
+        from modules.ledger import tab
+        account_id, _ = _signal_caller(request)
+        return _with_handles(request, guard(lambda: tab.settle_all(
+            _graph(request), account_id=account_id,
+            currency=str(body.get("currency", "") or ""),
+            note=str(body.get("note", "") or ""))))
 
     @router.post("/housing/nomad-house-swap")
     def housing_house_swap_endpoint(request: Request, body: dict):
@@ -4014,59 +4014,68 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/payments/stripe/checkout-session")
     def create_stripe_checkout_session_endpoint(request: Request, body: dict):
-        amount_eur = float(body.get("amount", 21.00))
-        item_description = body.get("description", "ConnectOS Outing Split · Sunset Catamaran").strip()
-        currency = body.get("currency", "eur").lower()
-        return {
-            "session_created": True,
-            "session_id": "cs_live_connectos_9841f0a94a63ce8b7fa8",
-            "checkout_url": "https://checkout.stripe.com/c/pay/cs_live_connectos_9841f0a94a63ce8b7fa8",
-            "payment_intent": "pi_3MtwBwLkdIwHu7ix28a3tqPa",
-            "amount": amount_eur,
-            "currency": currency,
-            "payment_methods": ["card", "apple_pay", "google_pay", "link", "sepa_debit"],
-            "status": "READY_FOR_PAYMENT",
-            "message": f"💳 Stripe Checkout Session Created! €{amount_eur:.2f} for '{item_description}' (Card, Apple Pay, Google Pay)."
-        }
+        """Start a real Stripe checkout, or refuse and say what is missing.
+
+        Returned a fixed `cs_live_…` session id and a checkout.stripe.com URL built from it,
+        identical for every caller on every instance, alongside `status:
+        "READY_FOR_PAYMENT"`. No session existed, so following that link led nowhere — and a
+        caller who stored the id stored a string that identifies nothing.
+        """
+        no_processor("stripe")
 
     @router.post("/payments/stripe/webhook")
-    def stripe_webhook_handler_endpoint(request: Request, body: dict):
-        event_type = body.get("type", "checkout.session.completed").strip()
-        return {
-            "webhook_processed": True,
-            "event_type": event_type,
-            "signature_verified": True,
-            "settlement_status": "PAID_AND_SETTLED",
-            "receipt_url": "https://pay.stripe.com/receipts/acct_1032D82eZvKYlo2C/r_8921",
-            "message": f"⚡ Stripe Webhook Verified ({event_type})! Payment settled & outing spot confirmed."
-        }
+    async def stripe_webhook_handler_endpoint(request: Request):
+        """Verify a Stripe webhook against its signature, over the raw body.
+
+        This was the most dangerous handler in the repo. It answered `signature_verified:
+        True` and `settlement_status: "PAID_AND_SETTLED"` to *any* body posted to it, with
+        no secret configured and nothing checked — the exact claim a webhook exists to make
+        trustworthy, made unconditionally.
+
+        It now runs the real scheme: HMAC-SHA256 over `timestamp.body`, constant-time
+        compared, inside a replay window. The body must be read raw, because re-serialising
+        parsed JSON changes the bytes and the signature is over the bytes.
+
+        With no secret set this raises rather than reporting an unverified event, since
+        "cannot check" is not "checked and rejected".
+
+        Note for whoever connects Stripe: this route sits behind the gateway's
+        authentication, so Stripe cannot reach it as it stands. Making it live means
+        exposing it unauthenticated — the signature is then what authenticates it — which
+        is a deployment decision, not something to switch on by default.
+        """
+        from modules.money import rails
+        payload = await request.body()
+        header = request.headers.get("stripe-signature", "")
+        try:
+            checked = rails.verify_webhook(payload, header)
+        except rails.NotConfigured as exc:
+            raise HTTPException(status_code=503, detail={
+                "verified": False, "reason": str(exc), "needs": exc.missing})
+        except rails.SignatureError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {**checked, "settled": False,
+                "note": ("The signature is genuine. Nothing is settled here — no processor "
+                         "is connected and this app moves no money.")}
 
     @router.post("/payments/paypal/create-order")
     def create_paypal_order_endpoint(request: Request, body: dict):
-        amount_eur = float(body.get("amount", 21.00))
-        item_name = body.get("item", "ConnectOS Outing Split · Sunset Catamaran").strip()
-        return {
-            "order_created": True,
-            "order_id": "PAYPAL-ORDER-882194A",
-            "intent": "CAPTURE",
-            "amount": amount_eur,
-            "currency": "EUR",
-            "status": "CREATED",
-            "approval_url": "https://www.paypal.com/checkoutnow?token=PAYPAL-ORDER-882194A",
-            "message": f"🅿️ PayPal Order Created! ID: PAYPAL-ORDER-882194A for €{amount_eur:.2f} ('{item_name}')."
-        }
+        """Open a PayPal order, or refuse and say what is missing.
+
+        Returned the same `PAYPAL-ORDER-882194A` to everyone, with an approval URL built
+        from it. No order was created, so approving it was impossible.
+        """
+        no_processor("paypal")
 
     @router.post("/payments/paypal/capture-order")
     def capture_paypal_order_endpoint(request: Request, body: dict):
-        order_id = body.get("order_id", "PAYPAL-ORDER-882194A").strip()
-        return {
-            "order_captured": True,
-            "order_id": order_id,
-            "payer_email": "nomad.member@example.com",
-            "capture_id": "CAP-882194A-SETTLED",
-            "status": "COMPLETED",
-            "message": f"✅ PayPal Payment Captured! Order {order_id} settled successfully via PayPal."
-        }
+        """Capture a PayPal order, or refuse and say what is missing.
+
+        Answered `status: "COMPLETED"` for any order id sent to it, with a capture id and
+        somebody's email address attached. It told the caller their money had been taken
+        and it had not.
+        """
+        no_processor("paypal")
 
     @router.post("/seeding/auto-event-pipeline")
     def automated_event_pipeline_endpoint(request: Request, body: dict):
@@ -5675,8 +5684,14 @@ def build_router(auth) -> APIRouter:
         from gateway import accounts
         if not isinstance(payload, dict):
             return payload
-        rows = [r for r in (payload.get("balances") or []) + (payload.get("entries") or [])
-                if isinstance(r, dict)]
+        # `settled` is a list of cleared rows on `settle_all` and a plain bool on `settle`,
+        # so the key alone is not enough to know it holds rows.
+        listed = []
+        for key in ("balances", "entries", "settled"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                listed.extend(value)
+        rows = [r for r in listed if isinstance(r, dict)]
         wanted = {payload.get(k) for k in ("counterparty", "to_account") if payload.get(k)}
         for row in rows:
             wanted |= {row.get(k) for k in ("counterparty", "person") if row.get(k)}
