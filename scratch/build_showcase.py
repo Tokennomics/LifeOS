@@ -8,10 +8,9 @@ def to_b64(fname):
     with open(p, "rb") as f:
         return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode("ascii")
 
-img_integrated_master = to_b64("integrated_qr_logo_master_1788149399928.jpg")
-img_integrated_squircle = to_b64("integrated_qr_glyph_minimal_1788149426478.jpg")
-img_nexus = to_b64("logo_concept_quantum_nexus_1788148702818.jpg")
-img_wave = to_b64("logo_concept_infinity_wave_1788148716318.jpg")
+img_pure_inf_qr = to_b64("infinity_qr_glyph_bold_1788190209333.jpg")
+img_circuit_inf_qr = to_b64("infinity_shape_is_qr_master_1788190187042.jpg")
+img_inf_wave_int = to_b64("integrated_infinity_wave_master_1788149791163.jpg")
 img_tshirt = to_b64("wearable_qr_tshirt_mockup_1788148341758.jpg")
 img_scan = to_b64("phone_scanning_tshirt_flow_1788148355856.jpg")
 
@@ -25,64 +24,45 @@ html = f"""<!DOCTYPE html>
     .card {{ background: #0f172a; border: 1px solid #1e293b; border-radius: 16px; transition: transform 0.2s, border-color 0.2s; }}
     .card:hover {{ transform: translateY(-3px); border-color: #38bdf8; }}
     .badge {{ background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; }}
-    .featured {{ border: 2px solid #38bdf8; box-shadow: 0 0 25px rgba(56, 189, 248, 0.2); }}
+    .featured {{ border: 2px solid #38bdf8; box-shadow: 0 0 35px rgba(56, 189, 248, 0.3); }}
   </style>
 </head>
 <body class="p-6">
   <div class="max-w-4xl mx-auto space-y-8">
     <div class="text-center space-y-2">
-      <span class="badge px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase">Natively Integrated QR Logos</span>
-      <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 via-indigo-300 to-purple-400">The QR Code IS The Logo</h1>
-      <p class="text-slate-400 text-sm max-w-xl mx-auto">Seamless fusion where the logo geometry itself forms a high-contrast scannable QR code matrix.</p>
+      <span class="badge px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase">The Infinity Sign IS The QR Code</span>
+      <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 via-indigo-300 to-purple-400">Pure Infinity Loop QR Code</h1>
+      <p class="text-slate-400 text-sm max-w-xl mx-auto">The entire silhouette of the infinity symbol (∞) is constructed out of functional, camera-scannable QR code modules and glowing neon energy contours.</p>
     </div>
 
-    <!-- Featured Natively Integrated QR Logos -->
+    <!-- Featured Pure Infinity QR Designs -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-      <!-- Master Integrated QR -->
+      <!-- Pure Infinity QR Bold -->
       <div class="card featured p-5 space-y-3 flex flex-col justify-between">
         <div class="rounded-xl overflow-hidden aspect-square bg-slate-950 border border-slate-800 shadow-2xl">
-          <img src="{img_integrated_master}" alt="Master Integrated QR Logo" class="w-full h-full object-cover">
+          <img src="{img_pure_inf_qr}" alt="Pure Infinity Sign QR Code" class="w-full h-full object-cover">
         </div>
         <div>
           <div class="flex items-center justify-between mb-1">
-            <h3 class="text-lg font-bold text-white">✨ Quantum Circuit QR Emblem</h3>
-            <span class="text-xs text-amber-400 font-mono font-bold">Recommended</span>
+            <h3 class="text-lg font-bold text-white">♾️ 1. Pure Infinity QR Glyph</h3>
+            <span class="text-xs text-sky-400 font-mono font-bold">High Contrast</span>
           </div>
-          <p class="text-xs text-slate-400 leading-relaxed">The 3 corner finder eyes are glowing solar/cyan nodes. The internal data modules are sleek synaptic circuit traces. Instantly scannable by iPhone & Android cameras while looking like a sacred-tech crest.</p>
+          <p class="text-xs text-slate-400 leading-relaxed">The entire horizontal figure-8 loop is constructed out of high-contrast QR pixel modules with vibrant neon cyan and solar magenta aura. Clean, iconic, and immediately scannable by smartphone cameras.</p>
         </div>
       </div>
 
-      <!-- Squircle Integrated QR -->
+      <!-- Circuit Infinity QR Master -->
       <div class="card featured p-5 space-y-3 flex flex-col justify-between">
         <div class="rounded-xl overflow-hidden aspect-square bg-slate-950 border border-slate-800 shadow-2xl">
-          <img src="{img_integrated_squircle}" alt="Minimalist Squircle QR Glyph" class="w-full h-full object-cover">
+          <img src="{img_circuit_inf_qr}" alt="Circuit Infinity QR Emblem" class="w-full h-full object-cover">
         </div>
         <div>
           <div class="flex items-center justify-between mb-1">
-            <h3 class="text-lg font-bold text-white">📱 Squircle App Icon QR</h3>
-            <span class="text-xs text-sky-400 font-mono font-bold">App Store Ready</span>
+            <h3 class="text-lg font-bold text-white">♾️ 2. Quantum Circuit Infinity QR</h3>
+            <span class="text-xs text-purple-400 font-mono font-bold">Cyberpunk Matrix</span>
           </div>
-          <p class="text-xs text-slate-400 leading-relaxed">Apple iOS squircle frame with concentric glowing radar rings in the corners and matrix dots inside. Perfect for modern mobile app icons and front-pocket streetwear prints.</p>
+          <p class="text-xs text-slate-400 leading-relaxed">Continuous infinity ribbon filled with glowing synaptic circuit data tracks and integrated QR finder eyes at the outer loops and center crossing point.</p>
         </div>
-      </div>
-    </div>
-
-    <!-- Secondary Variations -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-      <div class="card p-4 space-y-2">
-        <div class="rounded-xl overflow-hidden aspect-square bg-slate-950 border border-slate-800">
-          <img src="{img_nexus}" alt="Quantum Nexus Matrix" class="w-full h-full object-cover">
-        </div>
-        <h4 class="text-sm font-semibold text-white">Quantum Nexus (Hexagonal Web)</h4>
-        <p class="text-xs text-slate-400">Radial sacred-network geometry with centered QR target.</p>
-      </div>
-
-      <div class="card p-4 space-y-2">
-        <div class="rounded-xl overflow-hidden aspect-square bg-slate-950 border border-slate-800">
-          <img src="{img_wave}" alt="Infinity Wave" class="w-full h-full object-cover">
-        </div>
-        <h4 class="text-sm font-semibold text-white">Infinity Wave (Synergy Ribbons)</h4>
-        <p class="text-xs text-slate-400">Interlocking fluid ribbons wrapping around the QR square.</p>
       </div>
     </div>
 
@@ -95,7 +75,7 @@ html = f"""<!DOCTYPE html>
             <img src="{img_tshirt}" alt="Wearable T-Shirt Mockup" class="w-full h-full object-cover">
           </div>
           <h4 class="text-sm font-semibold text-white">Heavyweight Streetwear T-Shirt</h4>
-          <p class="text-xs text-slate-400">Direct-to-garment (DTG) print with custom interest pills ([AI Research] [Surfing] [Deep Work]).</p>
+          <p class="text-xs text-slate-400">Direct-to-garment (DTG) print on center chest / back with custom interest pills ([AI Research] [Surfing] [Deep Work]).</p>
         </div>
 
         <div class="card p-4 space-y-2">
@@ -114,4 +94,4 @@ html = f"""<!DOCTYPE html>
 out_path = os.path.join(brain_dir, "logo_showcase.html")
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(html)
-print("Successfully updated logo_showcase.html with integrated QR logos!")
+print("Successfully updated logo_showcase.html with Pure Infinity Sign QR logos!")
