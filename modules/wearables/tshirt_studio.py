@@ -111,22 +111,24 @@ def generate_tshirt_design(
   <!-- Dark Canvas -->
   <rect width="1000" height="1000" rx="36" fill="url(#bgGrad)" stroke="#1e293b" stroke-width="3"/>
 
-  <!-- Brand Nexus Icon Symbol Header -->
+  <!-- Brand Infinity Wave Header -->
   <g transform="translate(500, 160)" filter="url(#glow)">
-    <circle cx="-40" cy="-20" r="14" fill="#38bdf8"/>
-    <circle cx="40" cy="-20" r="14" fill="#f59e0b"/>
-    <circle cx="-40" cy="20" r="14" fill="#f59e0b"/>
-    <circle cx="40" cy="20" r="14" fill="#c084fc"/>
-    <path d="M-40,-20 Q0,-40 40,-20 Q0,0 -40,20 Q0,40 40,20" fill="none" stroke="url(#nexusGrad)" stroke-width="6"/>
+    <path d="M-60,-30 C-90,-60 -20,-75 0,-40 C20,-75 90,-60 60,-30 C30,0 70,45 45,65 C25,85 -10,60 0,40 C10,60 -25,85 -45,65 C-70,45 -30,0 -60,-30 Z" fill="none" stroke="url(#nexusGrad)" stroke-width="5"/>
+    <circle cx="0" cy="0" r="8" fill="#f59e0b"/>
   </g>
 
   <!-- Title & Call to Action -->
   <text x="500" y="260" font-family="system-ui, -apple-system, sans-serif" font-size="34" font-weight="800" letter-spacing="4" fill="#f8fafc" text-anchor="middle">SCAN TO CONNECT</text>
-  <text x="500" y="300" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="600" letter-spacing="2" fill="#38bdf8" text-anchor="middle">LIFEOS · REAL-WORLD PROXIMITY</text>
+  <text x="500" y="295" font-family="system-ui, -apple-system, sans-serif" font-size="17" font-weight="600" letter-spacing="3" fill="#38bdf8" text-anchor="middle">LIFEOS · INFINITY WAVE PROTOCOL</text>
+
+  <!-- Infinity Wave Intertwined Framing Ribbons -->
+  <g transform="translate(500, 535)" filter="url(#glow)">
+    <path d="M-220,-120 C-320,-240 -80,-300 0,-160 C80,-300 320,-240 220,-120 C120,0 260,180 180,260 C100,340 -40,240 0,160 C40,240 -100,340 -180,260 C-260,180 -120,0 -220,-120 Z" fill="none" stroke="url(#nexusGrad)" stroke-width="7" opacity="0.9"/>
+  </g>
 
   <!-- QR Code Frame -->
   <g transform="translate(340, 360)">
-    <rect x="-15" y="-15" width="350" height="350" rx="20" fill="#020617" stroke="#38bdf8" stroke-width="2" filter="url(#glow)"/>
+    <rect x="-15" y="-15" width="350" height="350" rx="24" fill="#020617" stroke="#38bdf8" stroke-width="2.5" filter="url(#glow)"/>
     {qr_matrix}
   </g>
 
