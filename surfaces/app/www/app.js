@@ -5908,4 +5908,61 @@ if (setExportBtn) {
   });
 }
 
+/* ---- Wearable T-Shirt & Instant QR Studio ---- */
+const tshirtDlg = $("#wearable-studio");
+const setTshirtBtn = $("#set-tshirt");
+const tshirtCloseBtn = $("#tshirt-close");
+const tshirtGenBtn = $("#tshirt-generate-btn");
+const tshirtDownloadBtn = $("#tshirt-download-btn");
+let lastGeneratedSvgUri = null;
+
+if (setTshirtBtn && tshirtDlg) {
+  setTshirtBtn.addEventListener("click", () => {
+    if (settingsDlg) settingsDlg.close();
+    tshirtDlg.showModal();
+  });
+}
+
+if (tshirtCloseBtn && tshirtDlg) {
+  tshirtCloseBtn.addEventListener("click", () => tshirtDlg.close());
+}
+
+if (tshirtGenBtn) {
+  tshirtGenBtn.addEventListener("click", async () => {
+    try {
+      toast("Rendering Print-Ready Vector Graphic... 👕");
+      const name = $("#tshirt-name").value.trim() || "Alex V.";
+      const handle = $("#tshirt-handle").value.trim() || "alex_v";
+      const tagline = $("#tshirt-tagline").value.trim() || "AI Research · Surfing · Deep Work";
+      const interests = ($("#tshirt-interests").value || "AI Research, Surfing, Specialty Coffee").split(",").map(s => s.trim()).filter(Boolean);
+
+      const res = await api("/v1/wearables/tshirt-badge", { name, handle, tagline, interests, style: "streetwear_back" });
+      if (res && res.svg_vector_url) {
+        lastGeneratedSvgUri = res.svg_vector_url;
+        const container = $("#tshirt-preview-container");
+        if (container) {
+          container.innerHTML = `<img src="${res.svg_vector_url}" alt="T-Shirt Vector Preview" style="max-width:100%; max-height:280px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">`;
+        }
+        if (tshirtDownloadBtn) tshirtDownloadBtn.disabled = false;
+        toast(`T-Shirt Vector Ready for ${name}! 🚀 Ready to print.`);
+      }
+    } catch (err) {
+      toast("Error generating wearable vector: " + err.message);
+    }
+  });
+}
+
+if (tshirtDownloadBtn) {
+  tshirtDownloadBtn.addEventListener("click", () => {
+    if (!lastGeneratedSvgUri) return;
+    const a = document.createElement("a");
+    a.href = lastGeneratedSvgUri;
+    a.download = `lifeos_tshirt_badge_${Date.now()}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast("Downloaded Print-Ready SVG Vector! 📦");
+  });
+}
+
 refresh();
