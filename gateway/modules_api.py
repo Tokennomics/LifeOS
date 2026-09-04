@@ -20,6 +20,7 @@ from modules.convoy import concierge, events_ingest, match_v1
 from modules.coordinate import coordinator
 from modules.crews import crews, invites
 from modules.discover import discover
+from modules.platform import capabilities
 from modules.hearth import spaces as hearth
 from modules.ledger import ledger
 from modules.memento import capsules, quests
@@ -863,6 +864,20 @@ def build_router(auth) -> APIRouter:
         """
         from modules.money import rails
         raise HTTPException(status_code=503, detail=rails.unavailable(processor))
+
+    def _unavailable(capability: str, **extra):
+        """503 for an action that would need hardware this deployment cannot reach.
+
+        Same reasoning as `no_processor`, one layer out: six endpoints asked for a wearable,
+        a sensor, a mesh peer, an edge fleet or a signed build, and each invented one. The
+        caller did nothing wrong, so not a 400; nothing was attempted, so not a 200 carrying
+        `synced: false`, which reads as a device that failed to answer.
+
+        The body comes from `modules/platform/capabilities.py`, which is also where the
+        status page gets its `unavailable` list — one table, so the two cannot drift.
+        """
+        raise HTTPException(status_code=503,
+                            detail=capabilities.refusal(capability, **extra))
 
     def _seed_city(body: dict) -> str:
         """The city a seeding call is about. Every one of these used to default its own —
@@ -2910,17 +2925,16 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/biometrics/circadian-sync")
     def biometrics_circadian_sync_endpoint(request: Request, body: dict):
-        hrv_ms = body.get("hrv_ms", 65)
-        sleep_score = body.get("sleep_score", 88)
-        recovery_tier = "HIGH_RECOVERY" if sleep_score >= 80 else "MODERATE_RECOVERY"
-        return {
-            "synced": True,
-            "hrv_ms": hrv_ms,
-            "sleep_score": sleep_score,
-            "recovery_tier": recovery_tier,
-            "recommended_activity_intensity": "HIGH (Bouldering, Surfing, Rave Crew)" if recovery_tier == "HIGH_RECOVERY" else "LOW (1-on-1 Coffee Chat)",
-            "message": f"🧬 Biometric Circadian Sync Active! HRV: {hrv_ms}ms, Sleep Score: {sleep_score}/100 ({recovery_tier})."
-        }
+        """Read the caller's rhythm off a sensor — of which there is none.
+
+        Defaulted an HRV of 65 and a sleep score of 88, graded its own defaults into
+        `HIGH_RECOVERY`, and recommended an intensity from that. An empty body got a full
+        night's sleep it had made up, and a body that passed numbers got them echoed back as
+        though they had been measured. Nothing in this process can read a heart rate.
+
+        503, not a 200 with zeroes: zero HRV is a reading, and a wrong one.
+        """
+        _unavailable(capabilities.BIOMETRICS)
 
     @router.post("/ai/squad-agent")
     def autonomous_squad_agent_endpoint(request: Request, body: dict):
@@ -3840,61 +3854,42 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/native/app-store-manifest")
     def native_app_store_manifest_endpoint(request: Request, body: dict):
-        platform = body.get("platform", "ios_and_android").strip()
-        return {
-            "manifest_generated": True,
-            "platform": platform,
-            "ios_bundle_id": "app.connectos.mobile",
-            "android_package": "app.connectos.android",
-            "version": "2.4.0 (Build 142)",
-            "native_capabilities": ["FaceID Biometrics", "HealthKit Ingestion", "Live Activities Lockscreen Widget", "Push Notifications (APNS/FCM)"],
-            "binary_targets": {
-                "ios_ipa": "https://connectos.app/builds/connectos-release-v2.4.ipa",
-                "android_aab": "https://connectos.app/builds/connectos-release-v2.4.aab"
-            },
-            "message": f"📱 Native App Store Manifest Built for {platform}! Version 2.4.0 with FaceID, HealthKit & Live Activities."
-        }
+        """Build a store manifest — which a running server does not do.
+
+        Reported `manifest_generated: True` with a bundle id, a package name, "2.4.0 (Build
+        142)", four native capabilities including HealthKit, and two download URLs on a host
+        this deployment does not serve. Nobody had built anything: the version was a
+        constant, and following either link led nowhere.
+
+        The real build configuration is checked into this repo, so rather than emitting a
+        manifest this names those files and says whether each is actually present. 503
+        because "generate me a manifest" is an action, and it is one only a build can carry
+        out; `where` is the part of the answer that is any use.
+        """
+        _unavailable(capabilities.NATIVE_BUILD, where=capabilities.build_files())
 
     @router.post("/wearables/sync-telemetry")
     def wearable_biometric_telemetry_endpoint(request: Request, body: dict):
-        device = body.get("device", "Apple Watch Ultra & Whoop 4.0").strip()
-        hrv_ms = int(body.get("hrv_ms", 78))
-        recovery_score = int(body.get("recovery_score", 92))
-        sleep_hours = float(body.get("sleep_hours", 8.2))
-        strain = float(body.get("strain", 9.4))
-        
-        # Calculate dynamic social readiness
-        social_readiness = "PEAK_ENERGY (Ideal for Group Adventures)" if recovery_score >= 80 else "REST_RECOMMENDED (Low Strain Only)"
-        
-        return {
-            "telemetry_synced": True,
-            "device": device,
-            "biometrics": {
-                "hrv_ms": hrv_ms,
-                "recovery_score_pct": recovery_score,
-                "sleep_hours": sleep_hours,
-                "daily_strain": strain
-            },
-            "social_readiness": social_readiness,
-            "battery_boost": "+15% Battery Recharged",
-            "recommended_activity": "Sunset Catamaran Sailing or Rooftop Wine Tasting",
-            "message": f"⌚ Wearable Telemetry Synced from {device}! Recovery: {recovery_score}%, HRV: {hrv_ms}ms ({social_readiness})."
-        }
+        """Pull a day's readings off a watch or a strap.
+
+        Named two devices in a default, then reported an HRV of 78, a recovery score of 92,
+        8.2 hours of sleep and a daily strain of 9.4 — every one of them a literal in the
+        handler — plus "+15% Battery Recharged", which is not a thing that happens to a
+        phone because a server said so. No device is paired with this process and none can
+        be: nothing here speaks to a watch.
+        """
+        _unavailable(capabilities.WEARABLES)
 
     @router.post("/infra/edge-replication")
     def global_multi_region_edge_replication_endpoint(request: Request, body: dict):
-        primary_region = body.get("primary_region", "eu-central (Frankfurt)").strip()
-        edge_nodes = body.get("edge_nodes", ["lhr (London)", "fra (Frankfurt)", "nrt (Tokyo)", "sfo (San Francisco)"])
-        return {
-            "edge_mesh_active": True,
-            "primary_region": primary_region,
-            "edge_nodes": edge_nodes,
-            "replication_latency": "6.8ms (Global p95)",
-            "consensus_protocol": "SQLite WAL Raft Stream",
-            "failover_mode": "Zero-Data-Loss Active-Active",
-            "node_health": "100% HEALTHY (4/4 Nodes Operational)",
-            "message": f"🌍 Global Multi-Region Edge Mesh Active! Sub-10ms localized latency across {len(edge_nodes)} edge regions."
-        }
+        """Replicate this instance across regions.
+
+        Listed four edge nodes, a 6.8ms global p95, a "SQLite WAL Raft Stream" that does not
+        exist, and `node_health: "100% HEALTHY (4/4 Nodes Operational)"` — the worst line
+        here, because an operator reading a health check believes it. There was no fleet to
+        be healthy: this is one process against one file on one disk.
+        """
+        _unavailable(capabilities.EDGE)
 
     @router.post("/ai/agent-negotiator")
     def ai_agent_negotiator_endpoint(request: Request, body: dict):
@@ -4637,34 +4632,26 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/mesh/offline-peer-sync")
     def offline_mesh_peer_sync_endpoint(request: Request, body: dict):
-        peers_in_range = body.get("peers", ["Alex (12m)", "Sofia (34m)", "Marco (48m)"])
-        return {
-            "mesh_active": True,
-            "transport_protocol": "BLE 5.3 + Wi-Fi Direct P2P (Zero Internet Required)",
-            "connected_peers": peers_in_range,
-            "offline_features": [
-                "Local SOS & Proximity Pings",
-                "Off-Grid Friend Compass & Distance Radar",
-                "Encrypted Offline Itinerary Cache",
-                "Opportunistic Gossip Sync on Reconnect"
-            ],
-            "message": "📴 Offline P2P Mesh Network Active! Communicating off-grid in remote mountains & underground venues with zero cell signal."
-        }
+        """Talk to nearby phones with no internet.
+
+        Defaulted three named peers at three distances, claimed a transport this app does
+        not implement, and offered "Local SOS & Proximity Pings" off the back of it. The
+        offer is the dangerous part: somebody in a valley with no signal, told the mesh is
+        active, might rely on an SOS that has no path to anybody. And an endpoint reached
+        over the internet cannot be evidence of anything working without it.
+        """
+        _unavailable(capabilities.MESH)
 
     @router.post("/wearables/ambient-whispers")
     def smart_wearables_ambient_whispers_endpoint(request: Request, body: dict):
-        device = body.get("device", "AirPods Pro / Ray-Ban Meta").strip()
-        return {
-            "wearables_synced": True,
-            "device": device,
-            "sub_vocal_whispers": [
-                {"context": "Proximity", "whisper": "Alex just arrived 4m behind you at the counter.", "audio_cue": "Spatial Left Ear 180°"},
-                {"context": "Schedule", "whisper": "Pottery workshop begins in 15 mins. Head towards Broughton Street.", "audio_cue": "Gentle Chime"},
-                {"context": "Presence", "whisper": "Phone placed on silent. Screen-free deep flow mode engaged.", "audio_cue": "Low Frequency Haptic"}
-            ],
-            "eyes_up_guarantee": "100% Screen-Free Audio AR (Zero Pocket Pulls)",
-            "message": f"🦻 Smart Wearables Ambient Whispers Synced with {device}! 100% eyes-up presence in the real world."
-        }
+        """Speak quietly into the caller's earpiece as the day goes on.
+
+        Three whispers, written into the handler, delivered to nobody: one of them said a
+        named friend had arrived four metres behind you at the counter. That is a claim
+        about where two people are standing, from an app that stores city names and has
+        never known a position. There is no earpiece and no proximity to report.
+        """
+        _unavailable(capabilities.WEARABLES)
 
     @router.post("/trust/web-of-trust")
     def web_of_trust_verification_endpoint(request: Request, body: dict):

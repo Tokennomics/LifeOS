@@ -160,9 +160,15 @@ def test_ar_flares_and_copilot_icebreaker(cfg):
 
 def test_gen3_core_pillars(cfg):
     client = TestClient(create_app(cfg))
+    # Defaulted an HRV of 65 and a sleep score of 88, graded its own defaults into
+    # HIGH_RECOVERY, and recommended an intensity from it. This test is what kept that
+    # standing: it asserted the grade of a reading nothing had taken. There is no sensor
+    # here, so it refuses and names what one would need. Pinned in full in
+    # tests/test_platform_capabilities.py.
     res1 = client.post("/v1/biometrics/circadian-sync", json={"hrv_ms": 65, "sleep_score": 88})
-    assert res1.status_code == 200
-    assert res1.json()["recovery_tier"] == "HIGH_RECOVERY"
+    assert res1.status_code == 503
+    assert res1.json()["detail"]["available"] is False
+    assert "recovery_tier" not in res1.text
 
     # Reported it had negotiated five calendars and confirmed Alex, Elena R., Marcus T. and
     # Sophia K. There are no calendars, no booking and no payment rail — now stated.
@@ -632,17 +638,24 @@ def test_sauna_plant_swap_and_wine_tasting(cfg):
 
 def test_frontier_stack_all_four_engines(cfg):
     client = TestClient(create_app(cfg))
+    # A bundle id, "2.4.0 (Build 142)" and two download URLs on a host this deployment does
+    # not serve, for a build nobody had run. It points at the build files in the repo now.
     res1 = client.post("/v1/native/app-store-manifest", json={"platform": "ios_and_android"})
-    assert res1.status_code == 200
-    assert res1.json()["manifest_generated"] is True
+    assert res1.status_code == 503
+    assert "manifest_generated" not in res1.text
+    assert any("AndroidManifest.xml" in row["path"] for row in res1.json()["detail"]["where"])
 
+    # An HRV of 78 and a recovery score of 92, both literals in the handler, reported as
+    # read off a watch. Nothing in this process speaks to a watch.
     res2 = client.post("/v1/wearables/sync-telemetry", json={"device": "Apple Watch Ultra", "hrv_ms": 82, "recovery_score": 94})
-    assert res2.status_code == 200
-    assert res2.json()["telemetry_synced"] is True
+    assert res2.status_code == 503
+    assert "telemetry_synced" not in res2.text and "recovery_score" not in res2.text
 
+    # Four edge nodes, a 6.8ms global p95 and `node_health: "100% HEALTHY"` in front of one
+    # SQLite file on one disk. An operator reading a health check believes it.
     res3 = client.post("/v1/infra/edge-replication", json={"primary_region": "eu-central"})
-    assert res3.status_code == 200
-    assert res3.json()["edge_mesh_active"] is True
+    assert res3.status_code == 503
+    assert "node_health" not in res3.text
 
     res4 = client.post("/v1/ai/agent-negotiator", json={"topic": "Weekend Sunset Surf"})
     assert res4.status_code == 200
@@ -906,13 +919,19 @@ def test_multi_demographic_simulation_suite(cfg):
 
 def test_ultimate_frontier_capabilities(cfg):
     client = TestClient(create_app(cfg))
+    # Three named peers at three distances over a radio a browser cannot open — and, on the
+    # back of it, an offer of offline SOS. Somebody in a valley with no signal, told the
+    # mesh is active, might rely on that.
     res1 = client.post("/v1/mesh/offline-peer-sync", json={})
-    assert res1.status_code == 200
-    assert res1.json()["mesh_active"] is True
+    assert res1.status_code == 503
+    assert res1.json()["detail"]["available"] is False
+    assert "connected_peers" not in res1.text
 
+    # Whispered that a named friend had arrived four metres behind you at the counter, from
+    # an app that stores city names and has never known a position.
     res2 = client.post("/v1/wearables/ambient-whispers", json={})
-    assert res2.status_code == 200
-    assert res2.json()["wearables_synced"] is True
+    assert res2.status_code == 503
+    assert "sub_vocal_whispers" not in res2.text
 
     # `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community Vouched)"` for any
     # name sent — with a "Zero-Knowledge Proof" privacy standard implemented nowhere. This

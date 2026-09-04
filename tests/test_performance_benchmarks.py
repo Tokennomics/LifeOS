@@ -33,7 +33,10 @@ def test_api_latency_benchmarks(cfg):
         ("GET", "/v1/vitals/social-battery", None),
         ("GET", "/v1/ar/spatial-flares", None),
         ("POST", "/v1/ai/copilot-icebreaker", {"partner_name": "Alex"}),
-        ("POST", "/v1/biometrics/circadian-sync", {"hrv_ms": 70}),
+        # `/v1/biometrics/circadian-sync` was benchmarked here until it stopped being a
+        # prop: it graded a sleep score it had invented, and now answers 503 because there
+        # is no sensor to read. How fast an invented reading comes back is not a fact worth
+        # keeping, and this list asserts 200 for everything in it.
         ("POST", "/v1/ai/squad-agent", {"crew_id": "c1"}),
         ("GET", "/v1/city/live-globe", None),
         # `/v1/zk/verify-attribute` was benchmarked here until it was removed: it answered
