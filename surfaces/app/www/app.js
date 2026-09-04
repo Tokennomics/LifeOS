@@ -6570,11 +6570,134 @@ if (setExportBtn) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      if (window.LifeOSAudio) window.LifeOSAudio.playDividend();
       // `files` and `rows` are counts, because they were produced by counting.
       toast(`Exported ${res.rows} entr${res.rows === 1 ? "y" : "ies"} across ${res.files} files.`);
     } catch (err) {
       toast("Export error: " + err.message);
     }
+  });
+}
+
+/* ---- Synthesized Audio & Haptic Feedback Setting ---- */
+const setAudioCheckbox = $("#set-audio");
+if (setAudioCheckbox) {
+  setAudioCheckbox.addEventListener("change", (e) => {
+    if (window.LifeOSAudio) window.LifeOSAudio.toggleSound(e.target.checked);
+  });
+}
+
+/* ---- Real-Time Camera Scanner Viewfinder ---- */
+const cameraScanBtn = $("#camera-scan-btn");
+const scannerDlg = $("#camera-scanner");
+const scannerCloseBtn = $("#scanner-close-btn");
+const scannerVideo = $("#scanner-video");
+const scannerMockBtn = $("#scanner-mock-detect-btn");
+let scannerStream = null;
+
+async function startCameraScanner() {
+  if (!scannerDlg) return;
+  scannerDlg.showModal();
+  try {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      if (scannerVideo) {
+        scannerVideo.srcObject = scannerStream;
+        const ph = $("#scanner-placeholder");
+        if (ph) ph.style.display = "none";
+      }
+    }
+  } catch (e) {
+    console.log("Camera stream info:", e);
+  }
+}
+
+function stopCameraScanner() {
+  if (scannerStream) {
+    scannerStream.getTracks().forEach(t => t.stop());
+    scannerStream = null;
+  }
+  if (scannerDlg) scannerDlg.close();
+}
+
+if (cameraScanBtn) {
+  cameraScanBtn.addEventListener("click", startCameraScanner);
+}
+
+if (scannerCloseBtn) {
+  scannerCloseBtn.addEventListener("click", stopCameraScanner);
+}
+
+if (scannerMockBtn) {
+  scannerMockBtn.addEventListener("click", async () => {
+    try {
+      const res = await api("/v1/connect/scan-vouch", { scanner_id: "me", scanned_handle: "elena_s" });
+      if (window.LifeOSAudio) window.LifeOSAudio.playConnect();
+      toast(res.message || "⚡ Connected with @elena_s! +50 Real-World Proximity Karma awarded.");
+      stopCameraScanner();
+      refresh();
+    } catch (err) {
+      toast("Scan encounter error: " + err.message);
+    }
+  });
+}
+
+/* ---- Wearable T-Shirt & Instant QR Studio ---- */
+const tshirtDlg = $("#wearable-studio");
+const setTshirtBtn = $("#set-tshirt");
+const tshirtCloseBtn = $("#tshirt-close");
+const tshirtGenBtn = $("#tshirt-generate-btn");
+const tshirtDownloadBtn = $("#tshirt-download-btn");
+let lastGeneratedSvgUri = null;
+
+if (setTshirtBtn && tshirtDlg) {
+  setTshirtBtn.addEventListener("click", () => {
+    if (settingsDlg) settingsDlg.close();
+    tshirtDlg.showModal();
+  });
+}
+
+if (tshirtCloseBtn && tshirtDlg) {
+  tshirtCloseBtn.addEventListener("click", () => tshirtDlg.close());
+}
+
+if (tshirtGenBtn) {
+  tshirtGenBtn.addEventListener("click", async () => {
+    try {
+      toast("Rendering Print-Ready Vector Graphic... 👕");
+      const name = $("#tshirt-name").value.trim() || "Alex V.";
+      const handle = $("#tshirt-handle").value.trim() || "alex_v";
+      const tagline = $("#tshirt-tagline").value.trim() || "AI Research · Surfing · Deep Work";
+      const interests = ($("#tshirt-interests").value || "AI Research, Surfing, Specialty Coffee").split(",").map(s => s.trim()).filter(Boolean);
+
+      const res = await api("/v1/wearables/tshirt-badge", { name, handle, tagline, interests, style: "streetwear_back" });
+      if (res && res.svg_vector_url) {
+        lastGeneratedSvgUri = res.svg_vector_url;
+        const container = $("#tshirt-preview-container");
+        if (container) {
+          container.innerHTML = `<img src="${res.svg_vector_url}" alt="T-Shirt Vector Preview" style="max-width:100%; max-height:280px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">`;
+        }
+        if (tshirtDownloadBtn) tshirtDownloadBtn.disabled = false;
+        if (window.LifeOSAudio) window.LifeOSAudio.playConnect();
+        toast(`T-Shirt Vector Ready for ${name}! 🚀 Ready to print.`);
+      }
+    } catch (err) {
+      toast("Error generating wearable vector: " + err.message);
+    }
+  });
+}
+
+if (tshirtDownloadBtn) {
+  tshirtDownloadBtn.addEventListener("click", () => {
+    if (!lastGeneratedSvgUri) return;
+    const a = document.createElement("a");
+    a.href = lastGeneratedSvgUri;
+    a.download = `lifeos_tshirt_badge_${Date.now()}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    if (window.LifeOSAudio) window.LifeOSAudio.playDividend();
+    toast("Downloaded Print-Ready SVG Vector! 📦");
   });
 }
 

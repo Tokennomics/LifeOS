@@ -423,3 +423,19 @@ body.theme-solar {
   color: var(--spark);
   border: 1px solid rgba(240, 169, 74, 0.3);
 }
+
+/* ---------- Scanner Laser & Haptic Micro-Interactions ---------- */
+@keyframes laserMove {
+  0%   { top: 0%; opacity: 0.2; }
+  50%  { top: 96%; opacity: 1; }
+  100% { top: 0%; opacity: 0.2; }
+}
+
+nav {
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+button:active {
+  transform: scale(0.97);
+  transition: transform 0.08s ease;
+}
