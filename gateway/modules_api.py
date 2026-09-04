@@ -6140,8 +6140,16 @@ def build_router(auth) -> APIRouter:
         # lowercases and truncates, nothing more), so a handle containing `&` or `#`
         # rewrote that third-party request. The payload is self-contained now: no outbound
         # call, nothing to escape wrong, and a client can render the QR locally.
+        # There was no image on this route at all — a route called `/people/qr` that
+        # answered with a vCard and left the caller to find a QR encoder. `qr_svg` is the
+        # same vCard as a real symbol (`modules/wearables/qr.py`, segno, error level M), so
+        # a phone camera pointed at the screen saves the contact.
+        from modules.wearables import qr as qr_codes
         return {"name": name, "vcard": vcard,
-                "vcard_data_uri": "data:text/vcard;charset=utf-8," + quote(vcard, safe="")}
+                "vcard_data_uri": "data:text/vcard;charset=utf-8," + quote(vcard, safe=""),
+                "qr_svg": qr_codes.svg(vcard),
+                "qr_data_uri": qr_codes.data_uri(vcard),
+                "qr": qr_codes.facts(vcard)}
 
     @router.get("/routines/heatmap")
     def get_habit_heatmap_endpoint(request: Request, days: int = 30):
@@ -6202,54 +6210,161 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/wearables/tshirt-badge")
     def generate_wearable_tshirt_badge_endpoint(request: Request, body: dict):
-        g = _graph(request)
-        handle = body.get("handle", "alex_v").strip().lstrip("@")
-        name = body.get("name", "Alex V.").strip()
-        tagline = body.get("tagline", "AI Research · Surfing · Deep Work").strip()
-        interests = body.get("interests", ["AI Research", "Surfing", "Specialty Coffee"])
-        style = body.get("style", "streetwear_back")
-        return tshirt_studio.generate_tshirt_design(
-            graph=g,
-            handle=handle,
-            name=name,
-            tagline=tagline,
-            interests=interests,
-            style=style
-        )
+        """A shirt panel with a code on it that a camera can actually read.
+
+        The code was not a code. `_generate_qr_svg_matrix` hashed the connect URL with
+        SHA-256, turned the hex into a 25x25 field of coloured rounded squares and painted
+        finder patterns into three corners. It encodes nothing and no scanner has ever read
+        one, while the response said "Instant camera scanning active" and offered the file
+        as print-ready. Somebody could have paid for a hundred shirts carrying a picture of
+        a barcode. It is `segno` now, error level M, and the roundtrip is tested by
+        decoding the rendered SVG rather than by looking at it.
+
+        Two other things went out with it. The URL was built on `https://lifeos.app`, a host
+        this deployment does not serve, printed permanently onto cotton; it is built from
+        this request's own base URL now, the way `gateway/main.py` builds `/invite/{token}`.
+        And every field defaulted to a person who does not exist — `alex_v`, "Alex V.",
+        "AI Research · Surfing · Deep Work" — so an empty body got a stranger's
+        shirt. The handle is required, and nothing else is filled in for you.
+        """
+        from modules.wearables import tshirt_studio as studio
+        rate_limiter.enforce(request, "wearables:badge", max_requests=20, window_seconds=600)
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: studio.generate_badge(
+            _graph(request),
+            account_id=account_id,
+            handle=str(body.get("handle", "") or ""),
+            name=str(body.get("name", "") or ""),
+            tagline=str(body.get("tagline", "") or ""),
+            interests=body.get("interests") or [],
+            style=str(body.get("style", "") or "streetwear_back"),
+            # `request.base_url` is what the gateway was actually reached on, so a code
+            # printed from a phone on the LAN points back at the same gateway. Nothing in
+            # the repo names a host.
+            base_url=str(request.base_url)))
 
     @router.get("/connect/profile/{handle}")
     def get_public_connect_profile_endpoint(request: Request, handle: str):
-        g = _graph(request)
-        session = g.session("connect", {"people:read", "content:read", "*"})
-        # Look up any custom wearable badges or person nodes
-        badges = session.find_entities("content", {"type": "wearable_tshirt_badge", "handle": handle}, limit=1)
-        if badges:
-            b = badges[0].get("attrs", {})
-            name = b.get("name", handle.capitalize())
-            tagline = b.get("tagline", "LifeOS Explorer")
-            interests = b.get("interests", ["Specialty Coffee", "Local Culture"])
-        else:
-            name = handle.replace("_", " ").title()
-            tagline = "LifeOS Community Member"
-            interests = ["Specialty Coffee", "Deep Work", "Outdoors"]
+        """The card a scanned shirt opens — for somebody who exists, from what they wrote.
+
+        This answered `found: True` for any string at all. It title-cased the handle into a
+        name, captioned them "LifeOS Community Member", gave them three interests it made
+        up, claimed `mutual_nodes_count: 4`, and rated them `trust_score: "98% (KYC & Graph
+        Verified)"`. This app runs no KYC, holds no document and counts no mutual nodes.
+        On a surface where people arrange to meet strangers, telling one that another has
+        passed identity checks is the most dangerous sentence in the repo: it is precisely
+        the line that makes somebody drop their guard, and it was printed about everybody.
+
+        Its badge lookup could not have worked either — it searched by handle in the
+        *reader's* own graph slice, so it found the reader's badges or none, and the "none"
+        branch is where the invented person came from.
+
+        What is left is checkable. An unknown handle is a 404. A name, tagline and interests
+        appear only when their owner generated a badge carrying them. "Who do we both know"
+        is `trust.in_common`, which counts the accounts that have vouched for both of you
+        and is usually zero — that zero is the useful part. There is no score.
+        """
+        from gateway import accounts
+        from modules.social import trust
+        from modules.wearables import tshirt_studio as studio
+
+        graph = _graph(request)
+        viewer_id, _ = _signal_caller(request)
+        wanted = str(handle or "").strip().lstrip("@")
+        subject_id = accounts.account_id_for(graph, wanted)
+        if not subject_id:
+            # 404, not an empty card: "we have no such person" and "this person has filled
+            # nothing in" are different answers, and only one of them was ever true here.
+            raise HTTPException(status_code=404, detail=f"nobody here goes by '{wanted}'")
+
+        row = studio.latest_badge(graph, subject_id)
+        badge = (row or {}).get("attrs", {})
+
+        shared, count = [], 0
+        if viewer_id and viewer_id != subject_id:
+            common = guard(lambda: trust.in_common(graph, account_id=viewer_id,
+                                                   subject=subject_id))
+            shared = sorted(accounts.handles_for(graph, common["in_common"]).values())
+            count = common["count"]
 
         return {
             "found": True,
-            "handle": handle,
-            "name": name,
-            "tagline": tagline,
-            "interests": interests,
-            "mutual_nodes_count": 4,
-            "trust_score": "98% (KYC & Graph Verified)",
-            "vcard_download_url": f"/v1/people/qr",
-            "message": f"⚡ Connected with {name} (@{handle})!"
+            "handle": accounts.handles_for(graph, [subject_id]).get(subject_id, wanted),
+            "account_id": subject_id,
+            # Empty rather than derived. An account has no display name in this schema, so
+            # the only place one can come from is a badge its owner made.
+            "name": badge.get("name", ""),
+            "tagline": badge.get("tagline", ""),
+            "interests": badge.get("interests", []) or [],
+            "has_badge": bool(row),
+            "yourself": viewer_id == subject_id,
+            "in_common": count,
+            "in_common_handles": shared,
+            "connect_url": studio.connect_url(wanted, str(request.base_url)),
+            "vcard_download_url": "/v1/people/qr",
+            "no_score": True,
+            "verified": False,
+            "why": trust.NOT_VERIFICATION,
+            "suggestion": ("They have not made a card yet. The handle is real; there is "
+                           "nothing else here to show."
+                           if not row else ""),
         }
 
     @router.post("/connect/scan-vouch")
     def record_wearable_scan_vouch_endpoint(request: Request, body: dict):
-        g = _graph(request)
-        scanner_id = body.get("scanner_id", "current_user").strip()
-        scanned_handle = body.get("scanned_handle", "alex_v").strip().lstrip("@")
-        return tshirt_studio.record_proximity_vouch(g, scanner_id=scanner_id, scanned_handle=scanned_handle)
+        """Record that you met somebody — as your claim, which is all it is.
+
+        This wrote a `proximity_encounter` row stamped `verified_via: "wearable_qr_scan"`
+        and answered `vouched: True` with `karma_awarded: "+50 Real-World Connection
+        Karma"`. Nothing was verified: the scanner had no decoder, so the button posted a
+        handle that was hardcoded in `app.js`, and the handle in the body defaulted to
+        `alex_v` when it was absent. A stored fabrication is worse than a displayed one —
+        once it is a row it is indistinguishable from a true one on every later screen, and
+        this one asserted a physical meeting between two named people.
+
+        Scanning somebody's shirt is one person saying they met another, which is exactly
+        what a vouch is, so this writes the same row `/trust/vouch` writes: attributed,
+        visible to both sides, withdrawable, and carrying `NOT_VERIFICATION`. Re-scanning
+        the same person updates that one row rather than stacking, because a count of
+        vouches has to be a count of people and not a count of scans. There is no karma in
+        this app.
+
+        The scanner is always the session. Taking `scanner_id` from the body let a caller
+        record somebody else's meeting.
+        """
+        from gateway import accounts
+        from modules.social import trust
+        from modules.wearables import tshirt_studio as studio
+
+        # A write anybody can point a camera at, so it is limited by caller before it is
+        # limited by anything else.
+        rate_limiter.enforce(request, "connect:scan", max_requests=30, window_seconds=600)
+        graph = _graph(request)
+        scanner_id, scanner_handle = _signal_caller(request)
+        scanned = str(body.get("scanned_handle", "") or "").strip().lstrip("@")
+        if not scanned:
+            raise HTTPException(status_code=400, detail="no handle came off that code")
+        subject_id = accounts.account_id_for(graph, scanned)
+        if not subject_id:
+            raise HTTPException(status_code=404, detail=f"nobody here goes by '{scanned}'")
+
+        recorded = guard(lambda: trust.vouch(
+            graph, account_id=scanner_id, for_account=subject_id,
+            note="met in person — scanned their shirt code",
+            handle=scanner_handle, source=studio.MODULE))
+        return {
+            # Not `vouched: True` next to a `karma_awarded` string, and not `connected`.
+            # What happened is that a row exists saying you say you met them.
+            "recorded": bool(recorded.get("vouched")),
+            "vouch_id": recorded.get("vouch_id", ""),
+            "already": bool(recorded.get("already")),
+            "scanned_handle": scanned,
+            "for_account": subject_id,
+            "via": "shirt_code",
+            "no_score": True,
+            "why": recorded.get("disclaimer", ""),
+            "note": ("This is your word that you met them, not a verification of who they "
+                     "are. They can see it under trust, and you can withdraw it there."),
+        }
 
     return router
