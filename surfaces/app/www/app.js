@@ -2576,14 +2576,18 @@ function moreView() {
     <button class="ghost" data-act="ics-import">Import .ics Feed</button>
     <p class="hint">Imports external calendar events and tasks into your context graph.</p></div>`;
 
-  /* ---- Verified Meeter Trust Badge ---- */
-  const tr = m.trust || { verified_meets: 0, reliability_score: 85, tier: "Bronze Meeter" };
-  html += `<div class="card"><h2>Verified Real-World Meeter Badge</h2>
-    <div class="kv"><span>Tier Badge</span><span class="badge good" style="font-weight:bold;">🛡️ ${esc(tr.tier)}</span></div>
-    <div class="kv"><span>Verified Outings Attended</span><span class="v">${tr.verified_meets}</span></div>
-    <div class="kv"><span>Reliability Rating</span><span class="v">${tr.reliability_score}%</span></div>
-    <button class="primary" style="margin-top:10px;" data-act="share-trust" data-text="${esc(tr.share_text || "")}">Copy Bio Trust Link (Instagram / Tinder)</button>
-    <p class="hint">Cryptographically verified proof that you show up to real-world plans. Zero ghosting.</p></div>`;
+  /* ---- Outings attended ---- */
+  /* Was a "Verified Real-World Meeter Badge": a tier, a "Reliability Rating" that started
+     at 85% for an account that had attended nothing and could never fall, and a hint
+     claiming "cryptographically verified proof … zero ghosting". Nothing was verified and
+     nothing was cryptographic — the button copied that sentence into an Instagram or
+     Tinder bio, where the person reading it has no way to know. The count underneath was
+     always real, so that is what is shown. */
+  const tr = m.trust || { attended: 0, share_text: "", not_verification: "" };
+  html += `<div class="card"><h2>Outings attended</h2>
+    <div class="kv"><span>Marked attended</span><span class="v">${tr.attended}</span></div>
+    <p class="hint">${esc(tr.not_verification || "")}</p>
+    ${tr.attended ? `<button class="ghost" style="margin-top:10px;" data-act="share-trust" data-text="${esc(tr.share_text || "")}">Copy as text</button>` : `<p class="hint">${esc(tr.suggestion || "")}</p>`}</div>`;
 
   /* ---- Monthly Wrapped Canvas ---- */
   const wr = m.wrapped || { month: "August 2026", days_shown_up: 1, tasks_done: 0, goals_done: 0, meets_attended: 0 };
@@ -3344,9 +3348,12 @@ function wire(root) {
   /* ---- Viral Growth: Trust Badge, Wrapped Canvas, Flyer Generator ---- */
 
   on("[data-act=share-trust]", (el) => {
-    const text = el.dataset.text || "LifeOS Verified Real-World Meeter";
+    /* The fallback text asserted a verification when the card had failed to load, which is
+       exactly when nothing is known. Copy what the endpoint actually said, or nothing. */
+    const text = el.dataset.text || "";
+    if (!text) { toast("Nothing to copy yet."); return; }
     navigator.clipboard.writeText(text).catch(() => {});
-    toast("Trust Badge copied! 📋 Paste into Instagram/Tinder bio.");
+    toast("Copied.");
   });
 
   on("[data-act=share-wrapped]", (el) => {

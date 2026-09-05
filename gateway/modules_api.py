@@ -28,7 +28,6 @@ from modules.reconnect import decay, invite
 from modules.steward import actions as steward_actions
 from modules.steward import scanners as steward_scanners
 from modules.vitals import energy
-from modules.wearables import tshirt_studio
 
 
 
@@ -810,7 +809,7 @@ def _vcard(name: str) -> str:
     safe = (str(name or "").replace("\\", "\\\\").replace(";", "\\;")
             .replace(",", "\\,").replace("\r", " ").replace("\n", "\\n"))
     return ("BEGIN:VCARD\r\nVERSION:3.0\r\n"
-            f"FN:{safe}\r\nNOTE:LifeOS Verified Meeter\r\nEND:VCARD\r\n")
+            f"FN:{safe}\r\nNOTE:LifeOS contact\r\nEND:VCARD\r\n")
 
 
 def _csv_cell(value) -> str:
@@ -6141,27 +6140,49 @@ def build_router(auth) -> APIRouter:
 
     @router.get("/trust/badge")
     def trust_badge_endpoint(request: Request):
-        from substrate import now_iso
-        g = _graph(request)
-        caller = getattr(request.state, "caller", None) or {}
-        handle = caller.get("handle") or "robert"
-        session = g.session("convoy", {"content:read", "events:read"})
-        events = session.find_entities("event", limit=300)
-        attended_count = sum(1 for e in events if e.get("attrs", {}).get("type") == "convoy" and e.get("attrs", {}).get("status") == "attended")
-        reliability = min(99, 85 + (attended_count * 2))
-        tier = "Bronze Meeter"
-        if attended_count >= 10: tier = "Diamond Meeter"
-        elif attended_count >= 5: tier = "Gold Meeter"
-        elif attended_count >= 2: tier = "Silver Meeter"
+        """Outings you actually turned up to, counted.
 
-        share_text = f"🛡️ LifeOS Verified Real-World Meeter: {attended_count} Outings Attended · {reliability}% Reliability ({tier})"
+        It counted those correctly and then invented everything around them. The
+        `reliability_score` was `min(99, 85 + attended * 2)`, so an account that had never
+        attended anything scored **85%**, and no amount of not turning up could ever lower
+        it — a rating whose floor is its own best advertisement. The tier ("Bronze Meeter"
+        up to "Diamond Meeter") was that same number renamed. `share_text` called it
+        "LifeOS **Verified** Real-World Meeter", and the button beside it offered to copy
+        that into an Instagram or Tinder bio: a stranger reading it would think somebody
+        had checked. Nobody had. The handle also defaulted to "robert" for a caller with no
+        session, so an unauthenticated request got a named person's card.
+
+        The count is the honest part and it stays. A number that was counted needs no
+        adjective, and there is nothing here to verify it against: a check-in is a tap by
+        the person themselves. So the share text says what it is, and says who it came
+        from.
+        """
+        from substrate import now_iso
+        account_id, handle = _signal_caller(request)
+        session = _graph(request).session("convoy", {"content:read", "events:read"})
+        # It filtered on `type == "convoy"`, and nothing in this app has ever written that
+        # type — `events_ingest.add_social_event` writes `"social"`. So the count was always
+        # zero, which means the score was always exactly 85 and the tier always "Bronze
+        # Meeter", identically, for every account on every instance. The one part of this
+        # response that was supposed to be real was also the part nobody had checked.
+        attended = sum(1 for e in session.find_entities("event", limit=300)
+                       if e.get("attrs", {}).get("type") == "social"
+                       and e.get("attrs", {}).get("status") == "attended")
         return {
             "handle": handle,
-            "verified_meets": attended_count,
-            "reliability_score": reliability,
-            "tier": tier,
-            "share_text": share_text,
-            "generated_at": now_iso()
+            "attended": attended,
+            "empty": attended == 0,
+            # No score, no tier, no percentage. Each was this count wearing a costume.
+            "scored": False,
+            "verified": False,
+            "not_verification": ("This is a count of outings you marked yourself as having "
+                                 "attended. Nobody checked that you were there, so it is "
+                                 "your own record rather than anybody's verification of it."),
+            "share_text": (f"I have marked {attended} outing{'' if attended == 1 else 's'} "
+                           "attended on LifeOS (self-recorded, not verified)."),
+            "suggestion": ("Mark an outing attended and it appears here."
+                           if attended == 0 else ""),
+            "generated_at": now_iso(),
         }
 
     @router.get("/wrapped/monthly")
