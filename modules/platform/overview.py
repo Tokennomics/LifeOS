@@ -27,6 +27,8 @@ import os
 from substrate import SYSTEM_OWNER
 from substrate.graph import Graph
 
+from modules.platform import capabilities as capability_table
+
 MODULE = "platform.overview"
 SCOPES = {"content:read", "events:read", "metrics:read"}
 
@@ -73,17 +75,12 @@ def system(graph: Graph, *, account_id: str = "") -> dict:
     # Things the old controller claimed were online, that this app genuinely cannot do. They
     # are listed rather than omitted, because a status page that silently drops what it
     # cannot do reads as though it can.
-    unavailable = [
-        {"name": "push notifications",
-         "why": "no VAPID key pair, no APNs certificate and no SMS provider in this repo"},
-        {"name": "payments",
-         "why": "no payment processor is connected; the shared tab records what is owed "
-                "and moves no money"},
-        {"name": "BLE mesh, wearables and spatial audio",
-         "why": "a web app cannot reach that hardware"},
-        {"name": "identity verification",
-         "why": "nothing here checks a document; a vouch is one person's word"},
-    ]
+    #
+    # Imported rather than written here. The six endpoints that used to invent wearable
+    # telemetry, mesh peers and an app-store manifest now refuse out of the same table, so
+    # this page and those refusals cannot come to disagree — which they would, the first
+    # time somebody updated one of the two lists.
+    unavailable = capability_table.listing()
 
     session = _sys(graph)
     counts = {}

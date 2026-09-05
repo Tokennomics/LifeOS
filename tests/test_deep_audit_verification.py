@@ -169,11 +169,23 @@ def test_kudos_and_flash_moments_graph_persistence(signed_in):
 
 
 def test_apple_wallet_pass_generation(signed_in):
-    """Kept from the other line: a real base64 PKPass payload, not a URL to a file nobody
-    wrote on a host this deployment does not serve."""
+    """A real base64 PKPass payload, not a URL to a file nobody wrote — and now for a
+    gathering that exists.
+
+    This asserted that the pass described whatever `event_name` was sent, which is how a
+    pass got minted for an event that had never happened. The name now comes off the meetup
+    the id names, and a name on its own is a 400.
+    """
+    import datetime
     client, people = signed_in
-    res = client.post("/v1/events/apple-wallet-pass",
-                      json={"event_name": "Isar Sunrise Plunge"},
+    starts = (datetime.datetime.now(datetime.timezone.utc)
+              + datetime.timedelta(days=2)).isoformat()
+    meetup = client.post("/v1/city/meetups",
+                         json={"city": "Munich", "title": "Isar Sunrise Plunge",
+                               "place": "Flaucher", "starts_at": starts},
+                         headers=people["ana"]["h"]).json()["meetup_id"]
+
+    res = client.post("/v1/events/apple-wallet-pass", json={"meetup_id": meetup},
                       headers=people["ana"]["h"])
     assert res.status_code == 200
     data = res.json()
@@ -181,7 +193,13 @@ def test_apple_wallet_pass_generation(signed_in):
     payload = json.loads(base64.b64decode(
         data["pkpass_url"].split("base64,")[1]).decode("utf-8"))
     assert payload["description"] == "Isar Sunrise Plunge"
+    assert payload["serialNumber"] == meetup
     assert "connectos.app" not in res.text
+
+    named_only = client.post("/v1/events/apple-wallet-pass",
+                             json={"event_name": "Isar Sunrise Plunge"},
+                             headers=people["ana"]["h"])
+    assert named_only.status_code == 400
 
 
 def test_synergy_overlap_graph_awareness(signed_in):
@@ -278,3 +296,10 @@ def test_layover_multi_hub_discovery(signed_in):
                       json={"city": "Edinburgh", "hours": 6},
                       headers=people["ana"]["h"])
     assert res.status_code == 200
+    body = res.json()
+    assert body["city"] == "edinburgh"
+    # The hours are the caller's input, echoed. The old handler subtracted 90 minutes from
+    # them and called the remainder a safety cushion.
+    assert body["hours"] == 6 and body["alarm_set"] is False
+    assert "curated_micro_escape" not in body
+    assert "eisbachwelle" not in res.text.lower()

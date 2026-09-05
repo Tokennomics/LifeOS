@@ -160,9 +160,15 @@ def test_ar_flares_and_copilot_icebreaker(cfg):
 
 def test_gen3_core_pillars(cfg):
     client = TestClient(create_app(cfg))
+    # Defaulted an HRV of 65 and a sleep score of 88, graded its own defaults into
+    # HIGH_RECOVERY, and recommended an intensity from it. This test is what kept that
+    # standing: it asserted the grade of a reading nothing had taken. There is no sensor
+    # here, so it refuses and names what one would need. Pinned in full in
+    # tests/test_platform_capabilities.py.
     res1 = client.post("/v1/biometrics/circadian-sync", json={"hrv_ms": 65, "sleep_score": 88})
-    assert res1.status_code == 200
-    assert res1.json()["recovery_tier"] == "HIGH_RECOVERY"
+    assert res1.status_code == 503
+    assert res1.json()["detail"]["available"] is False
+    assert "recovery_tier" not in res1.text
 
     # Reported it had negotiated five calendars and confirmed Alex, Elena R., Marcus T. and
     # Sophia K. There are no calendars, no booking and no payment rail — now stated.
@@ -197,9 +203,14 @@ def test_karma_audio_itinerary_and_sos(cfg):
     assert res1.status_code == 200
     assert res1.json()["outings_attended"] == 0 and res1.json()["empty"] is True
 
-    res2 = client.get("/v1/audio/lounge-spaces")
+    # Two lounges "LIVE_NOW" with 8 and 14 listeners and speakers called Alex, Elena R.
+    # and Marcus T., on an instance with no accounts. There is no audio transport here at
+    # all, so a room is a rendezvous list and starts empty. Pinned in
+    # tests/test_city_rooms.py.
+    res2 = client.get("/v1/audio/lounge-spaces?city=Lisbon")
     assert res2.status_code == 200
-    assert len(res2.json()["active_lounges"]) >= 2
+    assert res2.json()["rooms"] == [] and res2.json()["audio"] is False
+    assert "elena" not in res2.text.lower() and "listeners" not in res2.text
 
     # Fabrica, Miradouro and Lux Frágil — the same three venues for every user in every
     # city, on an empty database.
@@ -230,9 +241,12 @@ def test_nomad_memory_and_vip(cfg):
     assert body2["attendees"] == [] and body2["photos"] is False
     assert "CAP-" not in res2.text
 
+    # `granted: True` with `pass_code: "VIP-KARMA-98"` — the same code on every deployment
+    # — for a venue defaulting to Miradouro Rooftop Bar. A guest list belongs to a meetup
+    # that exists, so without one there is nothing to answer.
     res3 = client.post("/v1/events/vip-guestlist", json={"venue": "Miradouro"})
-    assert res3.status_code == 200
-    assert res3.json()["granted"] is True
+    assert res3.status_code == 400
+    assert "VIP-KARMA-98" not in res3.text
 
 def test_leaderboard_mentor_and_squad_routine(cfg):
     client = TestClient(create_app(cfg))
@@ -393,9 +407,13 @@ def test_viral_growth_and_traction(cfg):
     assert res3.json()["svg"].startswith("<svg")
     assert "connectos.app" not in res3.text
 
-    res4 = client.get("/v1/community/ambassadors")
+    # A launch heatmap: Lisbon 1,420 members, Barcelona "85% — 15 more to unlock". Every
+    # number was a constant and nothing was behind the lock. An ambassador is now somebody
+    # who volunteered, so a fresh instance has none.
+    res4 = client.get("/v1/community/ambassadors?city=Lisbon")
     assert res4.status_code == 200
-    assert len(res4.json()["cities"]) >= 4
+    assert res4.json()["ambassadors"] == [] and res4.json()["empty"] is True
+    assert "1420" not in res4.text and "unlock" not in res4.text.lower()
 
 def test_automated_data_ingestion(cfg):
     client = TestClient(create_app(cfg))
@@ -423,9 +441,12 @@ def test_zero_friction_convenience_features(cfg):
     assert res2.json()["auto_joined"] is False
     assert res2.json()["matches"] == []
 
+    # Minted a pass for whatever `event_name` was sent, with `VIP-KARMA-98` as both the
+    # serial number and the entry field. A pass is built from a meetup that exists now, and
+    # a name alone is not one. Pinned in tests/test_meetup_guestlist_nav_and_passes.py.
     res3 = client.post("/v1/events/apple-wallet-pass", json={"event_name": "Rooftop Party"})
-    assert res3.status_code == 200
-    assert res3.json()["pass_generated"] is True
+    assert res3.status_code == 400
+    assert "pkpass" not in res3.text
 
 def test_solo_festival_and_camping_features(cfg):
     client = TestClient(create_app(cfg))
@@ -498,17 +519,23 @@ def test_circular_economy_features(cfg):
 
 def test_group_collab_and_micro_grants(cfg):
     client = TestClient(create_app(cfg))
+    # Four waypoints, six members "synced on route" and a turn 80m away, for a route name
+    # from the body, in an app that has never held a coordinate. It answers about a meetup
+    # now, and there is no route in the answer.
     res1 = client.post("/v1/routing/group-nav", json={"route_name": "Sunset Walk"})
-    assert res1.status_code == 200
-    assert res1.json()["navigation_active"] is True
+    assert res1.status_code == 400
+    assert "next_turn" not in res1.text
 
     res2 = client.post("/v1/music/squad-jukebox", json={"city": "Lisbon", "venue": "Fabrica Coffee"})
     assert res2.status_code == 200
     assert res2.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
+    # `grant_voted: True`, `FUNDED_AND_APPROVED` and a "€1,450.00 community fund pool"
+    # with 48 votes, for any project string. A proposal needs a city and an amount, and
+    # nobody's money moves. Pinned in tests/test_community_ambassadors_and_grants.py.
     res3 = client.post("/v1/community/micro-grants", json={"project": "Rescue Stand"})
-    assert res3.status_code == 200
-    assert res3.json()["grant_voted"] is True
+    assert res3.status_code == 400
+    assert "1,450" not in res3.text and "grant_voted" not in res3.text
 
 def test_popup_jam_film_and_eco_clean(cfg):
     client = TestClient(create_app(cfg))
@@ -516,9 +543,14 @@ def test_popup_jam_film_and_eco_clean(cfg):
     assert res1.status_code == 200
     assert res1.json()["matched"] is False     # was a literal: invented people, sometimes an invented booking
 
-    res2 = client.post("/v1/memories/analog-film-swap", json={"outing_id": "OUTING-8821"})
+    # A synced film roll, "12 vintage scans unlocked" and an album URL on a host this
+    # deployment does not serve. It is a complementary match between two people now —
+    # nothing is scanned, because there is no image store here.
+    res2 = client.post("/v1/memories/analog-film-swap",
+                       json={"city": "Lisbon", "offering": "portra", "seeking": "hp5"})
     assert res2.status_code == 200
-    assert res2.json()["film_roll_synced"] is True
+    assert res2.json()["matched"] is False and res2.json()["photos"] is False
+    assert "connectos.app" not in res2.text
 
     res3 = client.post("/v1/impact/eco-clean-crew", json={"city": "Lisbon", "beach": "Carcavelos"})
     assert res3.status_code == 200
@@ -632,17 +664,24 @@ def test_sauna_plant_swap_and_wine_tasting(cfg):
 
 def test_frontier_stack_all_four_engines(cfg):
     client = TestClient(create_app(cfg))
+    # A bundle id, "2.4.0 (Build 142)" and two download URLs on a host this deployment does
+    # not serve, for a build nobody had run. It points at the build files in the repo now.
     res1 = client.post("/v1/native/app-store-manifest", json={"platform": "ios_and_android"})
-    assert res1.status_code == 200
-    assert res1.json()["manifest_generated"] is True
+    assert res1.status_code == 503
+    assert "manifest_generated" not in res1.text
+    assert any("AndroidManifest.xml" in row["path"] for row in res1.json()["detail"]["where"])
 
+    # An HRV of 78 and a recovery score of 92, both literals in the handler, reported as
+    # read off a watch. Nothing in this process speaks to a watch.
     res2 = client.post("/v1/wearables/sync-telemetry", json={"device": "Apple Watch Ultra", "hrv_ms": 82, "recovery_score": 94})
-    assert res2.status_code == 200
-    assert res2.json()["telemetry_synced"] is True
+    assert res2.status_code == 503
+    assert "telemetry_synced" not in res2.text and "recovery_score" not in res2.text
 
+    # Four edge nodes, a 6.8ms global p95 and `node_health: "100% HEALTHY"` in front of one
+    # SQLite file on one disk. An operator reading a health check believes it.
     res3 = client.post("/v1/infra/edge-replication", json={"primary_region": "eu-central"})
-    assert res3.status_code == 200
-    assert res3.json()["edge_mesh_active"] is True
+    assert res3.status_code == 503
+    assert "node_health" not in res3.text
 
     res4 = client.post("/v1/ai/agent-negotiator", json={"topic": "Weekend Sunset Surf"})
     assert res4.status_code == 200
@@ -673,9 +712,12 @@ def test_city_seeding_and_cold_start_engine(cfg):
     assert res3.status_code == 400
     assert "apple pay" not in res3.text.lower()
 
+    # Three weekly outings nobody had arranged, with "spots_reserved" and a "Guaranteed
+    # Crew Host", identical in every city. It creates real meetups from a caller-supplied
+    # list now, and with no outings there is nothing to create.
     res4 = client.post("/v1/seeding/anchor-outings", json={"city": "Lisbon"})
-    assert res4.status_code == 200
-    assert res4.json()["anchors_active"] is True
+    assert res4.status_code == 400
+    assert "carcavelos" not in res4.text.lower()
 
 def test_stripe_and_paypal_payment_gateways(cfg):
     client = TestClient(create_app(cfg))
@@ -750,24 +792,25 @@ def test_multi_hobby_passion_content_hubs(cfg):
 
 def test_landmark_mega_festival_radar(cfg):
     client = TestClient(create_app(cfg))
-    res1 = client.post("/v1/events/landmark-radar", json={"city": "Edinburgh", "month": "August"})
-    assert res1.status_code == 200
-    assert res1.json()["landmark_radar_active"] is True
-    assert res1.json()["total_landmark_events"] >= 4
-
-    res2 = client.post("/v1/events/landmark-radar", json={"city": "Munich", "month": "September"})
-    assert res2.status_code == 200
-    assert res2.json()["landmark_radar_active"] is True
-
-    res3 = client.post("/v1/events/landmark-radar", json={"city": "Lisbon", "month": "June"})
-    assert res3.status_code == 200
-    assert res3.json()["landmark_radar_active"] is True
+    # Branched on the city name: Edinburgh got the Fringe and the Tattoo, Munich got
+    # Oktoberfest, everything else got "City Cultural Mega-Fest — Seasonal". Three
+    # hand-written lists and a substring match. It reads the map now, so an unseeded city
+    # is empty. Pinned in tests/test_radar_layover_and_simulations.py.
+    for city in ("Edinburgh", "Munich", "Lisbon"):
+        res = client.post("/v1/events/landmark-radar", json={"city": city})
+        assert res.status_code == 200, city
+        assert res.json()["empty"] is True, city
+        assert res.json()["bearings"] is False
+    assert "fringe" not in res.text.lower() and "oktoberfest" not in res.text.lower()
 
 def test_frontier_voice_nfc_culture_and_dao(cfg):
     client = TestClient(create_app(cfg))
+    # "Opus 48kHz Spatial 3D Audio", 18ms latency and two people at two bearings, one of
+    # them speaking. A huddle is a room in a crew you are actually in, and there is no
+    # sound. Pinned in tests/test_city_rooms.py.
     res1 = client.post("/v1/voice/crew-huddle", json={"event_name": "Fringe Festival"})
-    assert res1.status_code == 200
-    assert res1.json()["huddle_active"] is True
+    assert res1.status_code == 400
+    assert "latency_ms" not in res1.text and "hamish" not in res1.text.lower()
 
     # A "NFC & Apple NameDrop Ephemeral Handshake" reporting 94% compatibility with a named
     # stranger, for any peer string. A web app speaks none of that; sending no code shows
@@ -792,9 +835,13 @@ def test_frontier_voice_nfc_culture_and_dao(cfg):
     assert res3.json()["available"] is False
     assert "braw" not in res3.text
 
+    # A £12,450 balance "(5% VIP Fees Allocation)" and three proposals passing at 88%, 76%
+    # and "FUNDED", under "Quadratic Citizen Voting". There is no treasury, no token and no
+    # vote; what is real is what people have proposed, counted.
     res4 = client.post("/v1/dao/community-treasury", json={"city": "Edinburgh"})
     assert res4.status_code == 200
-    assert res4.json()["treasury_synced"] is True
+    assert res4.json()["available"] is False and res4.json()["money_moved"] is False
+    assert "12,450" not in res4.text and "quadratic" not in res4.text.lower()
 
 def test_anti_boredom_and_genuine_fulfillment_engine(cfg):
     client = TestClient(create_app(cfg))
@@ -891,28 +938,38 @@ def test_zero_user_event_seeding_and_tastemaker_curation(cfg):
 
 def test_full_day_user_ux_simulation(cfg):
     client = TestClient(create_app(cfg))
+    # A six-entry timeline of a day nobody lived — a table pre-reserved, a friend detected
+    # 350m away, a pre-split £14.20 bill — beside a `dopamine_vitality_score` of 98/100.
+    # Nothing here measures attention, and there is no reservation, proximity or payment.
     res = client.post("/v1/simulation/full-day-ux-optimizer", json={"persona": "Digital Nomad", "city": "Edinburgh"})
     assert res.status_code == 200
-    assert res.json()["simulation_complete"] is True
-    assert len(res.json()["simulated_24h_timeline"]) >= 6
-    assert res.json()["simulation_metrics"]["lifelong_memory_dividends"] >= 3
+    assert res.json()["available"] is False and res.json()["scored"] is False
+    assert "simulated_24h_timeline" not in res.json()
 
 def test_multi_demographic_simulation_suite(cfg):
     client = TestClient(create_app(cfg))
+    # Six hand-written personas with screen times to the minute, closing with
+    # `universal_ux_score: "98.4/100 (Flawless adaptation across all life stages)"`.
     res = client.post("/v1/simulation/multi-demographic-suite", json={"profile": "ALL"})
     assert res.status_code == 200
-    assert res.json()["suite_simulation_complete"] is True
-    assert res.json()["total_demographics_covered"] >= 6
+    assert res.json()["available"] is False and res.json()["scored"] is False
+    assert "98.4" not in res.text
 
 def test_ultimate_frontier_capabilities(cfg):
     client = TestClient(create_app(cfg))
+    # Three named peers at three distances over a radio a browser cannot open — and, on the
+    # back of it, an offer of offline SOS. Somebody in a valley with no signal, told the
+    # mesh is active, might rely on that.
     res1 = client.post("/v1/mesh/offline-peer-sync", json={})
-    assert res1.status_code == 200
-    assert res1.json()["mesh_active"] is True
+    assert res1.status_code == 503
+    assert res1.json()["detail"]["available"] is False
+    assert "connected_peers" not in res1.text
 
+    # Whispered that a named friend had arrived four metres behind you at the counter, from
+    # an app that stores city names and has never known a position.
     res2 = client.post("/v1/wearables/ambient-whispers", json={})
-    assert res2.status_code == 200
-    assert res2.json()["wearables_synced"] is True
+    assert res2.status_code == 503
+    assert "sub_vocal_whispers" not in res2.text
 
     # `trust_verified: True` and `trust_score: "98/100 (Tier-1 Community Vouched)"` for any
     # name sent — with a "Zero-Knowledge Proof" privacy standard implemented nowhere. This
@@ -1093,9 +1150,16 @@ def test_micro_masterclasses_and_neighborhood_guilds(cfg):
 
 def test_smart_layover_and_stopover_navigator(cfg):
     client = TestClient(create_app(cfg))
-    res = client.post("/v1/travel/layover-discovery", json={"hub": "Munich Airport (MUC)", "layover_hours": 4.5})
+    # One Munich itinerary for every hub anybody asked about — the S8 at 11:00, the
+    # Eisbachwelle surfers, a gate alarm "Armed for 14:15" that armed nothing — and a "safe
+    # exploration time" computed by subtracting 90 minutes from the hours you sent. The
+    # hours stay yours; the city part is the ordinary city guide. Pinned in
+    # tests/test_radar_layover_and_simulations.py.
+    res = client.post("/v1/travel/layover-discovery",
+                      json={"city": "Munich", "layover_hours": 4.5})
     assert res.status_code == 200
     data = res.json()
-    assert data["layover_navigator_active"] is True
-    assert "Eisbachwelle" in str(data["curated_micro_escape"])
-    assert "Armed" in data["gate_return_alarm"]
+    assert data["city"] == "munich" and data["hours"] == 4.5
+    assert data["alarm_set"] is False and data["empty"] is True
+    assert "curated_micro_escape" not in data and "gate_return_alarm" not in data
+    assert "eisbachwelle" not in res.text.lower()
