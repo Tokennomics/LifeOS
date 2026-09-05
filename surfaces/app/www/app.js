@@ -32,8 +32,10 @@ async function api(path, body) {
     // a toast produces "[object Object]", so keep the object on the error and give the
     // message a line somebody can actually read.
     const detail = err.detail;
+    // `reason` on a payment refusal, `why` on a capability that cannot exist here. Without
+    // the second the toast for all six unbuildable endpoints read "gateway error 503".
     const problem = new Error((detail && typeof detail === "object")
-      ? (detail.reason || "gateway error " + resp.status)
+      ? (detail.reason || detail.why || "gateway error " + resp.status)
       : (detail || "gateway error " + resp.status));
     problem.detail = detail;
     // Callers need to tell "your session is gone" from "the wifi dropped". Without the
@@ -285,10 +287,51 @@ async function refresh() {
 
 /* ---------- views ---------- */
 
+/* Three cards used to post a venue name or an event name and get an answer about a
+   gathering that had never existed — a wallet pass for "Miradouro Sunset Rooftop Meet", a
+   guest list for "Miradouro Rooftop Bar", turn-by-turn for "Alfama Sunset Viewpoints
+   Walk". All three now need the id of a meetup that is really on the board, so every
+   `[data-meetup-picker]` select is filled from the plans the caller is actually on. An
+   empty picker is the honest state and says so rather than offering a placeholder. */
+async function fillPickers() {
+  const meetupBoxes = document.querySelectorAll("[data-meetup-picker]");
+  const crewBoxes = document.querySelectorAll("[data-crew-picker]");
+  if (meetupBoxes.length) {
+    let plans = [];
+    try {
+      plans = (await api("/v1/city/meetups/mine")).meetups || [];
+    } catch (e) {
+      plans = [];
+    }
+    const options = plans.map((m) =>
+      `<option value="${esc(m.meetup_id || m.id || "")}">${esc(m.title || "Meetup")}${m.starts_at ? ` · ${esc(whenLabel(m.starts_at))}` : ""}</option>`).join("");
+    meetupBoxes.forEach((box) => {
+      box.innerHTML = options
+        || `<option value="">Nothing on your board yet — join or organise one</option>`;
+    });
+  }
+  if (crewBoxes.length) {
+    // `/crews` reads your own slice only, so a crew you joined in somebody else's account
+    // was missing from every picker built from it. `/crews/mine` is the one that sees both.
+    let crews = [];
+    try {
+      crews = (await api("/v1/crews/mine")).crews || [];
+    } catch (e) {
+      crews = [];
+    }
+    const options = crews.map((c) =>
+      `<option value="${esc(c.id || c.crew_id || "")}">${esc(c.name || "Crew")}</option>`).join("");
+    crewBoxes.forEach((box) => {
+      box.innerHTML = options || `<option value="">You are not in a crew yet</option>`;
+    });
+  }
+}
+
 function render() {
   const view = $("#view");
   const views = { today: todayView, capture: captureView, people: peopleView, city: cityView, map: mapView, graph: graphView, more: moreView };
   view.innerHTML = views[state.tab]();
+  fillPickers();
   // Entrance animation only on tab change — never on in-tab updates (no flashing).
   view.classList.toggle("enter", state.enter);
   state.enter = false;
@@ -411,13 +454,13 @@ function todayView() {
   /* ---- Tomorrow at 8:00 Activity & Friend Finder ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(99,206,139,0.15)); border:1px solid rgba(240,169,74,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🕒 Find Activities Tomorrow at 8:00</h2>
-      <span class="badge good" style="font-weight:bold;">Instant Finder</span>
+      <h2>🕒 Morning or evening, in your city</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">From published intents</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Want to do something tomorrow at 8:00 AM or 8:00 PM? 1-tap to check local spots & available friends!</p>
+    <p class="hint" style="margin-bottom:8px;">Who has published that they are up for a morning or an evening thing in your city. It searches what people wrote; it does not know anybody's calendar.</p>
     <div class="row2">
-      <button class="primary" data-act="find-tomorrow-am">Find 8:00 AM Coffee & Workout ☕</button>
-      <button class="primary" data-act="find-tomorrow-pm">Find 20:00 (8 PM) Drinks & Outings 🌅</button>
+      <button class="primary" data-act="find-tomorrow-am">Morning — coffee, a run ☕</button>
+      <button class="primary" data-act="find-tomorrow-pm">Evening — drinks, an outing 🌅</button>
     </div>
     <div id="tomorrow-output" style="margin-top:10px;"></div>
   </div>`;
@@ -516,12 +559,12 @@ function todayView() {
       <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:12px;">
         <div style="font-weight:700; color:var(--text);">🤿 Scuba Vis & Temp Meter</div>
         <div style="color:var(--muted); margin-top:2px;">DiveTech · Vis > 15m</div>
-        <button class="ghost" style="font-size:10px; padding:2px 8px; margin-top:4px;" onclick="toast('Scuba Vis Plugin Installed! 🤿');">Install Plugin ⚡</button>
+        <div style="font-size:10px; color:var(--muted); margin-top:4px;">Nothing installs it — there is no plugin runtime here yet.</div>
       </div>
       <div style="background:var(--surface-2s); padding:10px; border-radius:10px; font-size:12px;">
         <div style="font-weight:700; color:var(--text);">♟️ Park Chess Matcher</div>
         <div style="color:var(--muted); margin-top:2px;">OpenChess DAO · Sunny Park</div>
-        <button class="ghost" style="font-size:10px; padding:2px 8px; margin-top:4px;" onclick="toast('Park Chess Plugin Installed! ♟️');">Install Plugin ⚡</button>
+        <div style="font-size:10px; color:var(--muted); margin-top:4px;">Nothing installs it — there is no plugin runtime here yet.</div>
       </div>
     </div>
     <div class="row2" style="margin-bottom:8px;"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
@@ -552,28 +595,28 @@ function todayView() {
     <div id="pop-mint-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Real-World AR Spatial Overlay & Beacons Radar ---- */
+  /* ---- What people have published here ----
+     Three beacons were written into this markup and rendered as though the phone had
+     found them: a coffee meetup by "Elena R." 85 metres away on a bearing of 42°, a venue
+     at "88% Density", an audio drop-in by "Alex & Crew" 310m west. There is no compass in
+     this app, no position of any kind — a check-in is a place name somebody typed — and
+     none of those three people exist in anybody's graph.
+
+     The question underneath is answerable: `/ar/spatial-flares` returns the intents and
+     moments people have actually published in a city, and on a quiet instance it returns
+     nothing and says so. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(147,51,234,0.15)); border:1px solid rgba(6,182,212,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>👓 Real-World AR Spatial Overlay & Beacons</h2>
-      <span class="badge good" style="font-weight:bold;">Spatial Camera Radar</span>
+      <h2>👀 What is happening around you</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Published, not sensed</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Live AR View: Floating 3D beacons rendered in space for nearby outings, heatmaps & audio rooms!</p>
-    <div style="display:grid; grid-template-columns:1fr; gap:6px; margin-bottom:10px;">
-      <div style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
-        <div><strong style="color:var(--spark);">☕ Specialty Coffee Meetup</strong> · Elena R.</div>
-        <span class="badge" style="font-size:10px;">85m away · 42° NNE</span>
-      </div>
-      <div style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
-        <div><strong style="color:var(--growth);">🔥 Miradouro Rooftop Bar</strong> · 88% Density</div>
-        <span class="badge" style="font-size:10px;">240m away · 115° E</span>
-      </div>
-      <div style="background:var(--surface-2s); padding:8px 12px; border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
-        <div><strong style="color:#06b6d4;">🎙️ Bouldering Audio Drop-In</strong> · Alex & Crew</div>
-        <span class="badge" style="font-size:10px;">310m away · 280° W</span>
-      </div>
+    <p class="hint" style="margin-bottom:8px;">What people in your city have said they are up for, and what they posted, newest first. No distances and no bearings — nothing here knows where anybody is standing.</p>
+    <div class="row2">
+      <input class="field" id="around-city" placeholder="City (blank = where you said you are)">
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="load-around">What is live here 👀</button>
     </div>
-    <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #8b5cf6);" data-act="gen-ai-icebreakers">Openers for a match ✍️</button>
+    <div id="around-output" style="margin-top:10px;"></div>
+    <button class="ghost" style="margin-top:8px;" data-act="gen-ai-icebreakers">Openers for a match ✍️</button>
     <div id="ai-icebreaker-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -588,31 +631,40 @@ function todayView() {
     <div id="squad-agent-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Social Karma & Trust Credit ---- */
+  /* ---- Concierge and emergency ----
+     The header claimed "98 / 100" and "Legend Crew Member (99% Punctual · 12 Verified
+     Badges · 4.98★ Rating)" for every account on the instance, including one made ten
+     seconds earlier. Nobody rates anybody here and punctuality is not measured, so there
+     is no tier and no number — only the two buttons, which do what they say. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🏆 Social Karma & Trust Credit</h2>
-      <span class="badge good" style="font-weight:bold;">98 / 100 Karma</span>
+      <h2>🗺️ Evening plan, or help</h2>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Tier: <strong>Legend Crew Member</strong> (99% Punctual · 12 Verified Badges · 4.98★ Rating)</p>
-    <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981);" data-act="gen-micro-itinerary">🗺️ AI Concierge: Generate Evening Micro-Itinerary</button>
-      <button class="ghost" style="color:#ef4444; border-color:#ef4444; font-weight:700;" data-act="trigger-sos">⚡ Emergency SOS</button>
+    <p class="hint" style="margin-bottom:8px;">A short itinerary out of places and plans that exist, and a watch you can start. Nothing here can call anybody — a watch is a record with your own watchers on it, and the number to call is the local emergency one.</p>
+    <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981); width:100%;" data-act="gen-micro-itinerary">An evening out of what exists 🗺️</button>
+    <div class="row2" style="margin-top:8px;">
+      <input class="field" id="sos-place" placeholder="Where are you?">
+      <button class="ghost" style="color:#ef4444; border-color:#ef4444; font-weight:700;" data-act="trigger-sos">Start a watch ⚡</button>
     </div>
     <div id="karma-concierge-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Outing Memory Capsule & VIP Fast-Pass ---- */
+  /* ---- Memory capsule and the organiser's guest list ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(236,72,153,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>📸 Outing Memory Capsule & VIP Fast-Pass</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">VIP Perks</span>
+      <h2>📸 A day, and who you are expecting</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Your own rows</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Generate a 1-page memory highlight reel or claim 1-tap VIP guestlist access!</p>
-    <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-memory-capsule">Generate Memory Capsule 📸</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="claim-vip-pass">Claim VIP Guestlist Pass 🎟️</button>
+    <p class="hint" style="margin-bottom:8px;">A capsule is your own entries for a day — there is no image store here, and who else was there is not something a check-in records. A guest list is the organiser's own list for their own meetup; it grants entry to nothing.</p>
+    <div class="row2">
+      <input class="field" id="mc-title" placeholder="Call the day something">
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #a855f7);" data-act="gen-memory-capsule">Gather that day 📸</button>
     </div>
+    <div class="row2" style="margin-top:6px;">
+      <select class="field" id="gl-meetup" data-meetup-picker="1"></select>
+      <input class="field" id="gl-guests" placeholder="Handles to add (comma separated, optional)">
+    </div>
+    <button class="primary" style="margin-top:6px; background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="claim-vip-pass">Show the guest list 🎟️</button>
     <div id="memory-vip-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -653,8 +705,9 @@ function todayView() {
     <p class="hint" style="margin-bottom:8px;">What you owe and what you are owed, per person. Settling marks it paid between you — the money still changes hands wherever it already does.</p>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="settle-crew-tab">Show the tab 💸</button>
-      <button class="primary" style="background:linear-gradient(135deg, #eab308, #ec4899);" data-act="gen-city-quest">Generate Micro-Quest (+50 Karma) 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #eab308, #ec4899);" data-act="gen-city-quest">Somewhere to go 🗺️</button>
     </div>
+    <input class="field" id="cq-city" placeholder="Which city?" style="margin-top:8px;">
     <div id="ledger-quest-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -746,17 +799,18 @@ function todayView() {
     <div id="auto-ingestion-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Zero-Friction Convenience Controls ---- */
+  /* ---- Check in, and a pass for something you are going to ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(234,179,8,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>⚡ Zero-Friction Convenience Controls</h2>
-      <span class="badge good" style="font-weight:bold;">1-Tap & Zero Click</span>
+      <h2>⚡ Check in, or save a pass</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Your own plans</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Magic QR check-in, AI zero-click Auto-RSVP, and Apple/Google Wallet pass export!</p>
-    <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #eab308, #10b981);" data-act="magic-qr-checkin">Magic QR Check-In ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="export-wallet-pass">Export Wallet Pass 📲</button>
+    <p class="hint" style="margin-bottom:8px;">A pass is built from a meetup you are actually on. It is not signed and it grants entry to nothing — it is a card in your wallet that says where you said you were going.</p>
+    <div class="row2">
+      <select class="field" id="wp-meetup" data-meetup-picker="1"></select>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="export-wallet-pass">Save a pass 📲</button>
     </div>
+    <button class="ghost" style="margin-top:6px;" data-act="magic-qr-checkin">Check in with a code ⚡</button>
     <div id="convenience-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -884,7 +938,15 @@ function todayView() {
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="seed-city-bootstrap">Bootstrap City (Lisbon) 🗺️</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="mint-pioneer-pass">How early was I? 👑</button>
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="gen-golden-tickets">3 single-use links 🎟️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="activate-anchor-outings">Weekly Anchor Crews ⚓</button>
+    </div>
+    <div style="border-top:1px solid var(--muted)40; margin-top:10px; padding-top:10px;">
+      <p class="hint" style="margin-bottom:6px;">Weekly anchor outings write public rows in somebody's city, so this one is the operator's. Nothing is reserved and no host is guaranteed — each becomes a real meetup organised by whoever runs it.</p>
+      <div class="row2">
+        <input class="field" id="ao-city" placeholder="City">
+        <input class="field" id="ao-weeks" type="number" min="1" placeholder="Weeks" value="1">
+      </div>
+      <textarea class="field" id="ao-outings" rows="3" placeholder="One outing per line" style="margin-top:6px;"></textarea>
+      <button class="primary" style="margin-top:6px; background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="activate-anchor-outings">Create weekly anchors ⚓</button>
     </div>
     <div id="seeding-output" style="margin-top:10px;"></div>
   </div>`;
@@ -928,11 +990,12 @@ function todayView() {
       <h2>📡 Automated City Content & AI Pipeline</h2>
       <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Autonomous Data</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Stream 280+ public event feeds, synthesize AI micro-itineraries, ingest 160+ third places, and trigger spontaneous weather outings!</p>
+    <p class="hint" style="margin-bottom:8px;">Put a city on the map from OpenStreetMap, and build a short plan out of what is on it. Seeding is the operator's — it writes public rows and calls a volunteer-run service.</p>
+    <input class="field" id="tp-city" placeholder="Which city?" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="stream-auto-events">Stream Event Feeds (284) 📡</button>
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="synth-ai-outing">AI Outing Synthesizer 🤖</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="load-third-places">160 Third Places 📍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="load-third-places">Seed a city's map 📍</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-weather-outings">Weather Triggers ☀️</button>
     </div>
     <div id="content-pipeline-output" style="margin-top:10px;"></div>
@@ -954,18 +1017,24 @@ function todayView() {
     <div id="hobbies-hub-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Global Landmark Festivals & Cultural Radar Studio ---- */
+  /* ---- What is on the map in a city ----
+     Three buttons named three cities and the handler branched on the name: Edinburgh
+     returned the Fringe and the Tattoo, Munich returned Oktoberfest with "6M Visitors",
+     anything else got "City Cultural Mega-Fest — Seasonal". None of it was read from
+     anywhere. What is answerable is the map for whichever city you name. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(234,179,8,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌍 Global Landmark Festivals Radar</h2>
-      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Mega-Events AI</span>
+      <h2>🌍 What is on the map here</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">OpenStreetMap</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Live radar for iconic global festivals: Edinburgh Fringe & Tattoo, Munich Oktoberfest & Surf Masters, Lisbon Festas & NOS Alive!</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="radar-edinburgh-fringe">Edinburgh Fringe & Tattoo 🎭</button>
-      <button class="primary" style="background:linear-gradient(135deg, #3b82f6, #10b981);" data-act="radar-munich-oktoberfest">Munich Oktoberfest 🍺</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="radar-lisbon-festas">Lisbon Festas & Web Summit 🐟</button>
-      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="sync-ai-butler-landmarks">Sync AI Butler 🤖</button>
+    <p class="hint" style="margin-bottom:8px;">Places seeded for a city. No bearings and no distances — nothing here knows where anybody is standing. An unseeded city says so rather than inventing a festival.</p>
+    <div class="row2">
+      <input class="field" id="lr-city" placeholder="City (blank = where you said you are)">
+      <input class="field" id="lr-category" placeholder="Category (optional)">
+    </div>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;">
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="radar-landmarks">What is there 🌍</button>
+      <button class="primary" style="background:linear-gradient(135deg, #8b5cf6, #6366f1);" data-act="sync-ai-butler-landmarks">What's on 🤖</button>
     </div>
     <div id="landmark-radar-output" style="margin-top:10px;"></div>
   </div>`;
@@ -976,9 +1045,13 @@ function todayView() {
       <h2>🎙️ Spatial Voice, NFC Handshake & Culture Bridge</h2>
       <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Frontier Social OS</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Spatial 3D festival walkie-talkie, NFC physical tap-to-synergy handshake, local dialect translator, and DAO community treasury!</p>
+    <p class="hint" style="margin-bottom:8px;">A huddle is a room for one crew — a list of who is in, not a call, because there is no audio transport here. A code you can swap in person, a phrase you did not catch, and what a city has been asked for.</p>
+    <div class="row2" style="margin-bottom:8px;">
+      <input class="field" id="vh-title" placeholder="What is the huddle about?">
+      <select class="field" id="vh-crew" data-crew-picker="1"></select>
+    </div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Spatial Voice Huddle 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="open-voice-huddle">Open a crew huddle 🎙️</button>
       <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="trigger-nfc-tap">Swap a code 📳</button>
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="translate-local-culture">Culture & Slang Bridge 🗣️</button>
     </div>
@@ -1061,16 +1134,21 @@ function todayView() {
     <div id="zero-user-seeding-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- 24-Hour User Day UX Simulation Studio ---- */
+  /* ---- The day simulator, which does not exist ----
+     Both buttons returned a written day and scored it: "4.5 Hours Deep Human Interaction",
+     a dopamine vitality score of 98/100, a universal UX score of 98.4. Nothing here
+     measures attention and there is no simulator, so the card now says that rather than
+     hiding the buttons — the question is a reasonable one to have asked. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(236,72,153,0.18)); border:1px solid rgba(99,102,241,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🕒 24-Hour User Day UX Simulation (All Demographics)</h2>
-      <span class="badge good" style="font-weight:bold;">Universal UX</span>
+      <h2>🕒 Simulate somebody's day</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted); font-weight:bold;">Not available here</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Simulate full 24-hour days across 6 archetypal human demographics (Nomads, Parents, Artists, Athletes, Retirees, Students)!</p>
+    <p class="hint" style="margin-bottom:8px;">There is no simulator in this app and nothing that measures attention. Asking says what it would take instead of returning a day nobody lived.</p>
+    <input class="field" id="sim-persona" placeholder="Who would you simulate? (optional)" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="run-full-day-simulation">Simulate Single Day 🚀</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="run-all-demographics">Simulate All 6 Demographics 👥</button>
+      <button class="ghost" data-act="run-full-day-simulation">Ask about one day</button>
+      <button class="ghost" data-act="run-all-demographics">Ask about several people</button>
     </div>
     <div id="day-simulation-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1199,16 +1277,21 @@ function todayView() {
     <div id="workshops-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Smart Layover & Transit Stopover Navigator ---- */
+  /* ---- A stopover ----
+     Badged "100% Missed-Flight Safety" over one itinerary for one airport, returned
+     whatever you asked about, with a gate-return alarm that armed nothing. This app does
+     not know your flight, your terminal or the queue. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(16,185,129,0.18)); border:1px solid rgba(6,182,212,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>⚡ Smart Layover & Stopover Micro-Escape</h2>
-      <span class="badge good" style="font-weight:bold;">100% Missed-Flight Safety</span>
+      <h2>⚡ Stuck somewhere for a few hours</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">No alarm, no transit</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Turn 4-hour airport or central train layovers into curated micro-escapes with automated gate return alarms!</p>
-    <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981); width:100%;" data-act="plan-layover-escape">Plan 4.5h Munich Airport Micro-Escape ✈️</button>
+    <p class="hint" style="margin-bottom:8px;">What is worth walking to in the city you are stopping in. Nothing is armed and no flight is watched — leave yourself the cushion you would anyway.</p>
+    <div class="row2">
+      <input class="field" id="lo-city" placeholder="Which city? (an airport code is not one)">
+      <input class="field" id="lo-hours" type="number" step="0.5" placeholder="Hours you have">
     </div>
+    <button class="primary" style="margin-top:6px; background:linear-gradient(135deg, #06b6d4, #10b981); width:100%;" data-act="plan-layover-escape">What is near ✈️</button>
     <div id="layover-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -1255,18 +1338,26 @@ function todayView() {
     <div id="circular-economy-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Live Group Nav, Squad Jukebox & Community Fund ---- */
+  /* ---- Where you are meeting, who is up for music, what people have asked for ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(99,102,241,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🗺️ Group Nav, Squad Jukebox & Grants</h2>
-      <span class="badge good" style="font-weight:bold;">Live Collaboration</span>
+      <h2>🗺️ Where, who, and what has been asked for</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">No routing, no fund</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Turn-by-turn group routing, blended venue music jukebox, and neighborhood impact micro-grants!</p>
-    <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="start-group-nav">Start Group Nav 🗺️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="sync-squad-jukebox">Squad Jukebox 🎶</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="vote-micro-grant">Community Grant (€1,450) 🏆</button>
+    <p class="hint" style="margin-bottom:8px;">The meeting place so you can search it in whatever maps app you already have — there is no routing here and nobody is tracked. A grant proposal is a record of an ask: no money moves and nothing is approved.</p>
+    <div class="row2">
+      <select class="field" id="gn-meetup" data-meetup-picker="1"></select>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="start-group-nav">Where is it 🗺️</button>
     </div>
+    <div class="row2" style="margin-top:6px;">
+      <input class="field" id="mg-project" placeholder="What are you asking for? (blank = what others have)">
+      <input class="field" id="mg-city" placeholder="City (blank = where you said you are)">
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <input class="field" id="mg-amount" type="number" step="0.01" placeholder="Amount (optional)">
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="vote-micro-grant">Record the ask 🏆</button>
+    </div>
+    <button class="ghost" style="margin-top:6px;" data-act="sync-squad-jukebox">Who else is up for music 🎶</button>
     <div id="collab-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -1291,11 +1382,15 @@ function todayView() {
       <h2>⚡ Sunset Jam, Film Swap & Eco Squad</h2>
       <span class="badge good" style="font-weight:bold;">Culture & Impact</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Match spontaneous viewpoint sunset music jams, swap 35mm film rolls, and join beach cleanups!</p>
+    <p class="hint" style="margin-bottom:8px;">Who else in your city has published that they are up for the same thing. A swap is complementary, so it needs both halves — nothing is exchanged here, it puts two people in touch.</p>
+    <div class="row2" style="margin-bottom:8px;">
+      <input class="field" id="fs-have" placeholder="Film stock you have">
+      <input class="field" id="fs-want" placeholder="Film stock you are after">
+    </div>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f0a94a);" data-act="join-popup-jam">Sunset Jam (7:30 PM) ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="swap-film-roll">35mm Film Swap 📸</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="join-eco-clean">Eco-Clean Squad 🌊</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f0a94a);" data-act="join-popup-jam">Who else wants to jam ⚡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #6366f1);" data-act="swap-film-roll">Who wants to swap 📸</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="join-eco-clean">Who is up for a beach clean 🌊</button>
     </div>
     <div id="culture-impact-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1345,19 +1440,27 @@ function todayView() {
     </div>`;
   }
 
-  /* ---- AI Smart Calendar Travel Activity Nudge ---- */
+  /* ---- What is in a city ----
+     "AI Smart Calendar detected an upcoming trip to Lisbon (Aug 15 - 22)" — no calendar
+     was read and no trip was detected — over three suggestions written into the markup:
+     Monsanto Crag as "#1 match", Fabrica Coffee Roasters, and a "Lisbon Tech & Outdoor
+     Fest" with 28 attending that has never existed. The button then posted the city
+     "Lisbon" whatever city you were in.
+
+     `/city/places` is the real version: what has been seeded onto the map for a city,
+     attributed to OpenStreetMap, and an unseeded city says which of the two things is
+     missing. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(37,99,235,0.15), rgba(16,185,129,0.15)); border:1px solid rgba(37,99,235,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>✈️ AI Smart Calendar Travel Radar</h2>
-      <span class="badge good" style="font-weight:bold;">Trip Detected</span>
+      <h2>✈️ What is on the map there</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">From the map</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">AI Smart Calendar detected an upcoming trip to <strong>Lisbon</strong> (Aug 15 - 22)! Suggested curated activities based on your graph:</p>
-    <div style="font-size:13px; line-height:1.5; margin-bottom:10px;">
-      <div>📍 <strong>Monsanto Outdoor Bouldering Crag</strong> (Climbing · #1 match)</div>
-      <div>☕ <strong>Fabrica Coffee Roasters</strong> (Specialty Coffee)</div>
-      <div>🎟️ <strong>Lisbon Tech & Outdoor Fest</strong> (Aug 17 · 28 attending)</div>
+    <p class="hint" style="margin-bottom:8px;">Cafés, climbing walls, viewpoints, parks and libraries that have been seeded for a city. Nothing is recommended and nothing is ranked.</p>
+    <div class="row2">
+      <input class="field" id="sc-city" placeholder="Which city?">
+      <button class="primary" data-act="smart-cal-travel-add">What is there 📍</button>
     </div>
-    <button class="primary" data-act="smart-cal-travel-add" data-city="Lisbon">Add Suggested Activities to Smart Calendar 📅</button>
+    <div id="smart-cal-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Ambient Focus & Plane Journey Sleep Soundscapes ---- */
@@ -1772,15 +1875,24 @@ function peopleView() {
     <div class="row2"><input class="field" id="person-name" placeholder="Name">
     <button class="primary" style="width:auto;flex:none;padding:10px 18px" data-act="add-person">Add</button></div>
     <p class="hint">People also arrive automatically from captures. Contact refreshes when you log a reconnect or mark a convoy attended.</p></div>`;
-  /* ---- Match New Local Friends Radar ---- */
+  /* ---- Who else is up for this ----
+     This card answered every click with the same two strangers — "Elena R. · Bouldering &
+     Specialty Coffee · 94% Match" and "Marcus T. · Outdoor Climbing & Tech · 89% Match" —
+     each with a Connect button whose entire implementation was a toast saying a friend
+     request had been sent. Nothing was sent, because there was nobody to send it to.
+
+     It runs the same matcher as every other activity card now: people who published the
+     same thing in the same city. Nobody having published is the common answer on a young
+     instance, and the button under it is the one that fixes that. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(37,99,235,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🤝 Match New Friends in My City</h2>
-      <span class="badge good" style="font-weight:bold;">Shared Interests</span>
+      <h2>🤝 Who else is up for this</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Matched on words</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Find new friends in your city who share your exact hobbies (bouldering, specialty coffee, tech, running)!</p>
-    <div class="row2"><input class="field" id="mf-interest" placeholder="Hobby / Interest (e.g. bouldering)">
-    <button class="primary" data-act="match-new-friends">Find New Friends 🤝</button></div>
+    <p class="hint" style="margin-bottom:8px;">People in your city who published the same thing you are looking for. The match is the words you both used, not a percentage.</p>
+    <div class="row2"><input class="field" id="mf-interest" placeholder="What are you up for? (e.g. bouldering)">
+    <input class="field" id="mf-city" placeholder="City (blank = where you said you are)"></div>
+    <button class="primary" style="margin-top:6px;" data-act="match-new-friends">Who else is up for this 🤝</button>
     <div id="match-friends-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -1811,27 +1923,24 @@ function peopleView() {
   const exploreVenues = (state.venues && state.venues.venues) || [];
   const capsules = (state.map && state.map.capsules) || [];
 
-  /* ---- Global Synergy Leaderboard ---- */
+  /* ---- Where you are up to ----
+     A podium: you at #1 with 98 Karma and the title "Lisbon Legend", above "Elena R." on
+     96 and "Alex M." on 94. Neither of them exists, none of the three numbers was counted
+     from anything, and the leaderboard route itself was removed on its merits — ranking
+     people by how many outings they attend rewards performative meeting-up, and
+     publishing one person's activity count to everybody else is the presence-list problem
+     wearing a scoreboard.
+
+     What is left is your own side of it, which is a count rather than a rank: what you
+     have turned up to, and how long you have been here. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(234,179,8,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🏆 Global Synergy Leaderboard</h2>
-      <span class="badge good" style="font-weight:bold;">Rank #1 Lisbon</span>
+      <h2>🧭 Where you are up to</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Counted, not scored</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Top real-world community leaders and verified event hosts!</p>
-    <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:8px;">
-      <div style="background:var(--surface-2s); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; font-size:12.5px;">
-        <span>🥇 <strong>You</strong> · 98 Karma</span>
-        <span style="color:var(--spark); font-weight:700;">👑 Lisbon Legend</span>
-      </div>
-      <div style="background:var(--surface-2s); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; font-size:12.5px;">
-        <span>🥈 <strong>Elena R.</strong> · 96 Karma</span>
-        <span style="color:var(--growth); font-weight:700;">🌅 Sunset Master</span>
-      </div>
-      <div style="background:var(--surface-2s); padding:8px 10px; border-radius:8px; display:flex; justify-content:space-between; font-size:12.5px;">
-        <span>🥉 <strong>Alex M.</strong> · 94 Karma</span>
-        <span style="color:var(--calm); font-weight:700;">🧗 Outdoor Pro</span>
-      </div>
-    </div>
+    <p class="hint" style="margin-bottom:8px;">Your own activity, counted from your rows. Nobody is ranked against anybody and nothing is published to anyone else.</p>
+    <button class="primary" data-act="load-standing">What I have turned up to 🧭</button>
+    <div id="standing-output" style="margin-top:10px;"></div>
   </div>`;
 
   html += `<div class="card"><h2>Local Activity & Discovery Feed</h2>
@@ -2002,15 +2111,43 @@ function peopleView() {
     <button class="primary" data-act="send-micro-tip" style="margin-top:6px;">Put it on my tab ☕</button>
   </div>`;
 
-  /* ---- Live Audio Crew Space ---- */
+  /* ---- Rooms ----
+     "Launch Audio Space" answered `created` with a room URL on a host this deployment does
+     not serve, and stored nothing — the lounge list never grew and the link reached
+     nothing. There is no audio transport here at all. What survives the audio being taken
+     away is still useful: a title, who opened it, and who has said they are in. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(168,85,247,0.15)); border:1px solid rgba(99,102,241,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🎙️ Live Audio Drop-In Space</h2>
-      <span class="badge good" style="font-weight:bold;">Voice Hangout</span>
+      <h2>🎙️ Rooms — a list, not a call</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">No audio</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Start a live voice room for crew outing prep or casual weekend chats!</p>
-    <div class="row2"><input class="field" id="as-title" placeholder="Space Title (e.g. Weekend Bouldering Prep)">
-    <button class="primary" data-act="start-audio-space">Launch Audio Space 🎙️</button></div>
+    <p class="hint" style="margin-bottom:8px;">Open a room so people can say they are in, then agree somewhere to actually talk. Nothing plays: there is no audio path in this app.</p>
+    <div class="row2">
+      <input class="field" id="as-title" placeholder="What is it about?">
+      <input class="field" id="as-city" placeholder="City (blank = where you said you are)">
+    </div>
+    <div class="row2" style="margin-top:6px;">
+      <button class="primary" data-act="start-audio-space">Open a room 🎙️</button>
+      <button class="ghost" data-act="list-audio-spaces">What is open here</button>
+    </div>
+    <div id="audio-space-output" style="margin-top:10px;"></div>
+  </div>`;
+
+  /* ---- Ambassadors ----
+     Four cities and their member counts were written into the handler — Lisbon LIVE with
+     1,420 active members, Barcelona "85% — 15 more members to unlock" — on an instance
+     that could have had no accounts at all, behind a lock with nothing behind it. */
+  html += `<div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2>🙋 Who has offered to help new arrivals</h2>
+      <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Not vetted</span>
+    </div>
+    <p class="hint" style="margin-bottom:8px;">Volunteering is your own claim about yourself. Nobody is nominated, nothing is checked, and you can stand down at any time.</p>
+    <div class="row2">
+      <input class="field" id="am-city" placeholder="City (blank = where you said you are)">
+      <button class="primary" data-act="list-ambassadors">Who is around 🙋</button>
+    </div>
+    <div id="ambassadors-output" style="margin-top:10px;"></div>
   </div>`;
 
   /* ---- Anonymous Kindness & Positive Vibes Box ---- */
@@ -2342,24 +2479,45 @@ function mapView() {
   }
   html += `</div>`;
 
-  /* ---- Official Venue Programs & Schedules ---- */
+  /* ---- What people have said is on at a venue ----
+     Headed "Official Local Venue Programs" under a "Verified Partners" badge, promising
+     "exclusive perks" — over two entries that were the same on every deployment, each
+     carrying a perk ("15% off for ConnectOS Crew Members") that neither venue had agreed
+     to. Somebody who turned up on the Wednesday expecting a free tasting would have found
+     an ordinary coffee shop.
+
+     An entry is one person's note about a place. The response says so in `not_official`,
+     and that sentence is rendered rather than paraphrased. */
   if (state.venuePrograms && state.venuePrograms.programs) {
     const progs = state.venuePrograms.programs;
+    const vp = state.venuePrograms;
     html += `<div class="card" style="background: linear-gradient(135deg, rgba(240,169,74,0.15), rgba(139,92,246,0.15)); border:1px solid rgba(240,169,74,0.3);">
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <h2>🏛️ Official Local Venue Programs</h2>
-        <span class="badge good" style="font-weight:bold;">Verified Partners</span>
+        <h2>🏛️ What is on at local venues</h2>
+        <span class="badge" style="color:var(--spark); border-color:var(--spark)40; font-weight:bold;">Posted by people</span>
       </div>
-      <p class="hint" style="margin-bottom:10px;">Official weekly schedules & exclusive perks from local gyms, coffee roasters, and spots.</p>
+      <p class="hint" style="margin-bottom:10px;">${esc(vp.not_official || "")}</p>
+      ${vp.needs_city ? `<p class="hint">${esc(vp.suggestion || "")}</p>` : ""}
       ${progs.map(p => `
         <div class="feed-item" style="background:var(--surface-2s); border-radius:10px; padding:10px; margin-bottom:8px;">
-          <div style="font-size:14px; font-weight:700; color:var(--spark);">🏛️ ${esc(p.venue_name)} (${esc(p.city)})</div>
+          <div style="font-size:14px; font-weight:700; color:var(--spark);">${esc(p.venue)}${p.city ? ` (${esc(p.city)})` : ""}</div>
           <div style="font-size:13px; font-weight:600; margin:2px 0;">${esc(p.title)}</div>
-          <div style="font-size:12px; color:var(--muted);">📅 Schedule: ${esc(p.schedule)}</div>
-          <div style="font-size:12px; color:var(--growth); margin-top:2px;">🎁 Perk: ${esc(p.perks)}</div>
-          <button class="pill warm" style="margin-top:6px;" data-act="subscribe-venue-program" data-name="${esc(p.venue_name)}">Sync Program to Smart Calendar 📅</button>
+          <div style="font-size:12px; color:var(--muted);">${esc(whenLabel(p.starts_at))}${p.ends_at ? ` — ${esc(whenLabel(p.ends_at))}` : ""}</div>
+          ${p.note ? `<div style="font-size:12px; color:var(--muted); margin-top:2px;">${esc(p.note)}</div>` : ""}
+          <div style="font-size:11px; color:var(--muted); margin-top:2px;">posted by @${esc(p.posted_by_handle)}${p.yours ? " · yours" : ""}</div>
         </div>
       `).join("")}
+      ${progs.length ? "" : `<p class="empty">${esc(vp.suggestion || "Nothing on the board here yet.")}</p>`}
+      <div class="row2" style="margin-top:8px;">
+        <input class="field" id="vp-city" placeholder="City">
+        <input class="field" id="vp-venue" placeholder="Venue">
+      </div>
+      <div class="row2" style="margin-top:6px;">
+        <input class="field" id="vp-title" placeholder="What is on?">
+        <input class="field" id="vp-when" type="datetime-local">
+      </div>
+      <button class="primary" style="margin-top:6px;" data-act="publish-venue-program">Add it to the board 🏛️</button>
+      <div id="venue-program-output" style="margin-top:10px;"></div>
     </div>`;
   }
 
@@ -3363,9 +3521,14 @@ function wire(root) {
   });
 
   on("[data-act=flyer-gen]", () => {
-    const title = $("#fl-title").value.trim() || "Lisbon Sunset Outing";
-    const place = $("#fl-place").value.trim() || "Miradouro de Santa Catarina";
-    const time = $("#fl-time").value.trim() || "Friday @ 20:00";
+    /* Defaulted the title, the place and the time — so an empty form produced a flyer for
+       a sunset outing at a viewpoint in Lisbon that nobody had arranged, and the RSVP
+       button under it was `alert('RSVP confirmed! See you there!')`, which confirmed
+       nothing to nobody. */
+    const title = $("#fl-title").value.trim();
+    const place = $("#fl-place").value.trim();
+    const time = $("#fl-time").value.trim();
+    if (!title || !place || !time) { toast("A flyer needs what, where and when."); return; }
     const theme = $("#fl-theme").value || "sunset";
 
     const gradients = {
@@ -3382,7 +3545,7 @@ function wire(root) {
           <div style="font-size:11px; text-transform:uppercase; tracking:1.5px; opacity:0.9; font-weight:700;">Official Crew Meet Flyer</div>
           <div style="font-size:22px; font-weight:900; margin:6px 0;">${esc(title)}</div>
           <div style="font-size:14px; font-weight:600; margin-bottom:12px;">📍 ${esc(place)} · ⏰ ${esc(time)}</div>
-          <button class="pill good" style="background:#ffffff; color:#0f172a; font-weight:800; border:none; width:100%; padding:10px; border-radius:10px; cursor:pointer;" onclick="alert('RSVP confirmed! See you there!')">1-Tap Web RSVP ✓</button>
+          <div style="font-size:11px; opacity:0.85; margin-top:4px;">Screenshot it and send it. There is no RSVP on a flyer — put it on the board if you want people to be able to say they are coming.</div>
         </div>
       `;
       toast("Party Flyer generated! 🎨");
@@ -3618,11 +3781,32 @@ function wire(root) {
     toast("Propose Outing message copied to clipboard! 📲 Paste into WhatsApp.");
   }));
 
-  on("[data-act=smart-cal-travel-add]", (el) => act(async () => {
-    const city = el.dataset.city || "Lisbon";
-    await api("/v1/calendar/add-travel-activities", { city });
-    await refresh();
-  }, "Trip activities added to Smart Calendar! 📅"));
+  on("[data-act=smart-cal-travel-add]", () => act(async () => {
+    /* Sent the city "Lisbon" off a data attribute no matter where the reader was, beside
+       three venues written into the markup. It reads the box and shows what is actually
+       on the map for that city. */
+    const city = $("#sc-city") ? $("#sc-city").value.trim() : "";
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/city/places?city=" + encodeURIComponent(city));
+    const out = $("#smart-cal-output");
+    if (!out) return;
+    const places = res.places || [];
+    const breakdown = Object.entries(res.breakdown || {})
+      .map(([kind, n]) => `${esc(kind)} ${n}`).join(" · ");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${esc(res.city)} · ${res.total} place${res.total === 1 ? "" : "s"}</div>
+        ${breakdown ? `<div style="font-size:11px; color:var(--muted); margin-bottom:6px;">${breakdown}</div>` : ""}
+        ${places.slice(0, 12).map(p => `
+          <div style="font-size:13px; margin-bottom:4px; background:var(--surface-1); padding:6px 10px; border-radius:8px;">
+            <strong>${esc(p.name)}</strong>
+            <div style="font-size:11px; color:var(--muted);">${esc(p.category || "")}${p.street ? ` · ${esc(p.street)}` : ""}${p.opening_hours ? ` · ${esc(p.opening_hours)}` : ""}</div>
+          </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.attribution || "")}</div>
+      </div>`;
+    bindLater(out);
+  }));
 
   on("[data-act=kudos-send]", () => act(async () => {
     /* Posted `{recipient}` with no note, defaulting the name to "Alex" — so it 400'd on
@@ -3637,44 +3821,31 @@ function wire(root) {
     toast("Sent — they can read it.");
   }));
 
+  /* Both halves of this card were markup. The morning one listed Fabrica Coffee Roasters
+     and a bouldering session where "Alex & 2 others" were free; the evening one listed
+     "Miradouro Sunset Drinks (Elena & 3 crew members free)". Nobody's availability was
+     read, because nothing in this app can read it. Both run the ordinary matcher over
+     what people published, which is the only sense in which this app knows anybody is
+     free. */
   on("[data-act=find-tomorrow-am]", () => act(async () => {
-    const out = $("#tomorrow-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:6px;">☕ Tomorrow at 8:00 AM Matches:</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Fabrica Coffee Roasters</strong> — Specialty Coffee & Morning Intent</div>
-        <div style="font-size:13px; margin-bottom:4px;">🧗 <strong>Morning Bouldering Session</strong> (Monsanto Crag · Alex & 2 others free)</div>
-        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('⚡ Hey Alex! Down for 8:00 AM Bouldering & Coffee tomorrow?'); toast('Message copied to clipboard! 📲');">Text Friends on WhatsApp 📲</button>
-      </div>
-    `;
-  }, "Found 8:00 AM Matches! ☕"));
+    renderMatch(await api("/v1/synergy/instant-match",
+                          { interest: "morning", city: synergyCity() }),
+                "#tomorrow-output");
+  }));
 
   on("[data-act=find-tomorrow-pm]", () => act(async () => {
-    const out = $("#tomorrow-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🌅 Tomorrow at 20:00 (8:00 PM) Matches:</div>
-        <div style="font-size:13px; margin-bottom:4px;">🎟️ <strong>Sunset Bouldering & Pizza Meet</strong> (Lisbon Center · 14 attending)</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 <strong>Miradouro Sunset Drinks</strong> (Elena & 3 crew members free)</div>
-        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('🌅 Hey crew! Anyone down for 20:00 Sunset Drinks tomorrow?'); toast('Message copied to clipboard! 📲');">Text Crew on WhatsApp 📲</button>
-      </div>
-    `;
-  }, "Found 8:00 PM Matches! 🌅"));
+    renderMatch(await api("/v1/synergy/instant-match",
+                          { interest: "evening", city: synergyCity() }),
+                "#tomorrow-output");
+  }));
 
   on("[data-act=match-new-friends]", () => act(async () => {
-    const interest = $("#mf-interest").value.trim() || "bouldering";
-    const out = $("#match-friends-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth)40;">
-        <div style="font-size:14px; font-weight:700; color:var(--growth); margin-bottom:6px;">🤝 Matched 3 New Friends in Lisbon (${esc(interest)}):</div>
-        <div class="person" style="margin-bottom:6px;"><div class="who"><div class="name">Elena R.</div><div class="meta">Bouldering & Specialty Coffee · 94% Match</div></div><button class="pill good" onclick="toast('Friend request & crew invite sent to Elena! 🤝');">Connect 🤝</button></div>
-        <div class="person" style="margin-bottom:6px;"><div class="who"><div class="name">Marcus T.</div><div class="meta">Outdoor Climbing & Tech · 89% Match</div></div><button class="pill good" onclick="toast('Friend request & crew invite sent to Marcus! 🤝');">Connect 🤝</button></div>
-      </div>
-    `;
-  }, "Matched New Local Friends! 🤝"));
+    const interest = $("#mf-interest") ? $("#mf-interest").value.trim() : "";
+    if (!interest) { toast("Up for what?"); return; }
+    const city = $("#mf-city") ? $("#mf-city").value.trim() : "";
+    renderMatch(await api("/v1/synergy/instant-match", { interest, city }),
+                "#match-friends-output");
+  }));
 
   /* Crew polls and beacons.
 
@@ -3771,6 +3942,83 @@ function wire(root) {
     await api("/v1/crews/polls/vote", { poll_id: el.dataset.poll,
                                         option: Number(el.dataset.index) });
     await showPolls(el.dataset.crew, el.dataset.name);
+  }));
+
+  /* There was no way to become one: four cities and their member counts — Lisbon LIVE
+     with 1,420 active members — were written into the handler, on an instance installed a
+     minute earlier. An ambassador is a row somebody wrote about themselves; nobody is
+     nominated and nothing is vetted. */
+  function renderAmbassadors(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    if (res.needs_city) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(res.suggestion || "Which city?")}</div>`;
+      bindLater(out);
+      return;
+    }
+    const people = res.ambassadors || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${esc(res.city || "")} · ${res.count}</div>
+        ${people.map(a => `
+          <div style="font-size:13px; margin-bottom:4px; background:var(--surface-1); padding:6px 10px; border-radius:8px;">
+            <strong>@${esc(a.handle || "someone")}</strong>${a.note ? ` — ${esc(a.note)}` : ""}
+          </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.not_vetted || "")}</div>
+        <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:8px;" data-act="${res.you_are_one ? "ambassador-opt-out" : "ambassador-opt-in"}">${res.you_are_one ? "Stand down" : "I'll help new arrivals"}</button>
+      </div>`;
+    bindLater(out);
+  }
+
+  const ambassadorCity = () => ($("#am-city") ? $("#am-city").value.trim() : "");
+
+  on("[data-act=list-ambassadors]", () => act(async () => {
+    const city = ambassadorCity();
+    renderAmbassadors(await api("/v1/community/ambassadors"
+                                + (city ? "?city=" + encodeURIComponent(city) : "")),
+                      "#ambassadors-output");
+  }));
+
+  on("[data-act=ambassador-opt-in]", () => act(async () => {
+    const city = ambassadorCity();
+    await api("/v1/community/ambassadors", city ? { city } : {});
+    renderAmbassadors(await api("/v1/community/ambassadors"
+                                + (city ? "?city=" + encodeURIComponent(city) : "")),
+                      "#ambassadors-output");
+  }, "You are on the list. Nobody has vetted anything."));
+
+  on("[data-act=ambassador-opt-out]", () => act(async () => {
+    const city = ambassadorCity();
+    await api("/v1/community/ambassadors", city ? { city, opt_out: true } : { opt_out: true });
+    renderAmbassadors(await api("/v1/community/ambassadors"
+                                + (city ? "?city=" + encodeURIComponent(city) : "")),
+                      "#ambassadors-output");
+  }, "Taken back."));
+
+  on("[data-act=publish-venue-program]", () => act(async () => {
+    const city = $("#vp-city") ? $("#vp-city").value.trim() : "";
+    const venue = $("#vp-venue") ? $("#vp-venue").value.trim() : "";
+    const title = $("#vp-title") ? $("#vp-title").value.trim() : "";
+    const startsAt = $("#vp-when") ? $("#vp-when").value : "";
+    if (!venue) { toast("Which venue?"); return; }
+    if (!title) { toast("What is on?"); return; }
+    if (!startsAt) { toast("When does it start?"); return; }
+    const res = await api("/v1/venues/program",
+                          { city, venue, title, starts_at: startsAt });
+    // The board itself has to be reloaded, and `refresh()` re-renders the whole view —
+    // which replaces the panel node. Writing before it meant the confirmation was thrown
+    // away and the button read as a no-op. Refresh first, then write into the new node.
+    await refresh();
+    const out = $("#venue-program-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:4px;">${esc(res.venue)} · ${esc(res.title)}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(whenLabel(res.starts_at))}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.not_official || "")}</div>
+      </div>`;
+    bindLater(out);
   }));
 
   on("[data-act=post-venue-review]", () => act(async () => {
@@ -3946,8 +4194,96 @@ function wire(root) {
         ${p.note ? `<div style="font-size:12px; color:var(--muted);">${esc(p.note)}</div>` : ""}
         ${shared ? `<div style="font-size:11px; color:var(--muted);">matched on: ${esc(shared)}</div>` : ""}
         ${p.open_until ? `<div style="font-size:11px; color:var(--muted);">open until ${esc(whenLabel(p.open_until))}</div>` : ""}
+        ${p.handle && p.handle !== "someone" ? `<button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="open-connect-card" data-handle="${esc(p.handle)}">See their card</button>` : ""}
       </div>`;
   }
+
+  /* The Connect button on the old matcher card called `toast('Friend request & crew invite
+     sent to Elena!')` and nothing else. This is the action that exists: the public card
+     the person published about themselves, which is also what a scanned shirt code opens.
+     Nothing is sent to anybody by looking at it. */
+  function renderConnectCard(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    const common = res.in_common_handles || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.name || res.handle)}</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">@${esc(res.handle)}${res.yourself ? " · that is you" : ""}</div>
+        ${res.tagline ? `<div style="font-size:13px; margin-bottom:6px;">${esc(res.tagline)}</div>` : ""}
+        ${(res.interests || []).length ? `<div style="font-size:12px; margin-bottom:4px;">Into: ${(res.interests || []).map(esc).join(", ")}</div>` : ""}
+        ${res.in_common ? `<div style="font-size:12px; color:var(--growth); margin-bottom:4px;">${res.in_common} thing${res.in_common === 1 ? "" : "s"} in common${common.length ? `: ${common.map(esc).join(", ")}` : ""}</div>` : ""}
+        ${res.why ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.why)}</div>` : ""}
+        ${res.suggestion ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.suggestion)}</div>` : ""}
+        ${res.no_score ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">There is no score here and nothing has been verified.</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  on("[data-act=open-connect-card]", (el) => act(async () => {
+    const handle = el.dataset.handle || "";
+    if (!handle) { toast("Whose card?"); return; }
+    const panel = el.closest("[id]");
+    const target = panel && panel.id ? "#" + panel.id : "#match-friends-output";
+    try {
+      renderConnectCard(await api("/v1/connect/profile/" + encodeURIComponent(handle)), target);
+    } catch (e) {
+      // 404 is the honest answer for a handle with no account, and it must not be
+      // rendered as an empty card that looks like a person with nothing filled in.
+      toast(e.status === 404 ? "Nobody here has that handle." : "⚠ " + e.message);
+    }
+  }));
+
+  /* What is live in a city: the replacement for three beacons at bearings. Two kinds of
+     row — what somebody is up for, and what somebody posted — and an empty city is the
+     usual answer on a young instance. */
+  function renderAround(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    if (res.needs_city) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(res.suggestion || "Which city?")}</div>`;
+      bindLater(out);
+      return;
+    }
+    const live = res.live || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${esc(res.city)} · ${res.count} live</div>
+        ${live.map(item => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(item.what || "")}</strong></div>
+            <div style="font-size:11px; color:var(--muted);">${esc(item.kind)} · @${esc(item.handle)}${item.mine ? " · yours" : ""}</div>
+            ${item.note ? `<div style="font-size:12px; color:var(--muted);">${esc(item.note)}</div>` : ""}
+          </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_position || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
+
+  on("[data-act=load-around]", () => act(async () => {
+    const city = $("#around-city") ? $("#around-city").value.trim() : "";
+    renderAround(await api("/v1/ar/spatial-flares"
+                           + (city ? "?city=" + encodeURIComponent(city) : "")),
+                 "#around-output");
+  }));
+
+  on("[data-act=load-standing]", () => act(async () => {
+    /* The leaderboard route was removed on its merits, so there is no rank to show. This
+       is your own side of it: what you turned up to, counted from your rows. */
+    const res = await api("/v1/trust/karma-score");
+    const out = $("#standing-output");
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${esc(res.summary || "")}</div>
+        <div style="font-size:12px; color:var(--muted);">Outings attended: ${res.outings_attended}</div>
+        <div style="font-size:12px; color:var(--muted);">Days since your first activity: ${res.days_since_first_activity}</div>
+        <div style="font-size:12px; color:var(--muted);">Current streak: ${res.streak} day${res.streak === 1 ? "" : "s"}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">Nobody is ranked against anybody, and none of this is shown to anyone else.</div>
+      </div>`;
+    bindLater(out);
+  }));
 
   function matchMeetup(m) {
     return `
@@ -4061,17 +4397,22 @@ function wire(root) {
              "#karma-concierge-output", "Next day and a half");
   }));
   on("[data-act=trigger-sos]", () => act(async () => {
-    const res = await api("/v1/safety/emergency-sos", { location: "Miradouro Rooftop, Lisbon" });
+    /* Sent a rooftop bar in Lisbon as the caller's location, whoever and wherever they
+       were — the one field on the one screen where being wrong matters most. */
+    const place = $("#sos-place") ? $("#sos-place").value.trim() : "";
+    if (!place) { toast("Where are you? A watch needs somewhere to name."); return; }
+    const res = await api("/v1/safety/emergency-sos", { location: place });
     const out = $("#karma-concierge-output");
     if (!out) return;
     out.innerHTML = `
       <div style="background:rgba(239,68,68,0.2); padding:12px; border-radius:12px; border:1px solid #ef4444;">
-        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">⚡ EMERGENCY SOS BROADCAST ACTIVE</div>
-        <div style="font-size:13px; margin-bottom:4px;">Location Broadcasted to 4 Trusted Crew Members!</div>
-        <div style="font-size:11px; color:var(--muted);">Emergency PIN: ${esc(res.emergency_pin)} · ${esc(res.location)}</div>
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">Watch recorded — ${esc(res.destination)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${res.can_see_it} watcher${res.can_see_it === 1 ? "" : "s"} can see it${res.eta_minutes ? ` · due in ${res.eta_minutes} minutes` : ""}</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${esc(res.delivery_note || "")}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.disclaimer || "")}</div>
       </div>
     `;
-  }, "Emergency SOS Location Broadcast Active! ⚡"));
+  }));
 
   on("[data-act=match-mentor]", () => act(async () => {
     const seeking = $("#mt-seek") ? $("#mt-seek").value.trim() : "";
@@ -4118,19 +4459,27 @@ function wire(root) {
     renderTab(await api("/v1/ledger/tab"), "#ledger-quest-output");
   }));
 
+  /* Minted a quest id and three invented landmarks with point values for the city
+     "Lisbon" whoever pressed it, and the button promised "+50 Karma" and a badge. Nobody
+     is scoring anything: it is places that are on the map and plans people have proposed,
+     for a city you name. */
   on("[data-act=gen-city-quest]", () => act(async () => {
-    const res = await api("/v1/quests/city-discovery", { city: "Lisbon" });
+    const city = $("#cq-city") ? $("#cq-city").value.trim() : "";
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/quests/city-discovery", { city });
     const out = $("#ledger-quest-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🗺️ City Discovery Micro-Quest (${esc(res.quest_id)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Quest: <strong>${esc(res.title)}</strong></div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${esc(res.description)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: +${res.reward_karma} Karma Points · ${esc(res.reward_badge)}</div>
-      </div>
-    `;
-  }, "City Discovery Quest Generated! 🗺️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(res.city)}</div>
+        ${(res.places || []).slice(0, 8).map(p => `<div style="font-size:13px; margin-bottom:2px;">${esc(p.name)}<span style="color:var(--muted);">${p.category ? ` · ${esc(p.category)}` : ""}</span></div>`).join("")}
+        ${(res.happening || []).map(q => `<div style="font-size:13px; margin-bottom:2px;">📅 ${esc(q.what || q.title || "")}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_score || "")}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.attribution || "")}</div>
+      </div>`;
+    bindLater(out);
+  }));
 
   /* Claimed to *apply* a real_world_weight of 0.85 and a proximity_bias of 0.90, stored
      neither, and reported "Doomscroll Protection Active" — describing a ranking this app
@@ -4175,6 +4524,45 @@ function wire(root) {
      panels used to render `subscribed`, an MRR and a capture id from constants in the
      handler — a user reading them believed they had a recurring charge, or that their
      money had moved. */
+  /* Six endpoints answer 503 with `{available, capability, why, needs[]}` because they
+     would need hardware nothing here can reach — a wearable, a sensor, a mesh peer, an
+     edge fleet, a signed native build. Two more answer the same shape with 200 because
+     they are describes rather than actions. Both arrive here, so the screen says the same
+     thing either way: what it would take, and that nothing was attempted. */
+  function renderUnavailable(source, sel, title) {
+    const out = $(sel);
+    if (!out) return;
+    const body = (source && source.detail && typeof source.detail === "object")
+      ? source.detail
+      : source;
+    if (!body || typeof body !== "object") {
+      toast("⚠ " + (source && source.message ? source.message : "not available"));
+      return;
+    }
+    const needs = (body.needs || []).map(esc).join(", ");
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(title || "Not available here")}</div>
+        ${body.capability ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${esc(body.capability)}</div>` : ""}
+        <div style="font-size:13px; margin-bottom:4px;">${esc(body.why || body.reason || "")}</div>
+        ${needs ? `<div style="font-size:12px; color:var(--muted);">Would need: ${needs}</div>` : ""}
+        ${(body.where || []).map(w => `<div style="font-size:12px; color:var(--muted); margin-top:4px;">${esc(typeof w === "string" ? w : w.path)}${(w && w.present === false) ? " — not in this checkout" : ""}</div>`).join("")}
+        ${body.suggestion ? `<div style="font-size:12px; color:var(--spark); margin-top:6px;">${esc(body.suggestion)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  /* Wrap a button whose route refuses with 503. Without this every one of them threw past
+     the renderer and left the panel holding the previous card's output. */
+  const unbuildable = (fn, sel, title) => () => act(async () => {
+    try {
+      const res = await fn();
+      renderUnavailable(res, sel, title);
+    } catch (e) {
+      renderUnavailable(e, sel, title);
+    }
+  });
+
   function renderNoProcessor(err, sel, title) {
     const out = $(sel);
     if (!out) return;
@@ -4320,45 +4708,45 @@ function wire(root) {
     `;
   }, "Magic QR Check-In Complete! ⚡"));
 
+  /* Minted a pass for whatever string was in `event_name` — so a pass existed for an
+     event that did not — with the serial `VIP-KARMA-98` on every pass on every
+     deployment. It needs the id of a meetup that exists, and 404s when there is none. */
   on("[data-act=export-wallet-pass]", () => act(async () => {
-    const res = await api("/v1/events/apple-wallet-pass", { event_name: "Miradouro Sunset Rooftop Meet" });
+    const box = $("#wp-meetup");
+    const meetupId = box ? box.value : "";
+    if (!meetupId) { toast("Which meetup? Join or organise one first."); return; }
     const out = $("#convenience-output");
     if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📲 Apple & Google Wallet Pass Generated:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Event: <strong>${esc(res.event_name)}</strong> · Code: <strong>${esc(res.pass_code)}</strong></div>
-        <div style="font-size:11px; color:var(--spark);">Download Link: ${esc(res.pkpass_url)}</div>
-      </div>
-    `;
-  }, "Wallet Pass Exported! 📲"));
+    try {
+      const res = await api("/v1/events/apple-wallet-pass", { meetup_id: meetupId });
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.event_name)}</div>
+          <div style="font-size:13px; margin-bottom:4px;">${esc(res.place || "")}${res.starts_at ? ` · ${esc(whenLabel(res.starts_at))}` : ""}</div>
+          <a class="btn" id="pkpass-link" download="lifeos-pass.pkpass">Save the pass</a>
+          <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.not_signed || "")}</div>
+        </div>`;
+      // A data: URI the gateway built. safeUrl() only passes http/https, so this one is
+      // set through the DOM rather than interpolated into the markup.
+      const link = $("#pkpass-link");
+      if (link && res.pkpass_url) link.href = res.pkpass_url;
+      bindLater(out);
+    } catch (e) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(e.status === 404 ? "There is no meetup or event here with that id." : e.message)}</div>`;
+    }
+  }));
 
   on("[data-act=join-solo-camp-village]", () => act(async () => {
-    const res = await api("/v1/festivals/solo-camp-crew", { festival_name: "Boom Festival 🎪" });
-    const out = $("#solo-fest-output");
-    if (!out) return;
-    const amenities = res.amenities || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f43f5e;">
-        <div style="font-size:14px; font-weight:700; color:#f43f5e; margin-bottom:4px;">⛺ Joined ${esc(res.camp_village)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Festival: <strong>${esc(res.festival_name)}</strong> · ${res.crew_size} Solo Legends · Lead: ${esc(res.village_lead)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Village Perks: ${amenities.join(" · ")}</div>
-      </div>
-    `;
-  }, "Joined Solo Festival Camp Village #4! ⛺"));
+    renderMatch(await api("/v1/festivals/solo-camp-crew",
+                          { festival_name: synergyActivity("camping"), city: synergyCity() }),
+                "#solo-fest-output");
+  }));
 
   on("[data-act=drop-stage-flare]", () => act(async () => {
-    const res = await api("/v1/festivals/stage-flare", { stage_name: "Main Stage (Left Speaker Stack)", set_name: "Bicep Live Set 🎵" });
-    const out = $("#solo-fest-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🚩 Festival Stage Flare Dropped (${res.active_crew_notified} Crew Notified)!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Set: <strong>${esc(res.set_name)}</strong> @ <strong>${esc(res.stage_name)}</strong></div>
-        <div style="font-size:11px; color:var(--spark);">Live Map Pin: ${esc(res.live_pin)}</div>
-      </div>
-    `;
-  }, "Festival Stage Flare Dropped! 🚩"));
+    renderMatch(await api("/v1/festivals/stage-flare",
+                          { stage_name: synergyActivity("a festival"), city: synergyCity() }),
+                "#solo-fest-output");
+  }));
 
   on("[data-act=match-layover-buddy]", () => act(async () => {
     const airport_code = $("#lo-airport") ? $("#lo-airport").value.trim() : "";
@@ -4382,44 +4770,22 @@ function wire(root) {
   }));
 
   on("[data-act=match-coliving]", () => act(async () => {
-    const res = await api("/v1/housing/co-living-match", { city: "Lisbon", budget: "€900/mo" });
-    const out = $("#human-needs-output");
-    if (!out) return;
-    const amenities = res.amenities || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🏡 Co-Living Villa Matched (${res.compatibility_score}% Vibe Match):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Villa: <strong>${esc(res.villa_name)}</strong> · ${res.housemates_count} Housemates</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Amenities: ${amenities.join(" · ")}</div>
-      </div>
-    `;
-  }, "Co-Living Housemate Matched! 🏡"));
+    renderMatch(await api("/v1/housing/co-living-match",
+                          { city: synergyActivity("co-living"), city: synergyCity() }),
+                "#human-needs-output");
+  }));
 
   on("[data-act=rsvp-supper-club]", () => act(async () => {
-    const res = await api("/v1/dining/supper-club", { cuisine: "Mediterranean Tapas & Natural Wine" });
-    const out = $("#human-needs-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍲 Supper Club RSVP Confirmed (${esc(res.price_per_person)} Split):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Host: <strong>${esc(res.host_name)}</strong> · ${res.guests_count} Guests @ ${esc(res.location)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Menu: ${esc(res.cuisine)}</div>
-      </div>
-    `;
-  }, "Supper Club RSVP Confirmed! 🍲"));
+    renderMatch(await api("/v1/dining/supper-club",
+                          { cuisine: synergyActivity("supper club"), city: synergyCity() }),
+                "#human-needs-output");
+  }));
 
   on("[data-act=reserve-digital-detox]", () => act(async () => {
-    const res = await api("/v1/wellness/digital-detox", { duration: "2-Hour Phone-Free Deep Reading" });
-    const out = $("#human-needs-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🧘 Digital Detox Lounge Reserved:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · ${res.attendees_count} Attendees</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Lockbox PIN: ${esc(res.phone_lockbox_code)} (${esc(res.duration)})</div>
-      </div>
-    `;
-  }, "Digital Detox Lounge Reserved! 🧘"));
+    renderMatch(await api("/v1/wellness/digital-detox",
+                          { duration: synergyActivity("phone-free hours"), city: synergyCity() }),
+                "#human-needs-output");
+  }));
 
   on("[data-act=trade-barter-swap]", () => act(async () => {
     const res = await api("/v1/economy/barter-swap", { offering: "1-Hour Surf Lesson", seeking: "Portuguese Conversation Practice" });
@@ -4435,17 +4801,10 @@ function wire(root) {
   }, "Barter Swap Agreed! 🔄"));
 
   on("[data-act=borrow-gear-library]", () => act(async () => {
-    const res = await api("/v1/economy/community-borrow", { item: "2-Person Camping Tent & Sleeping Bags" });
-    const out = $("#circular-economy-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">♻️ Community Borrow Approved (${esc(res.fee)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Item: <strong>${esc(res.item_name)}</strong> · Owner: ${esc(res.owner_name)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Pickup: ${esc(res.pickup_location)} · Return by ${esc(res.return_by)}</div>
-      </div>
-    `;
-  }, "Community Borrow Approved! ♻️"));
+    renderMatch(await api("/v1/economy/community-borrow",
+                          { item: synergyActivity("borrowing gear"), city: synergyCity() }),
+                "#circular-economy-output");
+  }));
 
   on("[data-act=earn-time-token]", () => act(async () => {
     const res = await api("/v1/economy/time-bank", { service: "Helped neighbor fix bicycle chain", hours: 1 });
@@ -4460,84 +4819,98 @@ function wire(root) {
     `;
   }, "Time Token Earned! 🌱"));
 
+  /* Reported four waypoints, six members "synced on route" and a next turn — "Turn left
+     at Miradouro de Santa Luzia in 80m" — for a route name taken from the request body, by
+     an app that has never held a coordinate. */
   on("[data-act=start-group-nav]", () => act(async () => {
-    const res = await api("/v1/routing/group-nav", { route_name: "Alfama Sunset Viewpoints Walk" });
+    const box = $("#gn-meetup");
+    const meetupId = box ? box.value : "";
+    if (!meetupId) { toast("Which meetup? Join or organise one first."); return; }
+    const res = await api("/v1/routing/group-nav", { meetup_id: meetupId });
     const out = $("#collab-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🗺️ Group Navigation Active (${res.group_members_on_route} Members Synced):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Route: <strong>${esc(res.route_name)}</strong> · ${res.waypoints_count} Waypoints</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Next Turn: ${esc(res.next_turn)}</div>
-      </div>
-    `;
-  }, "Group Turn-by-Turn Navigation Started! 🗺️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.title || "")}${res.cancelled ? " · cancelled" : ""}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${esc(res.place || "")}${res.starts_at ? ` · ${esc(whenLabel(res.starts_at))}` : ""}</div>
+        <div style="font-size:12px; color:var(--muted);">${res.going_count} going${res.you_checked_in ? " · you have checked in" : ""}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_routing || "")}</div>
+        ${res.no_tracking ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.no_tracking)}</div>` : ""}
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.safety_note)}</div>` : ""}
+        ${res.suggestion ? `<div style="font-size:11px; color:var(--spark); margin-top:4px;">${esc(res.suggestion)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }));
 
   on("[data-act=sync-squad-jukebox]", () => act(async () => {
-    const res = await api("/v1/music/squad-jukebox", { venue: "Fabrica Coffee Baixa" });
-    const out = $("#collab-output");
+    renderMatch(await api("/v1/music/squad-jukebox",
+                          { venue: synergyActivity("music"), city: synergyCity() }),
+                "#collab-output");
+  }));
+
+  /* Answered "FUNDED_AND_APPROVED" with a €1,450 pool and 48 votes for any project
+     string, with no fund, no vote and no accounts. Somebody could have read that as their
+     project being funded and gone and bought the timber. Nobody's money moves. */
+  function renderGrants(res, targetId) {
+    const out = $(targetId);
     if (!out) return;
+    const proposals = res.proposals || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎶 Squad Jukebox Synced (${esc(res.venue)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Now Playing: <strong>${esc(res.now_playing)}</strong></div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Playlist: ${esc(res.blended_playlist)} (${res.tracks_queued} tracks queued)</div>
-      </div>
-    `;
-  }, "Squad Jukebox Synced! 🎶"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        ${res.proposed ? `<div style="font-size:14px; font-weight:700; margin-bottom:4px;">Recorded: ${esc(res.project)}</div>
+          <div style="font-size:13px; margin-bottom:4px;">${esc(res.amount || "")} ${esc(res.currency || "")} · asked by @${esc(res.proposed_by_handle || "you")}</div>`
+          : `<div style="font-size:14px; font-weight:700; margin-bottom:6px;">Asked for in ${esc(res.city || "")}</div>`}
+        ${proposals.map(p => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(p.project)}</strong></div>
+            <div style="font-size:11px; color:var(--muted);">@${esc(p.proposed_by_handle || "someone")}${p.amount ? ` · ${esc(p.amount)} ${esc(p.currency || "")}` : ""}</div>
+          </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.not_approved || "")}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.no_money || res.no_pool || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
 
   on("[data-act=vote-micro-grant]", () => act(async () => {
-    const res = await api("/v1/community/micro-grants", { project: "Neighborhood Surfboard Rescue Stand @ Carcavelos" });
-    const out = $("#collab-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏆 Community Grant Vote Cast (${esc(res.grant_status)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Project: <strong>${esc(res.project_name)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Fund Pool: ${esc(res.community_fund_pool)} · ${res.votes_count} Votes</div>
-      </div>
-    `;
-  }, "Community Grant Vote Cast! 🏆"));
+    const project = $("#mg-project") ? $("#mg-project").value.trim() : "";
+    const city = $("#mg-city") ? $("#mg-city").value.trim() : "";
+    const amount = $("#mg-amount") ? $("#mg-amount").value.trim() : "";
+    const body = city ? { city } : {};
+    if (project) {
+      // Both are required on the way in: the prop defaulted the project *and* the
+      // amount, so an empty body recorded a funded proposal for a surfboard stand.
+      if (!amount) { toast("How much is the ask for?"); return; }
+      body.project = project;
+      body.amount = Number(amount);
+    }
+    renderGrants(await api("/v1/community/micro-grants", body), "#collab-output");
+  }));
 
   on("[data-act=join-popup-jam]", () => act(async () => {
-    const res = await api("/v1/creatives/pop-up-jam", { instrument: "Acoustic Guitar", location: "Miradouro de Santa Catarina" });
-    const out = $("#culture-impact-output");
-    if (!out) return;
-    const members = res.jam_members || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">⚡ Sunset Pop-Up Jam Matched (${esc(res.session_time)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Spot: <strong>${esc(res.location)}</strong> · Playing: ${esc(res.instrument)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Musicians: ${members.join(" · ")}</div>
-      </div>
-    `;
-  }, "Sunset Pop-Up Jam Matched! ⚡"));
+    renderMatch(await api("/v1/creatives/pop-up-jam",
+                          { instrument: synergyActivity("jam"), city: synergyCity() }),
+                "#culture-impact-output");
+  }));
 
+  /* Reported a film roll synced, two named stocks, "12 vintage scans unlocked" and an
+     album URL on a host this deployment does not serve — for an outing id that defaulted
+     to OUTING-8821. Nothing was scanned and there is no image store in this app. A swap is
+     complementary, so it needs both halves: what you have and what you are after. */
   on("[data-act=swap-film-roll]", () => act(async () => {
-    const res = await api("/v1/memories/analog-film-swap", { outing_id: "OUTING-8821" });
-    const out = $("#culture-impact-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">📸 Analog 35mm Film Roll Synced (${res.photos_scanned} Scans):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Film: <strong>${esc(res.film_stock)}</strong> · Outing: ${esc(res.outing_id)}</div>
-        <div style="font-size:11px; color:var(--spark);">Album Link: ${esc(res.shared_album_url)}</div>
-      </div>
-    `;
-  }, "Analog 35mm Film Roll Synced! 📸"));
+    const have = $("#fs-have") ? $("#fs-have").value.trim() : "";
+    const want = $("#fs-want") ? $("#fs-want").value.trim() : "";
+    if (!have || !want) { toast("Which stock do you have, and which are you after?"); return; }
+    renderMatch(await api("/v1/memories/analog-film-swap",
+                          { offering: have, seeking: want, city: synergyCity() }),
+                "#culture-impact-output");
+  }));
 
   on("[data-act=join-eco-clean]", () => act(async () => {
-    const res = await api("/v1/impact/eco-clean-crew", { beach: "Carcavelos Surf Beach" });
-    const out = $("#culture-impact-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌊 Eco-Clean Squad Confirmed (${res.crew_size} Legends):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · ${esc(res.duration)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Reward: ${esc(res.karma_awarded)} & ${esc(res.reward_coffee_voucher)}</div>
-      </div>
-    `;
-  }, "Eco-Clean Squad Confirmed! 🌊"));
+    renderMatch(await api("/v1/impact/eco-clean-crew",
+                          { beach: synergyActivity("beach clean"), city: synergyCity() }),
+                "#culture-impact-output");
+  }));
 
   on("[data-act=trigger-global-bridge]", () => act(async () => {
     const res = await api("/v1/culture/global-bridge", { city_a: "Lisbon", city_b: "Tokyo" });
@@ -4567,17 +4940,10 @@ function wire(root) {
   }, "Squad Emergency Beacon Triggered! ⚡"));
 
   on("[data-act=award-creator-grant]", () => act(async () => {
-    const res = await api("/v1/culture/creator-residency", { creator_name: "Lucas V. (Acoustic Ambient Composer)" });
-    const out = $("#global-safety-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">💎 Creator Residency Awarded (${esc(res.duration)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Artist: <strong>${esc(res.creator_name)}</strong> · ${esc(res.residency_villa)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Stipend: ${esc(res.stipend)} · ${res.community_votes} Community Votes</div>
-      </div>
-    `;
-  }, "Creator Residency Awarded! 💎"));
+    renderMatch(await api("/v1/culture/creator-residency",
+                          { creator_name: synergyActivity("creative residency"), city: synergyCity() }),
+                "#global-safety-output");
+  }));
 
   on("[data-act=gen-ai-blueprint]", () => act(async () => {
     renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#ai-butler-output", "What's on");
@@ -4617,166 +4983,77 @@ function wire(root) {
   }, "Nomad House Swap Confirmed! 🌍"));
 
   on("[data-act=join-secret-comedy]", () => act(async () => {
-    const res = await api("/v1/culture/secret-comedy", { venue: "Alfama Cellar Speakeasy" });
-    const out = $("#adventure-output");
-    if (!out) return;
-    const lineup = res.lineup || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎭 Secret Comedy Speakeasy Confirmed (${esc(res.show_time)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> (${esc(res.capacity)})</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Passcode: ${esc(res.secret_passcode)} · Lineup: ${lineup.join(", ")}</div>
-      </div>
-    `;
-  }, "Secret Comedy Speakeasy Confirmed! 🎭"));
+    renderMatch(await api("/v1/culture/secret-comedy",
+                          { venue: synergyActivity("comedy"), city: synergyCity() }),
+                "#adventure-output");
+  }));
 
   on("[data-act=join-market-cookoff]", () => act(async () => {
-    const res = await api("/v1/dining/market-cookoff", { market: "Mercado da Ribeira Organic Market" });
-    const out = $("#adventure-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍳 Farmers Market Cook-Off Confirmed (${res.crew_size} Food Lovers):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Meeting: <strong>${esc(res.meeting_time)}</strong> · Menu: ${esc(res.menu_vibe)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Split Cost: ${esc(res.split_cost)} (Fresh Organic Produce)</div>
-      </div>
-    `;
-  }, "Farmers Market Cook-Off Confirmed! 🍳"));
+    renderMatch(await api("/v1/dining/market-cookoff",
+                          { market: synergyActivity("cooking"), city: synergyCity() }),
+                "#adventure-output");
+  }));
 
   on("[data-act=join-sunset-sailing]", () => act(async () => {
-    const res = await api("/v1/outdoors/sunset-sailing", { harbor: "Belém Marina (Lisbon)" });
-    const out = $("#adventure-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⛵ Sunset Catamaran Co-Share Confirmed (${res.passengers} Passengers):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Vessel: <strong>${esc(res.vessel)}</strong> · Departure: ${esc(res.departure)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Skipper Split: ${esc(res.skipper_split)} from ${esc(res.harbor)}</div>
-      </div>
-    `;
-  }, "Sunset Catamaran Co-Share Confirmed! ⛵"));
+    renderMatch(await api("/v1/outdoors/sunset-sailing",
+                          { harbor: synergyActivity("sailing"), city: synergyCity() }),
+                "#adventure-output");
+  }));
 
   on("[data-act=join-silent-reading]", () => act(async () => {
-    const res = await api("/v1/culture/silent-reading", { loft: "Alfama Loft Vinyl & Book Lounge" });
-    const out = $("#flow-culture-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #8b5cf6;">
-        <div style="font-size:14px; font-weight:700; color:#8b5cf6; margin-bottom:4px;">📚 Silent Reading Lounge Confirmed (${esc(res.session_time)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Loft: <strong>${esc(res.loft)}</strong> · Playing: ${esc(res.vinyl_record_playing)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Includes: ${esc(res.complimentary_tea)} · ${res.attendees_count} Readers</div>
-      </div>
-    `;
-  }, "Silent Reading Lounge Confirmed! 📚"));
+    renderMatch(await api("/v1/culture/silent-reading",
+                          { loft: synergyActivity("silent reading"), city: synergyCity() }),
+                "#flow-culture-output");
+  }));
 
   on("[data-act=join-cold-plunge]", () => act(async () => {
-    const res = await api("/v1/wellness/cold-plunge", { beach: "Cais do Ginjal / Carcavelos" });
-    const out = $("#flow-culture-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">☕ Sunrise Cold Plunge Squad Confirmed (${res.crew_size} Legends):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Meeting: <strong>${esc(res.meeting_time)}</strong> · Water: ${esc(res.water_temp)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Reward: ${esc(res.post_plunge_reward)}</div>
-      </div>
-    `;
-  }, "Sunrise Cold Plunge Squad Confirmed! ☕"));
+    renderMatch(await api("/v1/wellness/cold-plunge",
+                          { beach: synergyActivity("cold plunge"), city: synergyCity() }),
+                "#flow-culture-output");
+  }));
 
   on("[data-act=join-art-crawl]", () => act(async () => {
-    const res = await api("/v1/creatives/art-crawl", { district: "Santos Art & Design District" });
-    const out = $("#flow-culture-output");
-    if (!out) return;
-    const artists = res.featured_artists || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎨 Art Gallery Crawl Confirmed (${res.stops_count} Curated Studios):</div>
-        <div style="font-size:13px; margin-bottom:4px;">District: <strong>${esc(res.district)}</strong> (${esc(res.tour_time)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Artists: ${artists.join(", ")} · ${esc(res.wine_pairing)}</div>
-      </div>
-    `;
-  }, "Art Gallery Crawl Confirmed! 🎨"));
+    renderMatch(await api("/v1/creatives/art-crawl",
+                          { district: synergyActivity("art crawl"), city: synergyCity() }),
+                "#flow-culture-output");
+  }));
 
   on("[data-act=join-sauna-social]", () => act(async () => {
-    const res = await api("/v1/wellness/sauna-social", { venue: "Alfama Nordic Sauna & Bathhouse" });
-    const out = $("#sauna-plant-wine-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f0a94a;">
-        <div style="font-size:14px; font-weight:700; color:#f0a94a; margin-bottom:4px;">🧖 Nordic Sauna Social Confirmed (${esc(res.session_time)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · ${esc(res.temperature_profile)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Guide: ${esc(res.breathwork_guide)} · ${res.participants_count} Members</div>
-      </div>
-    `;
-  }, "Nordic Sauna Social Confirmed! 🧖"));
+    renderMatch(await api("/v1/wellness/sauna-social",
+                          { venue: synergyActivity("sauna"), city: synergyCity() }),
+                "#sauna-plant-wine-output");
+  }));
 
   on("[data-act=join-plant-swap]", () => act(async () => {
-    const res = await api("/v1/economy/plant-swap", { park: "Jardim da Estrela Community Greenhouse" });
-    const out = $("#sauna-plant-wine-output");
-    if (!out) return;
-    const items = res.items_to_trade || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🪴 Neighborhood Plant Swap Joined (${res.attendees_count} Gardeners):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · ${esc(res.meeting_time)}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Trading: ${items.join(", ")} (${esc(res.cost)})</div>
-      </div>
-    `;
-  }, "Plant & Seed Swap Joined! 🪴"));
+    renderMatch(await api("/v1/economy/plant-swap",
+                          { park: synergyActivity("plant swap"), city: synergyCity() }),
+                "#sauna-plant-wine-output");
+  }));
 
   on("[data-act=join-wine-tasting]", () => act(async () => {
-    const res = await api("/v1/dining/wine-tasting", { rooftop: "Miradouro Rooftop Terrace" });
-    const out = $("#sauna-plant-wine-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🍷 Natural Wine Tasting Confirmed (${esc(res.session_time)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Rooftop: <strong>${esc(res.rooftop)}</strong> · Selection: ${esc(res.wine_selection)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Pairing: ${esc(res.pairing)} · ${esc(res.split_cost)}</div>
-      </div>
-    `;
-  }, "Natural Wine Tasting Confirmed! 🍷"));
+    renderMatch(await api("/v1/dining/wine-tasting",
+                          { rooftop: synergyActivity("wine tasting"), city: synergyCity() }),
+                "#sauna-plant-wine-output");
+  }));
 
-  on("[data-act=build-native-manifest]", () => act(async () => {
-    const res = await api("/v1/native/app-store-manifest", { platform: "ios_and_android" });
-    const out = $("#frontier-stack-output");
-    if (!out) return;
-    const caps = res.native_capabilities || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📱 Native App Store Manifest (${esc(res.version)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">iOS: <strong>${esc(res.ios_bundle_id)}</strong> · Android: ${esc(res.android_package)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Capabilities: ${caps.join(", ")}</div>
-      </div>
-    `;
-  }, "Native App Store Manifest Generated! 📱"));
+  /* Reported a bundle id, an Android package and a capability list for a signed native
+     build that has never been produced here. It refuses now, and names the files somebody
+     would have to write. */
+  on("[data-act=build-native-manifest]", unbuildable(
+    () => api("/v1/native/app-store-manifest", {}),
+    "#frontier-stack-output", "No native build here"));
 
-  on("[data-act=sync-wearable-telemetry]", () => act(async () => {
-    const res = await api("/v1/wearables/sync-telemetry", { device: "Apple Watch Ultra & Whoop 4.0", hrv_ms: 78, recovery_score: 92 });
-    const out = $("#frontier-stack-output");
-    if (!out) return;
-    const b = res.biometrics || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⌚ Wearable Telemetry Synced (${esc(res.device)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">HRV: <strong>${b.hrv_ms}ms</strong> · Recovery: <strong>${b.recovery_score_pct}%</strong> · Strain: ${b.daily_strain}</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Status: ${esc(res.social_readiness)} (${esc(res.battery_boost)})</div>
-      </div>
-    `;
-  }, "Wearable Telemetry Synced! ⌚"));
+  /* Sent an HRV of 78 and a recovery score of 92 in the request and rendered them back
+     as though a watch had been read. Nothing in a browser can read a heart rate. */
+  on("[data-act=sync-wearable-telemetry]", unbuildable(
+    () => api("/v1/wearables/sync-telemetry", {}),
+    "#frontier-stack-output", "No wearable to read"));
 
-  on("[data-act=trigger-edge-mesh]", () => act(async () => {
-    const res = await api("/v1/infra/edge-replication", { primary_region: "eu-central (Frankfurt)" });
-    const out = $("#frontier-stack-output");
-    if (!out) return;
-    const nodes = res.edge_nodes || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌍 Global Edge Mesh Active (${esc(res.replication_latency)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Consensus: <strong>${esc(res.consensus_protocol)}</strong> · Health: ${esc(res.node_health)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Nodes: ${nodes.join(" · ")}</div>
-      </div>
-    `;
-  }, "Global Edge Mesh Replicated! 🌍"));
+  /* Named an edge fleet, a consensus protocol and a replication latency on an install
+     that is one SQLite file on one machine. */
+  on("[data-act=trigger-edge-mesh]", unbuildable(
+    () => api("/v1/infra/edge-replication", {}),
+    "#frontier-stack-output", "No edge fleet here"));
 
   on("[data-act=negotiate-ai-agents]", () => act(async () => {
     renderAI(await api("/v1/ai/agent-negotiator", {}), "#frontier-stack-output", "Your crew's plans");
@@ -4830,20 +5107,37 @@ function wire(root) {
       </div>`;
   }));
 
+  /* Posted the city "Lisbon" and rendered three outings nobody had arranged, each with
+     "spots reserved", under "Guaranteed Crew Host Present on Every Anchor". No host had
+     agreed and no spot was held. It is operator-only now — it writes public rows in
+     somebody's city — and the outings have to be supplied, because this endpoint does not
+     know anybody's city. */
   on("[data-act=activate-anchor-outings]", () => act(async () => {
-    const res = await api("/v1/seeding/anchor-outings", { city: "Lisbon" });
+    const city = $("#ao-city") ? $("#ao-city").value.trim() : "";
+    if (!city) { toast("Which city?"); return; }
+    const typed = $("#ao-outings") ? $("#ao-outings").value.trim() : "";
+    const outings = typed.split("\n").map(s => s.trim()).filter(Boolean);
+    if (!outings.length) { toast("List the outings, one per line."); return; }
+    const weeks = $("#ao-weeks") ? Number($("#ao-weeks").value) || 1 : 1;
     const out = $("#seeding-output");
     if (!out) return;
-    const anchors = res.weekly_anchors || [];
-    const items = anchors.map(a => `<div style="margin-top:2px;">• <strong>${esc(a.day)}</strong>: ${esc(a.title)} (${a.spots_reserved} spots)</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⚓ Weekly Anchor Crews Active (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">Guarantee: ${esc(res.steward_guarantee)}</div>
-      </div>
-    `;
-  }, "Weekly Anchor Crews Activated! ⚓"));
+    try {
+      const res = await api("/v1/seeding/anchor-outings", { city, outings, weeks });
+      const made = res.created || [];
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city)} · ${res.count} created</div>
+          ${made.map(m => `<div style="font-size:13px; margin-bottom:2px;">${esc(m.title)}${m.starts_at ? ` · ${esc(whenLabel(m.starts_at))}` : ""}</div>`).join("")}
+          ${(res.skipped || []).length ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">Skipped: ${(res.skipped || []).map(esc).join(", ")}</div>` : ""}
+          <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_guarantee || "")}</div>
+          ${res.nothing_reserved ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.nothing_reserved)}</div>` : ""}
+          ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.safety_note)}</div>` : ""}
+        </div>`;
+      bindLater(out);
+    } catch (e) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(e.status === 403 ? "This one is the operator's — it writes public rows in a city." : e.message)}</div>`;
+    }
+  }));
 
   on("[data-act=pay-stripe-checkout]", () => act(async () => {
     /* Returned a fixed `cs_live_…` session id and a link into checkout.stripe.com built
@@ -4916,19 +5210,33 @@ function wire(root) {
     `;
   }, "AI Outing Micro-Itinerary Synthesized! 🤖"));
 
+  /* Claimed "160 Verified Third Places" with a breakdown down to 42 specialty coffee
+     workspaces, for the city "Lisbon" whoever pressed it, with "Live Opening Hours & Wi-Fi
+     Speeds Verified" on the end. Nothing was stored and nothing was verified. It seeds a
+     named city from OpenStreetMap now and reports what it actually added; opening hours
+     appear only where OSM has them. Operator-only — it writes public rows and calls a
+     volunteer-run service. */
   on("[data-act=load-third-places]", () => act(async () => {
-    const res = await api("/v1/seeding/third-places-directory", { city: "Lisbon" });
+    const city = $("#tp-city") ? $("#tp-city").value.trim() : "";
+    if (!city) { toast("Which city?"); return; }
     const out = $("#content-pipeline-output");
     if (!out) return;
-    const b = res.breakdown || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📍 ${res.total_third_places} Verified Third Places Ingested:</div>
-        <div style="font-size:12px; margin-bottom:4px;">☕ ${b.specialty_coffee_workspaces} Cafes · 🧗 ${b.bouldering_and_calisthenics} Gyms · 🌅 ${b.sunset_viewpoints_miradouros} Viewpoints · 📚 ${b.quiet_reading_libraries} Reading Spots</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Status: ${esc(res.live_status)}</div>
-      </div>
-    `;
-  }, "160 Verified Third Places Ingested! 📍"));
+    try {
+      const res = await api("/v1/seeding/third-places-directory", { city });
+      const cats = Object.entries(res.categories || {});
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city)} · ${res.added} added, ${res.updated} updated</div>
+          ${cats.map(([name, c]) => `<div style="font-size:12px; color:var(--muted);">${esc(name)}: ${c.added} added${c.status !== "ok" ? ` (${esc(c.status)})` : ""}</div>`).join("")}
+          ${res.detail ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">${esc(res.detail)}</div>` : ""}
+          <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.note || "")}</div>
+          <div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.attribution || "")}</div>
+        </div>`;
+      bindLater(out);
+    } catch (e) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(e.status === 403 ? "This one is the operator's — it writes public rows and calls a volunteer-run service." : e.message)}</div>`;
+    }
+  }));
 
   on("[data-act=trigger-weather-outings]", () => act(async () => {
     const res = await api("/v1/seeding/weather-triggers", { city: "Lisbon", condition: "Sunny 24°C with 4ft Ocean Swell" });
@@ -4946,121 +5254,83 @@ function wire(root) {
   }, "Weather-Triggered Outings Published! ☀️"));
 
   on("[data-act=view-sports-hobbies]", () => act(async () => {
-    const res = await api("/v1/hobbies/sports-outdoors", {});
-    const out = $("#hobbies-hub-output");
-    if (!out) return;
-    const acts = res.active_activities || [];
-    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🧗 ${esc(res.category)}:</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Sports & Outdoors Passions Loaded! 🧗"));
+    renderMatch(await api("/v1/hobbies/sports-outdoors",
+                          { activity: synergyActivity("sport outdoors"), city: synergyCity() }),
+                "#hobbies-hub-output");
+  }));
 
   on("[data-act=view-creative-making]", () => act(async () => {
-    const res = await api("/v1/hobbies/creative-making", {});
-    const out = $("#hobbies-hub-output");
-    if (!out) return;
-    const acts = res.active_activities || [];
-    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🏺 ${esc(res.category)}:</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Creative Making & Art Studios Loaded! 🏺"));
+    renderMatch(await api("/v1/hobbies/creative-making",
+                          { activity: synergyActivity("making things"), city: synergyCity() }),
+                "#hobbies-hub-output");
+  }));
 
   on("[data-act=view-gaming-strategy]", () => act(async () => {
-    const res = await api("/v1/hobbies/gaming-strategy", {});
-    const out = $("#hobbies-hub-output");
-    if (!out) return;
-    const acts = res.active_activities || [];
-    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">♟️ ${esc(res.category)}:</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Strategy & Board Gaming Loaded! ♟️"));
+    renderMatch(await api("/v1/hobbies/gaming-strategy",
+                          { activity: synergyActivity("games"), city: synergyCity() }),
+                "#hobbies-hub-output");
+  }));
 
   on("[data-act=view-culinary-craft]", () => act(async () => {
-    const res = await api("/v1/hobbies/culinary-craft", {});
-    const out = $("#hobbies-hub-output");
-    if (!out) return;
-    const acts = res.active_activities || [];
-    const items = acts.map(a => `<div style="margin-top:3px;">• <strong>${esc(a.title)}</strong> @ ${esc(a.venue)} (${esc(a.time)})</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍳 ${esc(res.category)}:</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Culinary & Fermentation Circles Loaded! 🍳"));
+    renderMatch(await api("/v1/hobbies/culinary-craft",
+                          { activity: synergyActivity("cooking"), city: synergyCity() }),
+                "#hobbies-hub-output");
+  }));
 
-  on("[data-act=radar-edinburgh-fringe]", () => act(async () => {
-    const res = await api("/v1/events/landmark-radar", { city: "Edinburgh", month: "August" });
-    const out = $("#landmark-radar-output");
+  /* Three buttons, three hardcoded cities, and a handler that branched on the name: say
+     Edinburgh and it returned the Fringe and the Tattoo with statuses like
+     `VIP_FAST_PASS`; say anything else and it returned "City Cultural Mega-Fest —
+     Seasonal". Three hand-written lists presented as a radar. The radar this app can
+     honestly run is the map, for whichever city you name. */
+  function renderRadar(res, targetId) {
+    const out = $(targetId);
     if (!out) return;
-    const events = res.landmark_events || [];
-    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
+    if (res.needs_city) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(res.suggestion || "Which city?")}</div>`;
+      bindLater(out);
+      return;
+    }
+    const places = res.places || [];
+    const breakdown = Object.entries(res.breakdown || {})
+      .map(([kind, n]) => `${esc(kind)} ${n}`).join(" · ");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🌍 ${esc(res.season_title)} (${res.total_landmark_events} Iconic Landmarks):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Edinburgh Festival Fringe & Tattoo Radar Synced! 🎭"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city)} · ${res.count} on the map</div>
+        ${breakdown ? `<div style="font-size:11px; color:var(--muted); margin-bottom:6px;">${breakdown}</div>` : ""}
+        ${places.slice(0, 12).map(p => `
+          <div style="font-size:13px; margin-bottom:4px; background:var(--surface-1); padding:6px 10px; border-radius:8px;">
+            <strong>${esc(p.name)}</strong>
+            <div style="font-size:11px; color:var(--muted);">${esc(p.category || "")}${p.street ? ` · ${esc(p.street)}` : ""}</div>
+          </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_position || "")}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.attribution || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
 
-  on("[data-act=radar-munich-oktoberfest]", () => act(async () => {
-    const res = await api("/v1/events/landmark-radar", { city: "Munich", month: "September" });
-    const out = $("#landmark-radar-output");
-    if (!out) return;
-    const events = res.landmark_events || [];
-    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #3b82f6;">
-        <div style="font-size:14px; font-weight:700; color:#3b82f6; margin-bottom:4px;">🌍 ${esc(res.season_title)}:</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Munich Oktoberfest Radar Synced! 🍺"));
-
-  on("[data-act=radar-lisbon-festas]", () => act(async () => {
-    const res = await api("/v1/events/landmark-radar", { city: "Lisbon", month: "June" });
-    const out = $("#landmark-radar-output");
-    if (!out) return;
-    const events = res.landmark_events || [];
-    const items = events.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.name)}</strong> (${esc(e.dates)}): <em>${esc(e.scale)}</em> <span class="badge good" style="font-size:10px;">${esc(e.status)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌍 ${esc(res.season_title)}:</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Lisbon Festas & Web Summit Radar Synced! 🐟"));
+  on("[data-act=radar-landmarks]", () => act(async () => {
+    const city = $("#lr-city") ? $("#lr-city").value.trim() : "";
+    const category = $("#lr-category") ? $("#lr-category").value.trim() : "";
+    renderRadar(await api("/v1/events/landmark-radar",
+                          { city, category }), "#landmark-radar-output");
+  }));
 
   on("[data-act=sync-ai-butler-landmarks]", () => act(async () => {
     renderAI(await api("/v1/ai/outing-butler", { city: aiCity() }), "#landmark-radar-output", "What's on");
   }));
+  /* Reported "Opus 48kHz Spatial 3D Audio", 18ms latency, "AI Crowd & Wind Cancellation"
+     and two people at two bearings. There is no audio transport in this app at all, so
+     what is left is the useful half: a titled room and a list of who has said they are in.
+     `no_audio` comes back on every response and is rendered, not paraphrased. */
   on("[data-act=open-voice-huddle]", () => act(async () => {
-    const res = await api("/v1/voice/crew-huddle", { event_name: "Edinburgh Festival Fringe Crowds" });
-    const out = $("#frontier-social-output");
-    if (!out) return;
-    const speakers = res.active_speakers || [];
-    const items = speakers.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.name)}</strong>: ${esc(s.distance || s.status)} ${s.speaking ? '🔊 [Speaking]' : ''}</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎙️ Spatial 3D Voice Huddle Active (${res.latency_ms}ms Latency):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Event: <strong>${esc(res.event)}</strong> · Codec: ${esc(res.codec)}</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Status: ${esc(res.noise_suppression)}</div>
-      </div>
-    `;
-  }, "Spatial Audio Crew Huddle Connected! 🎙️"));
+    const title = $("#vh-title") ? $("#vh-title").value.trim() : "";
+    if (!title) { toast("What is the room about?"); return; }
+    const crewId = $("#vh-crew") ? $("#vh-crew").value : "";
+    if (!crewId) { toast("Which crew? A huddle belongs to one."); return; }
+    renderRoom(await api("/v1/voice/crew-huddle", { title, crew_id: crewId }),
+               "#frontier-social-output");
+  }));
 
   on("[data-act=trigger-nfc-tap]", () => act(async () => {
     /* Claimed an "NFC & Apple NameDrop Ephemeral Handshake", 94% compatibility with a
@@ -5098,20 +5368,29 @@ function wire(root) {
          </div>`
       : `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:12px; color:var(--muted);">${esc(res.reason)}</div>`;
   }));
+  /* Reported a £12,450 balance "(5% VIP Fees Allocation)", three proposals with vote
+     counts and "Quadratic Citizen Voting" — for the city "Edinburgh" whoever asked, on an
+     instance with no fund, no token and no ballot. There is no treasury; what is adjacent
+     and real is what people have asked for, so that is what comes back with it. */
   on("[data-act=view-dao-treasury]", () => act(async () => {
-    const res = await api("/v1/dao/community-treasury", { city: "Edinburgh" });
+    const city = $("#mg-city") ? $("#mg-city").value.trim() : "";
+    const res = await api("/v1/dao/community-treasury", city ? { city } : {});
     const out = $("#frontier-social-output");
     if (!out) return;
-    const props = res.active_proposals || [];
-    const items = props.map(p => `<div style="margin-top:2px;">• <strong>${esc(p.id)}</strong>: ${esc(p.title)} (${p.votes_for} votes - <span style="color:var(--growth); font-weight:bold;">${esc(p.status)}</span>)</div>`).join("");
+    const proposals = res.proposals || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🏛️ DAO Community Treasury (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Balance: <strong>${esc(res.treasury_balance)}</strong> (${esc(res.voting_mechanism)})</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Community DAO Treasury Synced! 🏛️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">No treasury here</div>
+        <div style="font-size:13px; margin-bottom:6px;">${esc(res.why || "")}</div>
+        ${(res.needs || []).length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Would need: ${(res.needs || []).map(esc).join(", ")}</div>` : ""}
+        ${res.needs_city ? `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : `
+          <div style="font-size:13px; font-weight:700; margin:6px 0 4px;">Asked for in ${esc(res.city || "")} · ${res.proposal_count}</div>
+          ${proposals.map(p => `<div style="font-size:13px; margin-bottom:4px; background:var(--surface-1); padding:6px 10px; border-radius:8px;">${esc(p.project)} <span style="color:var(--muted);">@${esc(p.proposed_by_handle || "someone")}</span></div>`).join("")}
+          ${proposals.length ? "" : `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "")}</div>`}`}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_pool || "")}</div>
+      </div>`;
+    bindLater(out);
+  }));
 
   on("[data-act=trigger-boredom-quest]", () => act(async () => {
     renderAI(await api("/v1/ai/spontaneous-quests", { city: aiCity() }),
@@ -5216,87 +5495,33 @@ function wire(root) {
     `;
   }, "7-Day City Culture Guide Synthesized! 📅"));
 
+  /* A six-entry timeline of a day nobody lived, with a "dopamine vitality score" of
+     98/100 beside it. Nothing here measures attention, and there is no simulator. */
   on("[data-act=run-full-day-simulation]", () => act(async () => {
-    const res = await api("/v1/simulation/full-day-ux-optimizer", { persona: "Digital Nomad Explorer", city: "Edinburgh" });
-    const out = $("#day-simulation-output");
-    if (!out) return;
-    const m = res.simulation_metrics || {};
-    const timeline = res.simulated_24h_timeline || [];
-    const items = timeline.map(t => `
-      <div style="margin-top:6px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">
-        <div style="font-weight:bold; font-size:12px; color:var(--growth);">${esc(t.time)} · ${esc(t.phase)}</div>
-        <div style="font-size:11px; margin-top:2px;">${esc(t.action)}</div>
-        <div style="font-size:10px; color:var(--spark); font-weight:700; margin-top:2px;">Friction: ${esc(t.ux_friction)}</div>
-      </div>
-    `).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🚀 24-Hour UX Day Simulation Results (${esc(res.city)}):</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:11px; margin-bottom:6px; background:rgba(0,0,0,0.25); padding:6px; border-radius:6px;">
-          <div>⏱️ Screen Time: <strong>${esc(m.total_screen_time_required)}</strong></div>
-          <div>❤️ Real Connection: <strong>${esc(m.real_world_connection_time)}</strong></div>
-          <div>⚡ Vitality Score: <strong>${esc(m.dopamine_vitality_score)}</strong></div>
-          <div>🌟 Memory Dividends: <strong>${m.lifelong_memory_dividends} Created</strong></div>
-        </div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Full-Day UX Simulation Completed! 🚀"));
+    const persona = $("#sim-persona") ? $("#sim-persona").value.trim() : "";
+    renderUnavailable(await api("/v1/simulation/full-day-ux-optimizer", { persona }),
+                      "#day-simulation-output", "Nothing here simulates a day");
+  }));
 
+  /* Six hand-written personas closing with a "universal UX score" of 98.4/100, written
+     by somebody about nobody and reported as an evaluation. */
   on("[data-act=run-all-demographics]", () => act(async () => {
-    const res = await api("/v1/simulation/multi-demographic-suite", { profile: "ALL" });
-    const out = $("#day-simulation-output");
-    if (!out) return;
-    const profs = res.profiles_evaluated || [];
-    const items = profs.map(p => `
-      <div style="margin-top:6px; padding:8px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #ec4899;">
-        <div style="font-weight:bold; font-size:13px; color:#ec4899;">${esc(p.title)}</div>
-        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Need: ${esc(p.core_need)}</div>
-        <div style="font-size:11px; color:var(--growth); margin-top:2px;">Day: ${esc(p.sample_day)}</div>
-        <div style="display:flex; justify-content:space-between; font-size:10px; color:var(--spark); font-weight:700; margin-top:4px;">
-          <span>Screen Time: ${esc(p.screen_time)}</span>
-          <span>Real Flow: ${esc(p.real_world_flow)}</span>
-        </div>
-        <div style="font-size:10px; color:#f59e0b; margin-top:2px; font-style:italic;">Memory: ${esc(p.memory_dividend)}</div>
-      </div>
-    `).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">👥 Multi-Demographic UX Simulation Suite (${res.total_demographics_covered} Profiles):</div>
-        <div style="font-size:12px; margin-bottom:6px; color:var(--growth); font-weight:bold;">Universal UX Score: ${esc(res.universal_ux_score)}</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Multi-Demographic Simulation Suite Complete! 👥"));
+    const profile = $("#sim-persona") ? $("#sim-persona").value.trim() : "";
+    renderUnavailable(await api("/v1/simulation/multi-demographic-suite", { profile }),
+                      "#day-simulation-output", "Nothing here simulates a person");
+  }));
 
-  on("[data-act=sync-offline-mesh]", () => act(async () => {
-    const res = await api("/v1/mesh/offline-peer-sync", { peers: ["Alex (12m)", "Sofia (34m)", "Marco (48m)"] });
-    const out = $("#ultimate-frontier-output");
-    if (!out) return;
-    const peers = res.connected_peers || [];
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📴 Offline BLE Mesh Network (${esc(res.transport_protocol)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Connected Peers: <strong>${peers.join(", ")}</strong></div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Off-grid location radar & P2P emergency SOS active with zero internet!</div>
-      </div>
-    `;
-  }, "Offline BLE Mesh Synchronized! 📴"));
+  /* The three peers and their distances were in the request body this page sent. A web
+     page has no Bluetooth radio to find anybody with. */
+  on("[data-act=sync-offline-mesh]", unbuildable(
+    () => api("/v1/mesh/offline-peer-sync", {}),
+    "#ultimate-frontier-output", "No mesh radio here"));
 
-  on("[data-act=listen-wearable-whispers]", () => act(async () => {
-    const res = await api("/v1/wearables/ambient-whispers", { device: "AirPods Pro / Ray-Ban Meta" });
-    const out = $("#ultimate-frontier-output");
-    if (!out) return;
-    const whispers = res.sub_vocal_whispers || [];
-    const items = whispers.map(w => `<div style="margin-top:3px;">• <strong>${esc(w.context)}</strong>: "${esc(w.whisper)}" <span style="color:var(--spark); font-size:10px;">(${esc(w.audio_cue)})</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🦻 Smart Wearables Ambient Whispers (${esc(res.device)}):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700;">Result: ${esc(res.eyes_up_guarantee)}</div>
-      </div>
-    `;
-  }, "Wearable Audio Whispers Active! 🦻"));
+  /* Rendered lines a pair of glasses had supposedly spoken into somebody's ear, with an
+     "eyes up" guarantee on the end. There is no audio path to any device from here. */
+  on("[data-act=listen-wearable-whispers]", unbuildable(
+    () => api("/v1/wearables/ambient-whispers", {}),
+    "#ultimate-frontier-output", "Nothing to whisper through"));
 
   /* The web of trust.
 
@@ -5345,64 +5570,28 @@ function wire(root) {
   }));
 
   on("[data-act=view-eco-quests]", () => act(async () => {
-    const res = await api("/v1/impact/regenerative-earth", { city: "Edinburgh" });
-    const out = $("#global-flourishing-output");
-    if (!out) return;
-    const imp = res.collective_city_impact || {};
-    const quests = res.spontaneous_eco_quests || [];
-    const items = quests.map(q => `<div style="margin-top:3px;">• <strong>${esc(q.title)}</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(q.reward)}</span>) · <em>${esc(q.crew)}</em></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Regenerative Earth Impact (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth); font-weight:bold;">${imp.plastic_removed_kg} kg Plastic Removed · ${imp.trees_and_pollinators_planted} Native Trees Planted</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Regenerative Eco-Quests Synced! 🌱"));
+    renderMatch(await api("/v1/impact/regenerative-earth",
+                          { activity: synergyActivity("rewilding"), city: synergyCity() }),
+                "#global-flourishing-output");
+  }));
 
   on("[data-act=view-zero-waste-pantry]", () => act(async () => {
-    const res = await api("/v1/impact/zero-waste-pantry", { city: "Edinburgh" });
-    const out = $("#global-flourishing-output");
-    if (!out) return;
-    const meals = res.available_rescued_delicacies || [];
-    const items = meals.map(m => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(m.item)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(m.donor)} · ${esc(m.availability)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🍲 Zero-Waste Food Sharing (${res.meals_rescued_this_month} Meals Rescued This Month):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Zero-Waste Communal Pantry Synced! 🍲"));
+    renderMatch(await api("/v1/impact/zero-waste-pantry",
+                          { activity: synergyActivity("zero waste"), city: synergyCity() }),
+                "#global-flourishing-output");
+  }));
 
   on("[data-act=connect-peer-listener]", () => act(async () => {
-    const res = await api("/v1/impact/compassion-listener-network", { vibe: "Seeking a Gentle Ear" });
-    const out = $("#global-flourishing-output");
-    if (!out) return;
-    const l = res.matched_peer_listener || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🧠 Compassionate Peer Listener Matched:</div>
-        <div style="font-size:13px; margin-bottom:2px;">Listener: <strong>${esc(l.name)}</strong> (${esc(l.experience)})</div>
-        <div style="font-size:12px; color:var(--growth); margin-bottom:2px;">Format: ${esc(l.format)} · Wait: ${esc(l.wait_time)}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700;">${esc(l.cost)}</div>
-      </div>
-    `;
-  }, "Compassionate Peer Listener Ready! 🧠"));
+    renderMatch(await api("/v1/impact/compassion-listener-network",
+                          { vibe: synergyActivity("a listening ear"), city: synergyCity() }),
+                "#global-flourishing-output");
+  }));
 
   on("[data-act=view-intergenerational-guild]", () => act(async () => {
-    const res = await api("/v1/impact/intergenerational-guild", { city: "Edinburgh" });
-    const out = $("#global-flourishing-output");
-    if (!out) return;
-    const ex = res.active_exchanges || [];
-    const items = ex.map(e => `<div style="margin-top:3px;">• <strong>${esc(e.elder)}</strong> ⇄ <strong>${esc(e.young_learner)}</strong><br><span style="font-size:11px; color:var(--growth);">${esc(e.exchange)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🕊️ Intergenerational Mentorship Guild (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-style:italic;">${esc(res.community_impact)}</div>
-      </div>
-    `;
-  }, "Intergenerational Mentorship Guild Synced! 🕊️"));
+    renderMatch(await api("/v1/impact/intergenerational-guild",
+                          { activity: synergyActivity("skill sharing"), city: synergyCity() }),
+                "#global-flourishing-output");
+  }));
 
   /* Reported "50+ subsystems" online — an AI Butler v4, BLE 5.3 mesh, AirPods spatial
      audio, Apple Pay ready, a web of trust at 98/100 — and closed with `system_health:
@@ -5575,63 +5764,28 @@ function wire(root) {
   }, "Live External APIs Ingested! 🌐"));
 
   on("[data-act=view-nightlife-party]", () => act(async () => {
-    const res = await api("/v1/nightlife/party-radar", { city: "Munich" });
-    const out = $("#nightlife-output");
-    if (!out) return;
-    const clubs = res.curated_clubs_and_parties || [];
-    const items = clubs.map(c => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #ef4444;">• <strong>${esc(c.name)}</strong> (${esc(c.timing)})<br><span style="font-size:11px; color:var(--growth);">${esc(c.genre)} · ${esc(c.location)}</span><br><span style="font-size:10px; color:var(--spark);">${esc(c.insider_tip)} (${esc(c.queue_status)})</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ef4444;">
-        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">🔥 Live Underground Clubs & Parties (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Live Party & Rave Radar Synced! 🔥"));
+    renderMatch(await api("/v1/nightlife/party-radar",
+                          { activity: synergyActivity("a party"), city: synergyCity() }),
+                "#nightlife-output");
+  }));
 
   on("[data-act=view-nightlife-speakeasy]", () => act(async () => {
-    const res = await api("/v1/nightlife/secret-speakeasies", { city: "Munich" });
-    const out = $("#nightlife-output");
-    if (!out) return;
-    const bars = res.secret_cocktail_dens || [];
-    const items = bars.map(b => `<div style="margin-top:4px; padding:6px; background:rgba(0,0,0,0.25); border-radius:8px; border-left:3px solid #a855f7;">• <strong>${esc(b.name)}</strong><br><span style="font-size:11px; color:#a855f7; font-weight:bold;">🔑 Entrance: ${esc(b.entrance)}</span><br><span style="font-size:11px; color:var(--muted);">${esc(b.vibe)} (${esc(b.address)})</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🍸 Secret Speakeasies & Passcodes (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Secret Speakeasies Unlocked! 🍸"));
+    renderMatch(await api("/v1/nightlife/secret-speakeasies",
+                          { activity: synergyActivity("a quiet bar"), city: synergyCity() }),
+                "#nightlife-output");
+  }));
 
   on("[data-act=rsvp-nightlife-fastpass]", () => act(async () => {
-    const res = await api("/v1/nightlife/guestlist-vip", { venue: "Blitz Club", crew_size: 2 });
-    const out = $("#nightlife-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🎟️ Fast-Pass VIP Guestlist Confirmed:</div>
-        <div style="font-size:12px; font-weight:bold; color:var(--growth);">${esc(res.venue)} · Code: ${esc(res.fastpass_code)} (${res.crew_size} guests)</div>
-        <div style="font-size:11px; color:var(--muted); margin-top:2px;">Curfew: ${esc(res.entry_curfew)}</div>
-        <div style="font-size:11px; color:var(--spark); margin-top:2px;">Perks: ${(res.perks_included || []).join(" · ")}</div>
-      </div>
-    `;
-  }, "Fast-Pass Guestlist Issued! 🎟️"));
+    renderMatch(await api("/v1/nightlife/guestlist-vip",
+                          { venue: synergyActivity("a night out"), city: synergyCity() }),
+                "#nightlife-output");
+  }));
 
   on("[data-act=match-pregame-crew]", () => act(async () => {
-    const res = await api("/v1/nightlife/crew-pregame", { destination: "Blitz Club", city: "Munich" });
-    const out = $("#nightlife-output");
-    if (!out) return;
-    const pg = res.pregame_gathering || {};
-    const squad = (pg.squad || []).map(s => `• <strong>${esc(s.name)}</strong>: ${esc(s.vibe)}`).join("<br>");
-    const sw = res.safewalk_home_escort || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🍻 Pre-Game Squad & SafeWalk Escort:</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:bold;">📍 Gathering: ${esc(pg.venue)} (${esc(pg.time)})</div>
-        <div style="font-size:11px; margin-top:3px;">${squad}</div>
-        <div style="font-size:11px; color:#10b981; margin-top:4px; font-weight:bold;">🛡️ SafeWalk Home at 04:00 AM: ${esc(sw.buddy)} (${esc(sw.status)})</div>
-      </div>
-    `;
-  }, "Pre-Game Squad Matched! 🍻"));
+    renderMatch(await api("/v1/nightlife/crew-pregame",
+                          { destination: synergyActivity("pre-drinks"), city: synergyCity() }),
+                "#nightlife-output");
+  }));
 
   /* ---- City chat ---- */
   on("[data-act=city-open]", (el) => act(async () => {
@@ -5753,36 +5907,39 @@ function wire(root) {
 
   /* ---- Micro-Masterclasses Handler ---- */
   on("[data-act=view-micro-workshops]", () => act(async () => {
-    const res = await api("/v1/workshops/micro-masterclasses", { city: "Munich" });
-    const out = $("#workshops-output");
-    if (!out) return;
-    const cards = (res.micro_masterclasses || []).map(w => `
-      <div style="background:var(--surface-2s); padding:10px; border-radius:8px; border:1px solid #f59e0b; margin-bottom:6px;">
-        <div style="font-weight:bold; font-size:13px; color:#f59e0b;">${esc(w.title)}</div>
-        <div style="font-size:11px; color:var(--growth);">👨‍🏫 Mentor: ${esc(w.mentor)} · ⏰ ${esc(w.schedule)}</div>
-        <div style="font-size:11px; color:var(--muted); margin-top:2px;">📍 ${esc(w.location)} · 🎟️ ${esc(w.capacity)}</div>
-        <div style="font-size:11px; font-style:italic; color:var(--spark); margin-top:2px;">"${esc(w.vibe)}"</div>
-      </div>
-    `).join("");
-    out.innerHTML = cards;
-  }, "Craft Masterclasses Loaded! 🤝"));
+    renderMatch(await api("/v1/workshops/micro-masterclasses",
+                          { activity: synergyActivity("a masterclass"), city: synergyCity() }),
+                "#workshops-output");
+  }));
 
-  /* ---- Layover Navigator Handler ---- */
+  /* ---- Layover ----
+     One itinerary for one airport whatever you asked about — the S8 to Isartor at 11:00,
+     the Eisbach surfers, back to MUC at 13:15 — and a "gate return alarm" that armed
+     nothing beside a "100% missed-flight safety" figure. This app does not know your
+     flight, your terminal or the queue. The hours stay an input and are echoed, not
+     judged; the city half is the ordinary guide for wherever you name. */
   on("[data-act=plan-layover-escape]", () => act(async () => {
-    const res = await api("/v1/travel/layover-discovery", { hub: "Munich Airport (MUC)", layover_hours: 4.5 });
+    const city = $("#lo-city") ? $("#lo-city").value.trim() : "";
+    if (!city) { toast("Which city are you stopping in?"); return; }
+    const hours = $("#lo-hours") ? $("#lo-hours").value.trim() : "";
+    const res = await api("/v1/travel/layover-discovery",
+                          hours ? { city, hours: Number(hours) } : { city });
     const out = $("#layover-output");
     if (!out) return;
-    const ce = res.curated_micro_escape || {};
-    const stops = (ce.stops || []).map(s => `• <strong>${esc(s.time)}</strong>: ${esc(s.action)}`).join("<br>");
+    const places = res.places || [];
+    const meets = res.meetups || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4;">✈️ ${esc(ce.route_name)} (${esc(res.safe_exploration_time)})</div>
-        <div style="font-size:11px; color:var(--spark); margin-top:3px;">🚆 Transit: ${esc(ce.transit)}</div>
-        <div style="font-size:11px; line-height:1.5; margin-top:6px;">${stops}</div>
-        <div style="font-size:11px; color:#10b981; font-weight:bold; margin-top:6px;">⏰ Gate Return Safety Alarm: ${esc(res.gate_return_alarm)}</div>
-      </div>
-    `;
-  }, "Layover Micro-Escape Planned! ✈️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.label || res.city || "")}${res.hours ? ` · ${esc(String(res.hours))}h` : ""}</div>
+        ${places.slice(0, 10).map(p => `<div style="font-size:13px; margin-bottom:4px;">${esc(p.name)}<span style="color:var(--muted);">${p.category ? ` · ${esc(p.category)}` : ""}</span></div>`).join("")}
+        ${meets.map(m => `<div style="font-size:13px; margin-bottom:4px;">📅 ${esc(m.title)}${m.place ? ` · ${esc(m.place)}` : ""}</div>`).join("")}
+        ${res.empty || res.needs_city ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_alarm || "")}</div>
+        ${res.no_transit ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.no_transit)}</div>` : ""}
+        ${res.attribution ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.attribution)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }));
 
   /* ---- Universal Markdown Export Handler ---- */
   on("[data-act=export-universal-markdown]", () => act(async () => {
@@ -5972,32 +6129,54 @@ function wire(root) {
     });
   });
 
+  /* Titled the day "Lisbon Sunset Rooftop Drinks" whatever you had done, listed six
+     photos, a share URL on a host this deployment does not serve, and four attendees
+     including two people who do not exist. There is no image store and a check-in does
+     not record who else was there. */
   on("[data-act=gen-memory-capsule]", () => act(async () => {
-    const res = await api("/v1/memories/highlight-reel", { title: "Lisbon Sunset Rooftop Drinks" });
+    const title = $("#mc-title") ? $("#mc-title").value.trim() : "";
+    if (!title) { toast("What are you calling it?"); return; }
+    const res = await api("/v1/memories/highlight-reel", { title });
     const out = $("#memory-vip-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">📸 AI Memory Capsule Generated (${esc(res.capsule_id)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Title: <strong>${esc(res.title)}</strong> · ${res.photos_count} Photos Saved</div>
-        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Attendees: ${res.attendees.join(", ")}</div>
-        <div style="font-size:11px; color:var(--spark);">Share URL: ${esc(res.share_url)}</div>
-      </div>
-    `;
-  }, "AI Memory Capsule Generated! 📸"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.title)} · ${esc(res.date)}</div>
+        ${(res.entries || []).map(e => `<div style="font-size:13px; margin-bottom:2px;">· ${esc(e)}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_attendees || "")}</div>
+      </div>`;
+    bindLater(out);
+  }));
 
+  /* Answered "granted" to anybody for a venue defaulting to a rooftop bar, with an access
+     tier and the pass code `VIP-KARMA-98` — the same code on every deployment, honoured by
+     nobody. A code somebody might have shown on a door was the worst thing on that list.
+     It is the organiser's own list for a meetup that exists, and it grants nothing. */
   on("[data-act=claim-vip-pass]", () => act(async () => {
-    const res = await api("/v1/events/vip-guestlist", { venue: "Miradouro Rooftop Bar" });
+    const box = $("#gl-meetup");
+    const meetupId = box ? box.value : "";
+    if (!meetupId) { toast("Which meetup? Join or organise one first."); return; }
+    const typed = $("#gl-guests") ? $("#gl-guests").value.trim() : "";
+    const guests = typed.split(",").map(s => s.trim()).filter(Boolean);
+    const res = await api("/v1/events/vip-guestlist",
+                          guests.length ? { meetup_id: meetupId, guests }
+                                        : { meetup_id: meetupId });
+    if ($("#gl-guests")) $("#gl-guests").value = "";
     const out = $("#memory-vip-output");
     if (!out) return;
+    const people = res.guests || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🎟️ VIP Fast-Track Pass Verified!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> (${esc(res.access_tier)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Pass Code: ${esc(res.pass_code)}</div>
-      </div>
-    `;
-  }, "VIP Fast-Track Pass Verified! 🎟️"));
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.title || "Guest list")}${res.place ? ` · ${esc(res.place)}` : ""}</div>
+        ${res.added ? `<div style="font-size:13px; margin-bottom:4px;">${res.guest_count} on the list.</div>` : ""}
+        ${people.map(g => `<div style="font-size:13px; margin-bottom:2px;">@${esc(g.handle)}${g.going ? " · going" : ""}${g.you ? " · you" : ""}</div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_entry || "")}</div>
+        ${res.safety_note ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.safety_note)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }));
 
   on("[data-act=mint-pop-badge]", () => act(async () => {
     const place = $("#pop-place") ? $("#pop-place").value.trim() : "";
@@ -6146,11 +6325,73 @@ function wire(root) {
               "#quick-split-output");
   }));
 
+  /* Answered `created: True` with a room URL on a host this deployment does not serve
+     and stored nothing, so the lounge list never grew and the link reached nothing. A room
+     is a rendezvous list now: a title, who opened it, and who has said they are in. */
+  function renderRoom(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.title || "Room")}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${res.members} in${res.city ? ` · ${esc(res.city)}` : ""}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_audio || "")}</div>
+        <div style="margin-top:8px;">
+          <button class="ghost" style="font-size:11px; padding:4px 10px;" data-act="join-audio-space" data-room="${esc(res.room_id)}">I'm in</button>
+          <button class="ghost" style="font-size:11px; padding:4px 10px;" data-act="leave-audio-space" data-room="${esc(res.room_id)}">Drop out</button>
+        </div>
+      </div>`;
+    bindLater(out);
+  }
+
+  function renderRooms(res, targetId) {
+    const out = $(targetId);
+    if (!out) return;
+    const rooms = res.rooms || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:13px; font-weight:700; margin-bottom:6px;">${res.count} open${res.city ? ` in ${esc(res.city)}` : ""}</div>
+        ${rooms.map(r => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(r.title)}</strong></div>
+            <div style="font-size:11px; color:var(--muted);">opened by @${esc(r.opened_by_handle)} · ${r.member_count} in${r.you_are_in ? " · you are in" : ""}</div>
+            <button class="ghost" style="font-size:11px; padding:4px 10px; margin-top:4px;" data-act="${r.you_are_in ? "leave" : "join"}-audio-space" data-room="${esc(r.room_id)}">${r.you_are_in ? "Drop out" : "I'm in"}</button>
+          </div>`).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_audio || "")}</div>
+      </div>`;
+    bindLater(out);
+  }
+
   on("[data-act=start-audio-space]", () => act(async () => {
-    const title = $("#as-title").value.trim() || "Weekend Bouldering Prep";
-    const res = await api("/v1/spaces/audio", { title });
-    $("#as-title").value = "";
-    toast(res.message || "Live Audio Crew Space launched! 🎙️");
+    const box = $("#as-title");
+    const title = box ? box.value.trim() : "";
+    if (!title) { toast("What is it about?"); return; }
+    const city = $("#as-city") ? $("#as-city").value.trim() : "";
+    const res = await api("/v1/spaces/audio", city ? { title, city } : { title });
+    if (box) box.value = "";
+    renderRoom(res, "#audio-space-output");
+  }));
+
+  on("[data-act=list-audio-spaces]", () => act(async () => {
+    const city = $("#as-city") ? $("#as-city").value.trim() : "";
+    renderRooms(await api("/v1/audio/lounge-spaces"
+                          + (city ? "?city=" + encodeURIComponent(city) : "")),
+                "#audio-space-output");
+  }));
+
+  on("[data-act=join-audio-space]", (el) => act(async () => {
+    renderRoom(await api("/v1/spaces/audio/join", { room_id: el.dataset.room }),
+               "#audio-space-output");
+  }, "You are on the list — nothing is playing"));
+
+  on("[data-act=leave-audio-space]", (el) => act(async () => {
+    const res = await api("/v1/spaces/audio/leave", { room_id: el.dataset.room });
+    toast(res.closed ? "You opened it, so it is closed." : "Dropped out.");
+    const city = $("#as-city") ? $("#as-city").value.trim() : "";
+    renderRooms(await api("/v1/audio/lounge-spaces"
+                          + (city ? "?city=" + encodeURIComponent(city) : "")),
+                "#audio-space-output");
   }));
 
   on("[data-act=send-kindness-note]", () => act(async () => {
@@ -6180,7 +6421,7 @@ function wire(root) {
         <div style="font-size:13px; margin-bottom:4px;">🧗 <strong>${res.real_world_meetups} Real-World Outings</strong> & Crew Meets</div>
         <div style="font-size:13px; margin-bottom:4px;">📍 Top Venue: <strong>${esc(res.top_venue)}</strong></div>
         <div style="font-size:13px; margin-bottom:6px;">👏 <strong>${res.kudos_received} Kudos</strong> Received from Friends</div>
-        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" onclick="navigator.clipboard.writeText('${esc(res.share_text.replace(/'/g, "\\'"))}'); toast('Wrapped story text copied! 📲');">Share to WhatsApp / IG Story 📲</button>
+        <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" data-act="share-wrapped" data-text="${esc(res.share_text || "")}">Copy it 📲</button>
       </div>
     `;
   }, "Monthly Wrapped Canvas Generated! 🏆"));

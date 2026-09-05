@@ -195,6 +195,12 @@ input.field, select.field {
   padding: 12px; font: inherit; font-size: 15px; margin-top: 8px; min-height: 46px;
 }
 select.field[multiple] { min-height: 92px; }
+/* A textarea used as one field among others in a card. The plain `textarea` rule above is
+   sized for the capture box and stands twice as tall as the inputs beside it, which made
+   the operator's anchor-outings box dominate its card. */
+textarea.field {
+  min-height: 72px; margin-top: 8px; padding: 12px; font-size: 15px;
+}
 textarea:focus, input:focus, select:focus {
   outline: none; border-color: var(--spark);
   box-shadow: 0 0 0 3px rgba(240,169,74,.18);
