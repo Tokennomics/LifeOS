@@ -4406,12 +4406,13 @@ function wire(root) {
     if (!out) return;
     out.innerHTML = `
       <div style="background:rgba(239,68,68,0.2); padding:12px; border-radius:12px; border:1px solid #ef4444;">
-        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">⚡ EMERGENCY SOS BROADCAST ACTIVE</div>
-        <div style="font-size:13px; margin-bottom:4px;">Location Broadcasted to 4 Trusted Crew Members!</div>
-        <div style="font-size:11px; color:var(--muted);">Emergency PIN: ${esc(res.emergency_pin)} · ${esc(res.location)}</div>
+        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">Watch recorded — ${esc(res.destination)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${res.can_see_it} watcher${res.can_see_it === 1 ? "" : "s"} can see it${res.eta_minutes ? ` · due in ${res.eta_minutes} minutes` : ""}</div>
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${esc(res.delivery_note || "")}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.disclaimer || "")}</div>
       </div>
     `;
-  }, "Emergency SOS Location Broadcast Active! ⚡"));
+  }));
 
   on("[data-act=match-mentor]", () => act(async () => {
     const seeking = $("#mt-seek") ? $("#mt-seek").value.trim() : "";

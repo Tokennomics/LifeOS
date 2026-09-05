@@ -245,6 +245,11 @@ DEAD_KEYS = {
     "verified_via": "/connect/scan-vouch",
     "total_third_places": "/seeding/third-places-directory",
     "live_status": "/seeding/third-places-directory",
+    # The worst one in the file, and the one the browser walk found rather than a Python
+    # assertion: the SOS panel said "Location Broadcasted to 4 Trusted Crew Members" and
+    # printed an emergency PIN, over a route that answers `push_delivered: False`.
+    "emergency_pin": "/safety/emergency-sos",
+    "recipients_notified": "/safety/emergency-sos",
 }
 # `venue_name`, `perks` and `treasury_balance` are deliberately NOT in that list: each is
 # still a live key on a different route the PWA also calls (the activity heatmap, the
@@ -344,7 +349,9 @@ def test_no_card_asserts_a_verification_or_a_guarantee_in_its_own_label():
     the labels that were written beside them."""
     banned = ["Verified Partners", "VIP Fast-Track", "Fast-Pass VIP",
               "Guaranteed", "Pass Verified", "Verified Third Places",
-              "Verified Badges", "Karma"]
+              "Verified Badges", "Karma",
+              # Nothing here messages anybody: `push_delivered` is a pinned invariant.
+              "Broadcasted", "BROADCAST", "Trusted Crew Members"]
     for filename, text in rendered_text().items():
         for phrase in banned:
             assert phrase not in text, (
