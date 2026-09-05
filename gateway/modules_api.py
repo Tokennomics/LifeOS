@@ -3671,6 +3671,19 @@ def build_router(auth) -> APIRouter:
             note=str(body.get("note", "") or ""),
             account_id=account_id, handle=handle))
 
+    @router.delete("/community/micro-grants")
+    def withdraw_micro_grant_endpoint(request: Request, body: dict):
+        """Take back an ask you made.
+
+        `grants.withdraw` existed with nothing routed to it, so a proposal could be made
+        and never unmade. Only whoever proposed it can withdraw it.
+        """
+        from modules.community import grants
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: grants.withdraw(
+            _graph(request), str(body.get("proposal_id", "") or ""),
+            account_id=account_id))
+
     @router.post("/creatives/pop-up-jam")
     def creatives_jam_endpoint(request: Request, body: dict):
         """Who else here is up for this.
@@ -6193,24 +6206,76 @@ def build_router(auth) -> APIRouter:
 
     # ---- 20% Community Treasury & Democratic Governance ------------------
 
+    # ---- The treasury that was never there --------------------------------
+    #
+    # `modules/community_treasury.py` opened with `total_impact_pool = 12450.00  # 20% of
+    # profit pool` and reported `profit_share_percent: 20.0`. There is no profit, no pool
+    # and no commitment by anybody to share one, so a fresh install showed a community
+    # €12,450 it could allocate. Money was floats. `create_proposal` defaulted the amount
+    # to 500.0 and the proposer to "Community Member". `vote_proposal` incremented a
+    # counter with no record of who voted, so one caller posting five times marked a grant
+    # "approved" — and an approved grant subtracted from the imaginary balance, which is
+    # the point at which somebody plans around it.
+    #
+    # `/dao/community-treasury` already answers this honestly, and two implementations that
+    # contradict each other are worse than either. These route through the same module:
+    # `modules/community/grants.py`, which records an ask in whole cents, holds nothing,
+    # approves nothing, and says so.
+
     @router.get("/treasury/status")
-    def get_treasury_status_endpoint(request: Request):
-        from modules import community_treasury
-        return community_treasury.get_treasury_status(_graph(request))
+    def get_treasury_status_endpoint(request: Request, city: str = ""):
+        """What this community has asked for, which is not a balance.
+
+        `asked_for` is a sum of requests, per currency, never added across currencies. It
+        is labelled that way because nobody is holding it.
+        """
+        from modules.community import grants
+        account_id, _ = _signal_caller(request)
+        place = city.strip() or _viewer_city(request)
+        if not place:
+            return {"pool": None, "no_pool": grants.NO_MONEY, "needs_city": True,
+                    "proposals": [], "count": 0, "empty": True, "money_moved": False,
+                    "suggestion": "Which city? Announce your arrival or pass `city`."}
+        return guard(lambda: {**grants.listing(_graph(request), place,
+                                               viewer_id=account_id),
+                              "pool": None, "no_pool": grants.NO_MONEY,
+                              "profit_share": None, "money_moved": False})
 
     @router.post("/treasury/proposals")
     def create_proposal_endpoint(request: Request, body: dict):
-        from modules import community_treasury
-        title = body.get("title", "")
-        category = body.get("category", "charity")
-        grant_amount = float(body.get("grant_amount", 500.0))
-        return guard(lambda: community_treasury.create_proposal(_graph(request), title, category, grant_amount))
+        """Record an ask. The project and the amount are required, because the prop
+        defaulted both and an empty body proposed a 500.00 grant to "charity"."""
+        from modules.community import grants
+        account_id, handle = _signal_caller(request)
+        place = str(body.get("city", "") or "").strip() or _viewer_city(request)
+        return guard(lambda: grants.propose(
+            _graph(request), place,
+            project=str(body.get("project", "") or body.get("title", "") or ""),
+            amount=body.get("amount", body.get("grant_amount")),
+            currency=str(body.get("currency", "EUR") or "EUR"),
+            note=str(body.get("note", "") or ""),
+            account_id=account_id, handle=handle))
 
     @router.post("/treasury/vote")
     def vote_proposal_endpoint(request: Request, body: dict):
-        from modules import community_treasury
-        proposal_id = body.get("proposal_id", "")
-        return guard(lambda: community_treasury.vote_proposal(_graph(request), proposal_id))
+        """Voting is gone rather than rebuilt.
+
+        It counted votes without recording who cast them, so the same caller could post
+        five times and flip a proposal to "approved" — and nothing here can fund an
+        approved one anyway. A vote that decides nothing, which anybody can cast twice, is
+        worse than no vote: it looks like a decision was made. Withdrawing your own ask is
+        the one state change that is real.
+        """
+        raise HTTPException(status_code=503, detail={
+            "available": False,
+            "capability": "community voting",
+            "why": ("Votes were counted without recording who cast them, so one caller "
+                    "could approve a proposal alone — and no money can be released here "
+                    "in any case, so approval would decide nothing."),
+            "needs": ["a way to record one vote per account, and a funded pool to release"],
+            "money_moved": False,
+            "suggestion": "You can withdraw a proposal you made with DELETE /v1/community/micro-grants.",
+        })
 
     # ---- Developer Platform & API Keys -----------------------------------
 
