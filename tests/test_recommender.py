@@ -20,7 +20,11 @@ def test_places_recommendation_ranking(graph: Graph):
     assert len(recs) >= 2
     # The first one should be "Jazz Coffee Bar" because it matches coffee and music
     assert recs[0]["name"] == "Jazz Coffee Bar"
-    assert recs[0]["match_score"] > 1.0
+    # Was `match_score > 1.0` — see test_event_feed.py. The matched words are checkable;
+    # the number was not.
+    assert recs[0]["matched_interests"]
+    assert recs[0]["match_count"] >= 1
+    assert "match_score" not in recs[0]
 
 
 def test_gateway_recommendations_endpoint(cfg):

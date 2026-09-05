@@ -17,7 +17,7 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#25 are merged.** `python -m pytest` → **1877 passing**
+explicit permission). **PRs #1–#25 are merged.** `python -m pytest` → **1992 passing**
 (measured 2026-09-04 at `17810f7`, 12m22s; the "931 passing tests" in the owner's own commit
 subjects is that workspace's count, not this line's).
 
@@ -95,8 +95,8 @@ in anyone else's graph.
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
 social layer is exercisable only in the test suite until there is a reachable host.
 
-**The prop work is essentially done.** `python3 tools/audit_props.py` reads **24 literals of 498
-handlers, 5%**, down from 184 of 445 when the sweep began; what is left is the hardware group and
+**The prop work is done.** `python3 tools/audit_props.py` reads **0 literals of 501
+handlers**, down from 184 of 445 when the sweep began; what is left is the hardware group and
 the payment processors, both of which are refusals rather than fakes. The tool now runs a **second
 pass** as well — handlers that reach the graph and still assert an invented value, which the first
 pass calls clean by construction. Read its docstring before trusting either number.

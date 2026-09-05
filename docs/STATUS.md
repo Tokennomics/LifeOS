@@ -630,6 +630,6 @@ it only runs on the owner's machine — `brain_dir` is an absolute Windows path 
 Antigravity workspace. Kept rather than deleted: it is the record of which of thirteen concepts
 became the app icon, and that record is otherwise nowhere.
 
-**The suite is 1877 passing** (2026-09-04, at `17810f7`, 12m22s). The "931 passing tests" in
+**The suite is 1992 passing** (2026-09-05, at `ea72ef7`, 13m40s). The "931 passing tests" in
 the owner's own commit subjects is that workspace's count, not this line's — which is itself a
 symptom of the same split.
