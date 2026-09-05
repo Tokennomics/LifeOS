@@ -112,8 +112,16 @@ could be spammed.
    returns a list. Check `isinstance(..., list)` before extending.
 4. **Nested code objects.** Handlers wrap work in `guard(lambda: ...)`; bytecode checks must
    recurse into `co_consts`. If you touch a guard test, remember that.
-5. **Credential-shaped literals.** No `whsec_`, `sk_test_`, `sk_live_`, `ghp_`, `AKIA`… anywhere,
-   including tests. Use `a-signing-key-for-this-suite-only`.
+5. **Credential-shaped literals.** Never write a string that begins with a real vendor's key
+   prefix — Stripe's, GitHub's, AWS's, Slack's, Google's, Anthropic's, OpenAI's — anywhere,
+   including tests and sample data. The authoritative list is `_VENDOR_PREFIXES` in
+   `tests/test_security_audit.py`; read it there rather than trusting a copy. Use something
+   like `a-signing-key-for-this-suite-only` instead.
+
+   *This paragraph used to quote the prefixes, and that is why it is written this way now:
+   the committed copy of this brief failed the very guard it describes. The guard cannot tell
+   prose from a key, and it should not try — a scanner reading the repo cannot either. That is
+   the whole point of the rule.*
 6. **A flaky negative.** Do not assert a short digit string is absent from a body that contains
    ids or hashes (`"94" not in text` fails 1 run in 200). Assert on shape instead.
 7. **Route shadowing.** Literal path segments must be declared before parameterised ones on the
