@@ -2,7 +2,7 @@
 
 _The one-page memory between phone-driven sessions. Update at the end of every PR._
 
-_Last updated: 2026-08-04_
+_Last updated: 2026-09-04_
 
 ## Where we are
 
@@ -564,3 +564,72 @@ asks for it, not because a VPS felt like it deserved a bigger database.
 Convoy · Memento · Steward · Seasons · Vitals · Ledger · Hearth · Calibre ·
 Google OAuth · Postgres migration · native store builds · SDK opening · billing activation ·
 Tailscale/remote access (deferred until home) · licence/entity/ToS content.
+
+## 2026-09-04 — the workflow, not the code
+
+Nothing in this section is a feature. It exists because the last month's work was deleted
+twice and put back twice, and the thing that made that possible has not changed.
+
+**`main` was force-pushed on 2026-08-2x and again on 2026-08-31**, both times from a local
+workspace based on `c4f9899` (2026-08-21). Each push erased **77 commits** — PRs **#19–#25**,
+seven tickets, thirteen modules, about nine hundred tests — and brought back two modules that
+fabricate: the `SAFE-8921` SafeWalk reporting "crew notified" with nothing sent, and the
+Munich journal writing the user's day in the first person. Both recoveries were **two-parent
+merges** rather than resets (PR #24 on 08-22; `17810f7` on 09-04, "Merge main a third time:
+keep the audio engine and brand assets, drop nothing"), so nothing was lost either time. A
+merge keeps both lines; a force-push keeps whichever workspace pushed last.
+
+The owner works across Claude Code, Gemini and Antigravity, and the invariants lived only in
+`docs/HANDOVER.md`, which none of those read on their own. So:
+
+- **`AGENTS.md`** at the repo root — the cross-tool convention file — with `CLAUDE.md` and
+  `GEMINI.md` as one-liners pointing at it. Push rule first, then the branch rule, the
+  invariants verbatim from HANDOVER, the honesty rules, how to run the two guards, and where
+  the other documents are.
+- **Branch protection on `main` is still off, and turning it on is the owner's**: GitHub →
+  Settings → Branches, block force-pushes, require a PR. Documentation asks a tool to behave;
+  a branch rule stops it. Every ticket carries this exposure until that setting exists.
+
+**`tools/audit_props.py` gained a second pass.** The first pass clears a handler the moment it
+touches the graph, and the newer class of prop does exactly that: the Munich journal wrote
+real rows carrying `presence_score: "98.5%"`, and the wearable QR scan created a genuine
+`proximity_encounter` entity holding `verified_via: "wearable_qr_scan"` while returning
+`karma_awarded: "+50 Real-World Connection Karma"`. A real write around an invented claim is
+invisible to a "does it touch the graph" test. The second pass re-reads every handler the
+first called real — plus the shared helpers and, through `ast`, the module functions it can
+resolve one hop down — and flags nine tokens that in this repo have only ever sat on invented
+values. On `17810f7` it names **8**, including all three of the wearable/connect handlers.
+
+Two things learned building it, both worth keeping:
+
+- **Scanning docstrings flags the handlers that were fixed.** House style is that a replaced
+  handler's docstring quotes the prop it replaced, so `"...returned trust_score: 98/100"` reads
+  identically to the prop itself. Docstrings, comments and the named disclaimer fields
+  (`no_*`, `note`, `suggestion`, `reason`, `why`) are stripped before the scan — trap 1 in this
+  repo, and it took the list from 21 down to 8.
+- **A true hit is not a defect.** `/payments/stripe/webhook` returns `"verified": True` after
+  actually running the HMAC. The tool cannot tell "asserted" from "checked, then reported", so
+  it prints the source line beside every flag and says so in its own docstring.
+
+**Repo hygiene — reported, nothing moved.** `surfaces/app/www/icons/` is 9.0 MB, of which
+**8.5 MB is thirteen JPG logo concepts referenced from nowhere in `www/`** — not the HTML, the
+manifests, `app.js` or either service worker. They ship with every deploy and never load.
+**They are the owner's design work and nothing here touches them**; the recommendation, in
+HANDOVER, is a `design/` folder outside the served tree. `tests/test_repo_hygiene.py` prints
+the list and asserts nothing about it. What it asserts instead is that **no image in a service
+worker's `SHELL` exceeds 200 KB** — `addAll` is a blocking install, so an 873 KB concept in
+that array is a first launch that never finishes. That rule found something on the way in:
+`icon-512.png` is **426 KB**, already over the line, so it is a pinned exception that can
+shrink and not grow. The guard was watched failing twice — once against the real tree with the
+exception removed (it named `icon-512.png` at 426 KB in both service workers), and permanently,
+by a test that builds a fake `www/` precaching a real 873 KB concept and checks it is reported.
+
+`scratch/build_showcase.py` moved to **`tools/build_showcase.py`** with a docstring saying what
+it built and when. It is the one-off that made the logo comparison gallery on 2026-08-31, and
+it only runs on the owner's machine — `brain_dir` is an absolute Windows path into a local
+Antigravity workspace. Kept rather than deleted: it is the record of which of thirteen concepts
+became the app icon, and that record is otherwise nowhere.
+
+**The suite is 1877 passing** (2026-09-04, at `17810f7`, 12m22s). The "931 passing tests" in
+the owner's own commit subjects is that workspace's count, not this line's — which is itself a
+symptom of the same split.

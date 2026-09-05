@@ -1,8 +1,12 @@
 # Handover — next session start here
 
-_Rewritten 2026-07-26, updated 2026-08-04. This is the 60-second version; `docs/STATUS.md` is the
-fuller picture and `docs/ROADMAP.md` is the parked map. Where any document and the code disagree,
-**the code wins** — and after the Antigravity expansion below, assume the code is ahead._
+_Rewritten 2026-07-26, updated 2026-08-04 and 2026-09-04. This is the 60-second version;
+`docs/STATUS.md` is the fuller picture and `docs/ROADMAP.md` is the parked map. Where any document
+and the code disagree, **the code wins** — and after the Antigravity expansion below, assume the
+code is ahead._
+
+_The conventions every tool should read before touching this repo are now in **`AGENTS.md`** at the
+root, with `CLAUDE.md` and `GEMINI.md` pointing at it. This file stays the long version._
 
 ## Context
 
@@ -13,7 +17,36 @@ The v0 schema is final — extend via `attrs` JSONB only. Every feature works wi
 and improves with one. **No secrets in the repo, ever.** Tests pass before every commit.
 
 Branch: `claude/lifeos-repository-connection-lfeqba` (always; never push elsewhere without
-explicit permission). **PRs #1–#16 are merged; #17 (erasure + sign-in) is open.** `python -m pytest` → **1098 passing**.
+explicit permission). **PRs #1–#25 are merged.** `python -m pytest` → **1877 passing**
+(measured 2026-09-04 at `17810f7`, 12m22s; the "931 passing tests" in the owner's own commit
+subjects is that workspace's count, not this line's).
+
+## READ FIRST: `main` has been force-pushed twice, and both times it erased a month
+
+On **2026-08-2x** and again on **2026-08-31**, `main` was force-pushed from a local workspace
+whose base was `c4f9899` (2026-08-21). Each push erased **77 commits** — PRs **#19–#25**: seven
+tickets, thirteen modules, roughly nine hundred tests — and reinstated two modules that
+fabricate: the `SAFE-8921` SafeWalk that reported "crew notified" with nothing sent, and the
+Munich journal that invented the user's day in the first person.
+
+**Nothing was lost, and that is the only reason this is a paragraph rather than a disaster.**
+Both times the fix was a **two-parent merge** rather than a reset — PR #24 on 2026-08-22
+("Merge the two lines of work: keep every implementation that does not fabricate"), and
+`17810f7` on 2026-09-04 ("Merge main a third time: keep the audio engine and brand assets, drop
+nothing"). A merge keeps both lines. A force-push keeps one, and the one it keeps is whichever
+workspace pushed last.
+
+Two things follow, and only the second of them actually holds:
+
+- **`AGENTS.md`** now states the rule — pull/rebase before pushing, never force-push `main` —
+  where every tool will see it. That is documentation, and the incidents happened because
+  documentation lived in a file the pushing tool never read.
+- **Enable branch protection on `main`.** GitHub → Settings → Branches → add a rule for `main`
+  that blocks force-pushes and requires a pull request. **This is an owner action in GitHub
+  settings and cannot be done from a session here.** It is the only measure that stops the third
+  occurrence rather than describing the first two.
+
+Every ticket carries this exposure until that setting is on.
 
 ## READ FIRST: the repo doubled while these sessions were idle
 
@@ -61,6 +94,33 @@ in anyone else's graph.
 
 Only two things the owner can actually *use* today are Travel Mode and the APK. Everything in the
 social layer is exercisable only in the test suite until there is a reachable host.
+
+**The prop work is essentially done.** `python3 tools/audit_props.py` reads **24 literals of 498
+handlers, 5%**, down from 184 of 445 when the sweep began; what is left is the hardware group and
+the payment processors, both of which are refusals rather than fakes. The tool now runs a **second
+pass** as well — handlers that reach the graph and still assert an invented value, which the first
+pass calls clean by construction. Read its docstring before trusting either number.
+
+### The launch blocker — provisioning, and it is the owner's
+
+Everything this file describes is written, tested and merged. **The one thing standing between
+the repo and a usable app is a deployment**, and every step of it needs an account and a browser
+rather than a session here. `docs/DEPLOY.md` is the fifteen-minute version; the shape of it:
+
+1. **Render → New → Blueprint**, pointed at this repo. It reads `render.yaml`. **Keep the disk** —
+   one SQLite file at `/app/data`; without a persistent disk every deploy resets to empty, and the
+   free tier has no disks and sleeps, which also breaks certificate renewal.
+2. **`LIFEOS_SIGNING_KEY` and `LIFEOS_GATEWAY_TOKEN`, generated separately.** Two runs of
+   `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`, or any password manager's
+   32-character generator. Reusing one value for both makes the signing key as widely known as the
+   gateway token. Neither ever goes in the repo or a chat log.
+3. **Two cron jobs**: `POST /v1/seeding/drain` hourly, because seeding runs in-process and a deploy
+   mid-seed leaves a city queued; and `python -m tools.backup --dest /app/data/backups --keep 14`.
+4. **`tools/verify_deploy.py` against the live box.** Geocoding, Overpass and Open-Meteo have
+   **never made a live call** — this sandbox and CI both block egress — so a green suite proves
+   nothing about the internet. The script arrives in a city, waits for the seed and reports what
+   came back; it never treats "did not crash" as success. **That run is the first real test of the
+   external stack.**
 
 ## The VPS — **written; two steps are the owner's**
 
@@ -402,6 +462,9 @@ errors leak no internals, and `/health` plus `/v1/auth/providers` are the only r
 answer without a token.
 
 ## READ THIS TOO: 41% of the app returns invented data
+
+_Historical, kept because the reasoning is still the reasoning. It is **5%** now — see "The prop
+sweep" below and run the tool. Everything else in this section still reads true._
 
 `python3 tools/audit_props.py` — **183 of 447 handlers return a dict literal**, never
 touching the graph. That is fine for a sketch and fatal for a first impression, and it is
@@ -865,3 +928,27 @@ those up.
 CONNECT through this environment's proxy. The parsing is written against documented response
 shapes and tested on fixtures; **the first real call on a deployed box is the actual test.**
 Failure is a recorded status, never a crash and never an invented number.
+
+### 8.5 MB of design work ships with every deploy and never loads — 2026-09-04
+
+`surfaces/app/www/icons/` is **9.0 MB**. Three files in it are the app's actual icons
+(`icon-192.png`, `icon-512.png`, `apple-touch-icon.png`). The other **thirteen are JPG logo
+concepts, 8.5 MB**, referenced by nothing in `www/` — not `index.html`, not `app.js`, not either
+manifest, not either service worker. They are copied into every image and every deploy, and no
+browser ever asks for one.
+
+**They are the owner's design work and nothing here moves or deletes them.** They are also the
+record of how the mark was chosen, which is worth keeping — `tools/build_showcase.py` (moved out of
+`scratch/` on 2026-09-04) is the one-off that built the comparison gallery from them.
+
+**The recommendation, which is the owner's call: move them to a `design/` folder outside the served
+tree.** They stay in git, they stop being part of what a phone downloads. `git mv` keeps the
+history.
+
+`tests/test_repo_hygiene.py` reports the list on every run (`-s` to see it) and asserts nothing
+about it. What it *does* assert is the part that would hurt somebody: **no image in a service
+worker's `SHELL` may be over 200 KB.** `addAll` is a blocking install, so one 873 KB concept added
+to that array is a first launch on hotel wifi that never finishes. One named exception is pinned —
+`icon-512.png` is **426 KB**, already over the line; the ceiling lets it shrink and not grow.
+`app.js` (385 KB) is exempt by kind: it is the application, not an asset, and a rule that fails
+every time a feature lands is a rule somebody deletes.
