@@ -5,8 +5,10 @@ two real accounts, not one that was theorised. They are grouped by the hole rath
 the module, because that is how they will be read if one of them ever fails again.
 """
 
+import base64
 import os
 import pathlib
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -921,8 +923,23 @@ def test_the_contact_card_reaches_no_third_party(cfg):
     card = client.get("/v1/people/qr",
                       headers={"Authorization": f"Bearer {token}"})
     assert card.status_code == 200
-    assert "qrserver" not in card.text and "http://" not in card.text
+    assert "qrserver" not in card.text
     assert card.json()["vcard_data_uri"].startswith("data:text/vcard")
+
+    # The route now also returns a real QR of that vCard (T1), and an SVG has to declare
+    # `xmlns="http://www.w3.org/2000/svg"` — an XML namespace identifier, which no client
+    # ever fetches. A bare `"http://" not in card.text` therefore stopped meaning "reaches
+    # no third party" and started meaning "contains no SVG". What this test is for is a URL
+    # the browser would actually go and get, so every absolute URL in the body is listed
+    # and the namespace is the only one allowed. Base64 payloads are decoded first: a data
+    # URI must not be somewhere a third-party host can hide from this check.
+    seen = [str(value) for value in card.json().values()]
+    for value in list(seen):
+        if ";base64," in value:
+            seen.append(base64.b64decode(value.split(";base64,", 1)[1])
+                        .decode("utf-8", "replace"))
+    urls = set(re.findall(r"""https?://[^\s'"<>\\]+""", " ".join(seen)))
+    assert urls <= {"http://www.w3.org/2000/svg"}, urls
 
 
 @pytest.mark.parametrize("handle,leaked", [

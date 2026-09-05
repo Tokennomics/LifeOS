@@ -114,31 +114,32 @@
       <h2 style="margin:0; font-size:18px;">👕 Wearable QR & T-Shirt Studio</h2>
       <button id="tshirt-close" class="pill" style="width:auto; padding:4px 10px;">✕</button>
     </div>
-    <p class="hint" style="margin-top:0; margin-bottom:12px;">Generate print-ready vector graphics with your personal LifeOS scannable QR code for T-shirts, hoodies, and event badges.</p>
-    
-    <label>Display Name
-      <input id="tshirt-name" placeholder="Alex V." value="Alex V.">
+    <p class="hint" style="margin-top:0; margin-bottom:12px;">A printable panel with a real QR code on it. Scanning it opens your card on this gateway. Only the handle is required; anything you leave blank is left off the shirt.</p>
+
+    <label>Handle <small>(required)</small>
+      <input id="tshirt-handle" placeholder="your handle" autocomplete="off">
     </label>
-    <label>Username Handle
-      <input id="tshirt-handle" placeholder="alex_v" value="alex_v">
+    <label>Display name <small>(optional)</small>
+      <input id="tshirt-name" placeholder="the name to print, if any" autocomplete="off">
     </label>
-    <label>Custom Tagline
-      <input id="tshirt-tagline" placeholder="AI Research · Surfing · Deep Work" value="AI Research · Surfing · Deep Work">
+    <label>Tagline <small>(optional)</small>
+      <input id="tshirt-tagline" placeholder="one line about you" autocomplete="off">
     </label>
-    <label>Top 3 Interests / Badges <small>(comma separated)</small>
-      <input id="tshirt-interests" placeholder="AI Systems, Surfing, Specialty Coffee" value="AI Systems, Surfing, Specialty Coffee">
+    <label>Up to three interests <small>(optional, comma separated)</small>
+      <input id="tshirt-interests" placeholder="comma separated" autocomplete="off">
     </label>
 
     <div style="margin:16px 0; text-align:center;">
       <div id="tshirt-preview-container" style="background:#020617; border:1px solid var(--line-soft); border-radius:12px; padding:12px; min-height:220px; display:flex; align-items:center; justify-content:center;">
-        <span class="hint">Click "Generate Vector Graphic" to preview</span>
+        <span class="hint">Generate to preview the panel</span>
       </div>
     </div>
 
     <div class="row">
-      <button id="tshirt-generate-btn" class="primary" style="flex:1;">⚡ Generate Vector Graphic</button>
-      <button id="tshirt-download-btn" class="pill" style="flex:1; border-color:var(--spark);" disabled>📥 Download Print SVG</button>
+      <button id="tshirt-generate-btn" class="primary" style="flex:1;">Generate panel</button>
+      <button id="tshirt-download-btn" class="pill" style="flex:1; border-color:var(--spark);" disabled>Download SVG</button>
     </div>
+    <p class="hint" id="tshirt-status" style="margin:10px 0 0; font-size:12px;"></p>
   </dialog>
 
   <!-- Real-Time Camera Scanner Viewfinder -->
@@ -151,15 +152,17 @@
       <video id="scanner-video" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline></video>
       <div id="scanner-placeholder" style="position:absolute; text-align:center; padding:20px; color:#64748b;">
         <span style="font-size:36px; display:block; margin-bottom:8px;">🎯</span>
-        <span style="font-size:13px;">Point camera at any LifeOS T-shirt, wristband or badge</span>
+        <span style="font-size:13px;">Point the camera at a LifeOS shirt code</span>
       </div>
+      <!-- Every frame is drawn here and read by jsQR. Off-screen rather than hidden:
+           a display:none canvas still works, but keeping it in the flow at zero size
+           avoids surprises with getImageData on some mobile browsers. -->
+      <canvas id="scanner-canvas" width="0" height="0" style="position:absolute; left:-9999px; top:0;"></canvas>
       <!-- Cyber Laser Scanline -->
       <div id="scanner-laser" style="position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg, transparent, #38bdf8, #c084fc, transparent); box-shadow:0 0 12px #38bdf8; animation:laserMove 2.2s ease-in-out infinite;"></div>
     </div>
-    <p class="hint" style="margin:10px 0 14px; text-align:center; font-size:12px;">Instant Proximity Encounter & Vouch (+50 Karma)</p>
-    <div class="row">
-      <button id="scanner-mock-detect-btn" class="primary" style="width:100%;">⚡ Test Connect with Nearby Member</button>
-    </div>
+    <p class="hint" id="scanner-status" style="margin:10px 0 6px; text-align:center; font-size:12px;">Starting the camera.</p>
+    <p class="hint" style="margin:0 0 4px; text-align:center; font-size:11px;">Recording a scan is your word that you met them. It verifies nothing about who they are, and you can withdraw it under trust.</p>
   </dialog>
 
   <dialog id="cmd-palette" style="background:var(--surface-1); border:1px solid var(--spark); border-radius:16px; padding:20px; max-width:480px; width:90%; color:var(--text);">
@@ -180,6 +183,7 @@
 
   <div id="toast" hidden></div>
 
+  <script src="vendor/jsQR.js"></script>
   <script src="audio_feedback.js"></script>
   <script src="sync_queue.js"></script>
   <script src="travel-coach.js"></script>

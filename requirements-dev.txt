@@ -1,0 +1,12 @@
+# Test-only dependencies. Kept out of requirements.txt because a deployment needs none of
+# them, and the suite skips rather than fails when they are absent.
+-r requirements.txt
+
+# `tests/test_wearable_qr_roundtrip.py` renders the generated shirt panel in a real browser
+# and decodes it with the vendored jsQR. A headless browser has no camera, so rasterising
+# the SVG and reading the pixels is the only way to close the out->in path — and a QR that
+# is structurally valid but unloadable, or drawn off the pixel grid, passes every check
+# that can be made in Python.
+#
+# Install the browser too: `python -m playwright install chromium`.
+playwright>=1.40

@@ -6587,36 +6587,185 @@ if (setAudioCheckbox) {
   });
 }
 
-/* ---- Real-Time Camera Scanner Viewfinder ---- */
+/* ---- Camera scanner: decode a real code, or say nothing was decoded ----
+
+   What was here opened the camera and stopped. The only way out of the dialog was a button
+   labelled "Test Connect with Nearby Member" that posted a `scanned_handle` written into
+   this file, so every scan by every user recorded meeting the same person, and the toast
+   credited "+50 Real-World Proximity Karma", which this app does not have. No decoder was
+   ever loaded. (The removed names are spelled out in the handler docstrings in
+   `gateway/modules_api.py`; a guard asserts they are absent from this file.)
+
+   Now each frame is drawn to a canvas and read: `BarcodeDetector` where the browser has it
+   (hardware-accelerated, and it is the platform's own decoder), else the vendored jsQR. A
+   handle is only ever taken out of a decoded payload. When nothing decodes, the status line
+   says nothing has decoded and the loop keeps going — that is the honest state of a camera
+   pointed at a wall, and it is not an error. */
+
 const cameraScanBtn = $("#camera-scan-btn");
 const scannerDlg = $("#camera-scanner");
 const scannerCloseBtn = $("#scanner-close-btn");
 const scannerVideo = $("#scanner-video");
-const scannerMockBtn = $("#scanner-mock-detect-btn");
+const scannerCanvas = $("#scanner-canvas");
+const scannerStatus = $("#scanner-status");
+
 let scannerStream = null;
+let scannerFrame = null;
+let scannerBusy = false;
+let scannerDetector = null;
+
+function scanSay(text) {
+  if (scannerStatus) scannerStatus.textContent = text;
+}
+
+/* A decoded payload is only useful if it is one of our connect links. Parsed with `URL`
+   rather than matched with a regular expression so that a code carrying somebody else's
+   `?handle=` — a different site's URL, a wifi QR, a random sticker — cannot be read as one
+   of ours. Relative and absolute forms both work: the badge encodes whatever base URL
+   served the request that made it. */
+function handleFromScan(text) {
+  if (!text) return "";
+  let url;
+  try {
+    url = new URL(text, window.location.origin);
+  } catch (e) {
+    return "";
+  }
+  const hash = url.hash || "";
+  const at = hash.indexOf("?");
+  if (!hash.startsWith("#connect") || at < 0) return "";
+  const handle = new URLSearchParams(hash.slice(at + 1)).get("handle") || "";
+  return handle.trim().replace(/^@/, "");
+}
+
+async function decodeFrame() {
+  if (!scannerVideo || !scannerCanvas) return "";
+  const w = scannerVideo.videoWidth;
+  const h = scannerVideo.videoHeight;
+  if (!w || !h) return "";
+
+  if (scannerDetector) {
+    try {
+      const found = await scannerDetector.detect(scannerVideo);
+      if (found && found.length) return found[0].rawValue || "";
+      return "";
+    } catch (e) {
+      // One failure is enough to stop trusting it; jsQR takes over for the rest of the
+      // session rather than throwing on every frame.
+      scannerDetector = null;
+    }
+  }
+
+  if (typeof window.jsQR !== "function") return "";
+  scannerCanvas.width = w;
+  scannerCanvas.height = h;
+  const ctx = scannerCanvas.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(scannerVideo, 0, 0, w, h);
+  const frame = ctx.getImageData(0, 0, w, h);
+  const hit = window.jsQR(frame.data, frame.width, frame.height, { inversionAttempts: "dontInvert" });
+  return hit ? hit.data : "";
+}
+
+async function scanTick() {
+  scannerFrame = null;
+  if (!scannerStream || scannerBusy) return;
+  let decoded = "";
+  try {
+    decoded = await decodeFrame();
+  } catch (e) {
+    decoded = "";
+  }
+
+  if (decoded) {
+    const handle = handleFromScan(decoded);
+    if (!handle) {
+      scanSay("Read a code, but it is not a LifeOS shirt code.");
+    } else {
+      scannerBusy = true;
+      scanSay("Read @" + handle + ". Recording that you met.");
+      try {
+        const res = await api("/v1/connect/scan-vouch", { scanned_handle: handle });
+        if (window.LifeOSAudio) window.LifeOSAudio.playConnect();
+        toast(res.already
+          ? "Already recorded that you met @" + res.scanned_handle + "."
+          : "Recorded that you met @" + res.scanned_handle + ". It is your word, not a verification.");
+        stopCameraScanner();
+        refresh();
+        return;
+      } catch (err) {
+        scannerBusy = false;
+        scanSay(err && err.message ? err.message : "Could not record that scan.");
+      }
+    }
+  } else if (!scannerBusy) {
+    scanSay("No code in view yet.");
+  }
+
+  if (scannerStream) scannerFrame = requestAnimationFrame(scanTick);
+}
 
 async function startCameraScanner() {
   if (!scannerDlg) return;
   scannerDlg.showModal();
-  try {
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      if (scannerVideo) {
-        scannerVideo.srcObject = scannerStream;
-        const ph = $("#scanner-placeholder");
-        if (ph) ph.style.display = "none";
-      }
-    }
-  } catch (e) {
-    console.log("Camera stream info:", e);
+  scannerBusy = false;
+  scanSay("Starting the camera.");
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    scanSay("This browser gives the page no camera, so there is nothing to scan.");
+    return;
   }
+  try {
+    scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  } catch (e) {
+    // Told apart on purpose: "you said no" and "there is no camera here" need different
+    // things from the person reading it, and neither is a failure of theirs.
+    const name = (e && e.name) || "";
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      scanSay("Camera permission was refused, so nothing can be scanned. Allow it in the browser's site settings and reopen this.");
+    } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+      scanSay("No camera on this device.");
+    } else {
+      scanSay("The camera could not be opened" + (name ? " (" + name + ")" : "") + ".");
+    }
+    return;
+  }
+
+  if (scannerVideo) {
+    scannerVideo.srcObject = scannerStream;
+    const ph = $("#scanner-placeholder");
+    if (ph) ph.style.display = "none";
+  }
+
+  if ("BarcodeDetector" in window) {
+    try {
+      const kinds = await window.BarcodeDetector.getSupportedFormats();
+      if (kinds && kinds.indexOf("qr_code") >= 0) {
+        scannerDetector = new window.BarcodeDetector({ formats: ["qr_code"] });
+      }
+    } catch (e) {
+      scannerDetector = null;
+    }
+  }
+  if (!scannerDetector && typeof window.jsQR !== "function") {
+    scanSay("The decoder did not load, so this cannot read a code.");
+    return;
+  }
+
+  scanSay("No code in view yet.");
+  scannerFrame = requestAnimationFrame(scanTick);
 }
 
 function stopCameraScanner() {
+  if (scannerFrame) {
+    cancelAnimationFrame(scannerFrame);
+    scannerFrame = null;
+  }
   if (scannerStream) {
     scannerStream.getTracks().forEach(t => t.stop());
     scannerStream = null;
   }
+  scannerBusy = false;
+  if (scannerVideo) scannerVideo.srcObject = null;
   if (scannerDlg) scannerDlg.close();
 }
 
@@ -6628,31 +6777,41 @@ if (scannerCloseBtn) {
   scannerCloseBtn.addEventListener("click", stopCameraScanner);
 }
 
-if (scannerMockBtn) {
-  scannerMockBtn.addEventListener("click", async () => {
-    try {
-      const res = await api("/v1/connect/scan-vouch", { scanner_id: "me", scanned_handle: "elena_s" });
-      if (window.LifeOSAudio) window.LifeOSAudio.playConnect();
-      toast(res.message || "⚡ Connected with @elena_s! +50 Real-World Proximity Karma awarded.");
-      stopCameraScanner();
-      refresh();
-    } catch (err) {
-      toast("Scan encounter error: " + err.message);
-    }
-  });
-}
+/* ---- Wearable shirt panel ----
 
-/* ---- Wearable T-Shirt & Instant QR Studio ---- */
+   The three text inputs used to be pre-filled with a name, a handle and a tagline belonging
+   to a person who does not exist, and this file supplied the same three again as fallbacks,
+   so a user who cleared the boxes got them back. The handle now starts as the signed-in
+   account's own and nothing else is filled in. */
+
 const tshirtDlg = $("#wearable-studio");
 const setTshirtBtn = $("#set-tshirt");
 const tshirtCloseBtn = $("#tshirt-close");
 const tshirtGenBtn = $("#tshirt-generate-btn");
 const tshirtDownloadBtn = $("#tshirt-download-btn");
+const tshirtStatus = $("#tshirt-status");
 let lastGeneratedSvgUri = null;
 
+function tshirtSay(text) {
+  if (tshirtStatus) tshirtStatus.textContent = text || "";
+}
+
 if (setTshirtBtn && tshirtDlg) {
-  setTshirtBtn.addEventListener("click", () => {
+  setTshirtBtn.addEventListener("click", async () => {
     if (settingsDlg) settingsDlg.close();
+    tshirtSay("");
+    const box = $("#tshirt-handle");
+    if (box && !box.value.trim()) {
+      try {
+        // `api(path)` with no body is a GET. `state.me` is what `refresh()` already
+        // holds, so this only asks the gateway when the app has not asked yet.
+        const me = state.me || await api("/v1/auth/me");
+        if (me && me.handle) box.value = me.handle;
+      } catch (e) {
+        // Signed out, or single-user mode with no account: leave it empty and let the
+        // gateway say "whose shirt is this?" rather than guessing a handle here.
+      }
+    }
     tshirtDlg.showModal();
   });
 }
@@ -6663,26 +6822,38 @@ if (tshirtCloseBtn && tshirtDlg) {
 
 if (tshirtGenBtn) {
   tshirtGenBtn.addEventListener("click", async () => {
-    try {
-      toast("Rendering Print-Ready Vector Graphic... 👕");
-      const name = $("#tshirt-name").value.trim() || "Alex V.";
-      const handle = $("#tshirt-handle").value.trim() || "alex_v";
-      const tagline = $("#tshirt-tagline").value.trim() || "AI Research · Surfing · Deep Work";
-      const interests = ($("#tshirt-interests").value || "AI Research, Surfing, Specialty Coffee").split(",").map(s => s.trim()).filter(Boolean);
+    const handle = $("#tshirt-handle").value.trim().replace(/^@/, "");
+    if (!handle) {
+      tshirtSay("Whose shirt is this? A handle is required.");
+      return;
+    }
+    const name = $("#tshirt-name").value.trim();
+    const tagline = $("#tshirt-tagline").value.trim();
+    const interests = ($("#tshirt-interests").value || "").split(",").map(s => s.trim()).filter(Boolean);
 
+    tshirtSay("Encoding.");
+    try {
       const res = await api("/v1/wearables/tshirt-badge", { name, handle, tagline, interests, style: "streetwear_back" });
-      if (res && res.svg_vector_url) {
-        lastGeneratedSvgUri = res.svg_vector_url;
-        const container = $("#tshirt-preview-container");
-        if (container) {
-          container.innerHTML = `<img src="${res.svg_vector_url}" alt="T-Shirt Vector Preview" style="max-width:100%; max-height:280px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);">`;
-        }
-        if (tshirtDownloadBtn) tshirtDownloadBtn.disabled = false;
-        if (window.LifeOSAudio) window.LifeOSAudio.playConnect();
-        toast(`T-Shirt Vector Ready for ${name}! 🚀 Ready to print.`);
+      lastGeneratedSvgUri = res && res.svg_data_uri ? res.svg_data_uri : null;
+      const container = $("#tshirt-preview-container");
+      if (container && lastGeneratedSvgUri) {
+        container.innerHTML = "";
+        const img = document.createElement("img");
+        img.src = lastGeneratedSvgUri;
+        img.alt = "Shirt panel for @" + handle;
+        img.style.cssText = "max-width:100%; max-height:280px; border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,0.5);";
+        container.appendChild(img);
       }
+      if (tshirtDownloadBtn) tshirtDownloadBtn.disabled = !lastGeneratedSvgUri;
+      if (window.LifeOSAudio) window.LifeOSAudio.playConnect();
+      // The version and module count come off the encoder, so this line is a fact about
+      // the file rather than a claim that it scans.
+      const q = res && res.qr ? res.qr : null;
+      tshirtSay(q
+        ? "QR version " + q.version + ", " + q.modules + " modules a side, error correction " + q.error_correction + ". It opens " + res.connect_url + "."
+        : "Panel ready.");
     } catch (err) {
-      toast("Error generating wearable vector: " + err.message);
+      tshirtSay(err && err.message ? err.message : "Could not generate the panel.");
     }
   });
 }
@@ -6692,12 +6863,11 @@ if (tshirtDownloadBtn) {
     if (!lastGeneratedSvgUri) return;
     const a = document.createElement("a");
     a.href = lastGeneratedSvgUri;
-    a.download = `lifeos_tshirt_badge_${Date.now()}.svg`;
+    a.download = "lifeos_shirt_panel_" + Date.now() + ".svg";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    if (window.LifeOSAudio) window.LifeOSAudio.playDividend();
-    toast("Downloaded Print-Ready SVG Vector! 📦");
+    tshirtSay("Saved the SVG. It is vector, so it prints at any size.");
   });
 }
 
