@@ -1012,7 +1012,8 @@ function todayView() {
     <input class="field" id="tp-city" placeholder="Which city?" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="stream-auto-events">Stream Event Feeds (284) 📡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #f59e0b);" data-act="synth-ai-outing">AI Outing Synthesizer 🤖</button>
+      <button class="primary" data-act="synth-ai-outing">Build an evening 🤖</button>
+      <input id="seed-theme" placeholder="a theme, if you have one" style="flex:1; min-width:140px;">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="load-third-places">Seed a city's map 📍</button>
       <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="trigger-weather-outings">Weather Triggers ☀️</button>
     </div>
@@ -5278,19 +5279,27 @@ function wire(root) {
   on("[data-act=negotiate-ai-agents]", () => act(async () => {
     renderAI(await api("/v1/ai/agent-negotiator", {}), "#frontier-stack-output", "Your crew's plans");
   }));
+  /* Reported a seed density, a list of curated third places and a feed count, from a city
+     hardcoded to Lisbon. It seeds real places from OpenStreetMap and syncs whatever
+     calendar feeds this deployment subscribes to, and reports what came back. */
   on("[data-act=seed-city-bootstrap]", () => act(async () => {
-    const res = await api("/v1/seeding/city-bootstrap", { city: "Lisbon" });
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/seeding/city-bootstrap", { city });
     const out = $("#seeding-output");
     if (!out) return;
-    const feeds = res.active_event_feeds || [];
+    const places = res.places || {};
+    const feeds = res.feeds || {};
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🗺️ City Bootstrap Complete (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Seeded: <strong>${res.curated_third_places} Curated Third-Places</strong> (${esc(res.seed_density)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Feeds: ${feeds.join(", ")}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city || city)}</div>
+        ${res.empty
+          ? `<div style="font-size:12px; color:var(--muted);">Nothing came back. The map service may be unreachable from this deployment.</div>`
+          : `<div style="font-size:13px; margin-bottom:4px;">Places added: <strong>${places.added != null ? places.added : 0}</strong> · Feeds synced: <strong>${feeds.added != null ? feeds.added : 0}</strong></div>`}
+        ${res.attribution ? `<div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.attribution)}</div>` : ""}
       </div>
     `;
-  }, "City Bootstrapped with Zero Cold Start! 🗺️"));
+  }));
 
   on("[data-act=mint-pioneer-pass]", () => act(async () => {
     /* Minted "City Pioneer #042" with a year of free VIP and complimentary coffee at
@@ -5401,34 +5410,37 @@ function wire(root) {
     }
   }));
 
+  /* Said "284 events ingested" across categories from Luma, Resident Advisor, Eventbrite
+     and Dice, none of which this app integrates, on a sync frequency it invented. It runs
+     the calendar feeds and the ticket provider this deployment actually has, and reports
+     what each one returned. */
   on("[data-act=stream-auto-events]", () => act(async () => {
-    const res = await api("/v1/seeding/auto-event-pipeline", { city: "Lisbon" });
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/seeding/auto-event-pipeline", { city });
     const out = $("#content-pipeline-output");
     if (!out) return;
-    const cats = res.categories_covered || [];
+    const feeds = res.feeds || {};
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📡 Live Event Feeds Synced (${res.events_ingested} Events):</div>
-        <div style="font-size:13px; margin-bottom:4px;">City: <strong>${esc(res.city)}</strong> · Frequency: ${esc(res.sync_frequency)}</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Categories: ${cats.join(" · ")}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city || city)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">Added from calendar feeds: <strong>${feeds.added != null ? feeds.added : 0}</strong></div>
+        ${res.provider ? `<div style="font-size:13px; margin-bottom:4px;">${esc(res.provider)}: ${esc(String(res.status || ""))}</div>` : ""}
+        ${res.added != null ? `<div style="font-size:12px; color:var(--muted);">${res.added} in total.</div>` : ""}
       </div>
     `;
-  }, "284 Live Event Feeds Streamed! 📡"));
+  }));
 
+  /* Returned four numbered stops with a time and a "vibe" for each, plus an estimated
+     split, for a theme it had defaulted. The route assembles an itinerary from places and
+     events actually recorded in that city; with none, it says so. */
   on("[data-act=synth-ai-outing]", () => act(async () => {
-    const res = await api("/v1/seeding/ai-outing-synthesizer", { city: "Lisbon", theme: "Hidden Sunset Vinyl & Craft Beer Crawl" });
-    const out = $("#content-pipeline-output");
-    if (!out) return;
-    const stops = res.generated_stops || [];
-    const items = stops.map(s => `<div style="margin-top:2px;">• <strong>Stop ${s.stop} (${esc(s.time)})</strong>: ${esc(s.place)} (${esc(s.vibe)})</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🤖 AI Micro-Itinerary Synthesized:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Theme: <strong>${esc(res.theme)}</strong> (Split: ${esc(res.estimated_split)})</div>
-        <div style="font-size:12px; margin-bottom:4px;">${items}</div>
-      </div>
-    `;
-  }, "AI Outing Micro-Itinerary Synthesized! 🤖"));
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    const theme = $("#seed-theme") ? $("#seed-theme").value.trim() : "";
+    if (!city) { toast("Which city?"); return; }
+    renderAI(await api("/v1/seeding/ai-outing-synthesizer", { city, theme }),
+             "#content-pipeline-output", theme || "An evening there");
+  }));
 
   /* Claimed "160 Verified Third Places" with a breakdown down to 42 specialty coffee
      workspaces, for the city "Lisbon" whoever pressed it, with "Live Opening Hours & Wi-Fi
@@ -5458,20 +5470,27 @@ function wire(root) {
     }
   }));
 
+  /* Published outings tagged [LIVE] against a weather condition typed into the request
+     body, and reported them as auto-published on somebody's behalf. The route reads real
+     conditions where it can and says plainly when it cannot reach the service. */
   on("[data-act=trigger-weather-outings]", () => act(async () => {
-    const res = await api("/v1/seeding/weather-triggers", { city: "Lisbon", condition: "Sunny 24°C with 4ft Ocean Swell" });
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/seeding/weather-triggers", { city });
     const out = $("#content-pipeline-output");
     if (!out) return;
-    const outings = res.auto_published_outings || [];
-    const items = outings.map(o => `<div style="margin-top:2px;">• ☀️ <strong>${esc(o.activity)}</strong> <span style="color:var(--growth); font-weight:bold;">[LIVE]</span></div>`).join("");
+    const rows = (res.triggers || []).map(t =>
+      `<div style="font-size:13px; margin-top:2px;">${esc(typeof t === "string" ? t : (t.what || t.activity || ""))}</div>`).join("");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">☀️ Weather Trigger Outings Published:</div>
-        <div style="font-size:13px; margin-bottom:4px;">Condition: <strong>${esc(res.live_conditions)}</strong></div>
-        <div style="font-size:12px;">${items}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city_label || res.city || city)}</div>
+        ${res.available === false
+          ? `<div style="font-size:12px; color:var(--muted);">${esc(res.detail || res.status || "Conditions are not available here.")}</div>`
+          : `<div style="font-size:13px; margin-bottom:4px;">${esc(res.status || "")}</div>${rows}`}
+        ${res.suggestion ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">${esc(res.suggestion)}</div>` : ""}
       </div>
     `;
-  }, "Weather-Triggered Outings Published! ☀️"));
+  }));
 
   on("[data-act=view-sports-hobbies]", () => act(async () => {
     renderMatch(await api("/v1/hobbies/sports-outdoors",
@@ -6626,24 +6645,30 @@ function wire(root) {
     toast(`Synced official ${name} program to your Smart Calendar! 📅`);
   }));
 
+  /* Listed "known favorite spots" with a reason for each and "curated events" with an
+     interested count, from a city that defaulted to Lisbon and a date that defaulted to a
+     day in August 2026. The route returns an itinerary assembled from that city's real
+     places and events, plus its conditions where the service is reachable. */
   on("[data-act=travel-brief]", () => act(async () => {
-    const city = $("#tr-city").value.trim() || "Lisbon";
-    const start_date = $("#tr-start").value || "2026-08-15";
-    const res = await api("/v1/travel/curated-brief", { city, start_date });
+    const city = $("#tr-city") ? $("#tr-city").value.trim() : "";
+    if (!city) { toast("Which city are you going to?"); return; }
+    const res = await api("/v1/travel/curated-brief",
+                          { city, start_date: $("#tr-start") ? $("#tr-start").value : "" });
     const out = $("#travel-brief-output");
     if (!out) return;
-    const spots = res.curated_spots || [];
-    const evts = res.upcoming_events || [];
+    const plan = res.whats_on || {};
+    const stops = plan.stops || [];
+    const cond = res.conditions || {};
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid rgba(37,99,235,0.3);">
-        <div style="font-size:14px; font-weight:700; color:var(--spark); margin-bottom:8px;">✈️ Curated Itinerary Brief: ${esc(res.city)} (${esc(res.dates)})</div>
-        <div style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--muted); margin-bottom:4px;">Known Favorite Spots:</div>
-        ${spots.map(s => `<div style="font-size:13px; margin-bottom:4px;">📍 <strong>${esc(s.name)}</strong> (${esc(s.category)}) — <span style="color:var(--muted);">${esc(s.reason)}</span></div>`).join("")}
-        <div style="font-size:12px; font-weight:700; text-transform:uppercase; color:var(--muted); margin:8px 0 4px;">Upcoming Curated Events:</div>
-        ${evts.map(e => `<div style="font-size:13px; margin-bottom:4px;">🎟️ <strong>${esc(e.title)}</strong> · ${esc(e.date)} (${e.going_count} interested)</div>`).join("")}
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:8px;">${esc(res.city || city)}</div>
+        ${stops.length
+          ? stops.map(s => `<div style="font-size:13px; margin-bottom:4px;">${esc(s.what || s.where || "")}${s.where && s.what ? ` — <span style="color:var(--muted);">${esc(s.where)}</span>` : ""}${s.when ? ` <span style="color:var(--muted);">${esc(whenLabel(s.when))}</span>` : ""}</div>`).join("")
+          : `<div style="font-size:12px; color:var(--muted);">${esc(plan.suggestion || "Nothing is recorded in this city yet.")}</div>`}
+        ${cond.status ? `<div style="font-size:12px; color:var(--muted); margin-top:6px;">${esc(cond.status)}</div>` : ""}
       </div>
     `;
-  }, "Curated Travel Forecast Generated! ✈️"));
+  }));
 
   /* ---- Deep Work Focus Shield & Data Sovereignty Export ---- */
 

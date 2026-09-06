@@ -27,7 +27,15 @@ for p in list(pathlib.Path("gateway").rglob("*.py")) + list(pathlib.Path("module
     server += p.read_text()
 emitted = set(re.findall(r'"([a-z_][a-z0-9_]*)"\s*:', server))
 emitted |= set(re.findall(r"'([a-z_][a-z0-9_]*)'\s*:", server))
-dead = sorted(k for k in reads if k not in emitted)
+# Keys the gateway builds by concatenation rather than writing as a literal, so no
+# `"name":` exists in the source to find. `_with_handles` in gateway/modules_api.py does
+# `payload[key + "_handle"] = names[payload[key]]` for counterparty and to_account, which is
+# how a balance screen shows "ana" instead of a UUID. The PWA reads them with a fallback to
+# the raw id, so the render is correct either way. Verified by reading that function, not
+# by assuming.
+BUILT_AT_RUNTIME = {"counterparty_handle", "to_account_handle"}
+
+dead = sorted(k for k in reads if k not in emitted and k not in BUILT_AT_RUNTIME)
 # `| head` closes the pipe mid-write; that is the shell being asked for fewer lines, not an
 # error, and a traceback there makes a working tool look broken.
 try:

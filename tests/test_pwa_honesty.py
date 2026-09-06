@@ -356,3 +356,21 @@ def test_no_card_asserts_a_verification_or_a_guarantee_in_its_own_label():
         for phrase in banned:
             assert phrase not in text, (
                 f"{filename} asserts {phrase!r} in its own copy.\n{where(text, phrase)}")
+
+
+def test_the_pwa_reads_no_key_the_server_never_sends():
+    """Every literal prop is gone from the gateway, and that is what broke these cards: a
+    replaced handler stops returning its invented keys, and the card reading them renders
+    `undefined` where a fabrication used to be. Better, and still broken.
+
+    `tools/audit_dead_keys.py` is the measurement; this pins it at zero so the next
+    replaced handler cannot quietly leave a card printing undefined behind it.
+    """
+    import subprocess
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    out = subprocess.run([sys.executable, str(root / "tools" / "audit_dead_keys.py")],
+                         cwd=root, capture_output=True, text=True, check=True).stdout
+    dead = [line.strip() for line in out.splitlines()[1:] if line.strip()]
+    assert dead == [], "the PWA reads keys no route emits: " + ", ".join(dead)
