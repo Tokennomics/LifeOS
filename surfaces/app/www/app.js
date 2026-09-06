@@ -570,10 +570,19 @@ function todayView() {
     <div class="row2" style="margin-bottom:8px;"><input class="field" id="dp-name" placeholder="Plugin Name (e.g. Kitesurf Radar)">
     <input class="field" id="dp-cat" placeholder="Category (e.g. Water Sports)">
     <button class="primary" data-act="register-dev-plugin">Publish Plugin 🚀</button></div>
-    <div style="display:flex; gap:8px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #06b6d4); font-size:12px; padding:6px 12px;" data-act="gen-dev-apikey">Provision API Key 🔌</button>
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981); font-size:12px; padding:6px 12px;" data-act="sub-dev-webhook">Register Webhook ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899); font-size:12px; padding:6px 12px;" data-act="test-dev-sandbox">Plugin Sandbox Test 🛠️</button>
+    <div style="border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
+      <div class="row2" style="margin-bottom:6px;">
+        <input class="field" id="dev-app" placeholder="app name, for a key">
+        <button class="primary" style="font-size:12px; padding:6px 12px;" data-act="gen-dev-apikey">Mint a key 🔌</button>
+      </div>
+      <div class="row2" style="margin-bottom:6px;">
+        <input class="field" id="dev-hook" placeholder="https://… where events should go">
+        <button class="primary" style="font-size:12px; padding:6px 12px;" data-act="sub-dev-webhook">Record endpoint ⚡</button>
+      </div>
+      <div class="row2">
+        <input class="field" id="dev-plugin" placeholder="plugin name, to check its manifest">
+        <button class="primary" style="font-size:12px; padding:6px 12px;" data-act="test-dev-sandbox">Check manifest 🛠️</button>
+      </div>
     </div>
     <div id="developer-output" style="margin-top:10px;"></div>
   </div>`;
@@ -6112,46 +6121,63 @@ function wire(root) {
     if (link) link.href = url;      // a Blob built in this tab, not a URL to somebody's server
     bindLater(out);
   }));
+  /* Reported a provisioned key with a rate limit of "10,000 req/minute" and an environment,
+     for an app name it had hardcoded. The route mints a real key, stores only its digest,
+     and shows the secret once — so the card has to say that, or somebody loses it. */
   on("[data-act=gen-dev-apikey]", () => act(async () => {
-    const res = await api("/v1/developers/api-keys", { app_name: "KiteSurf Wind Radar Plugin", environment: "production" });
+    const name = $("#dev-app") ? $("#dev-app").value.trim() : "";
+    if (!name) { toast("What is the app called?"); return; }
+    const res = await api("/v1/developers/api-keys", { name });
     const out = $("#developer-output");
     if (!out) return;
-    const scopes = res.scopes || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🔌 Developer API Key Provisioned (${esc(res.environment)}):</div>
-        <div style="font-family:monospace; font-size:12px; background:rgba(0,0,0,0.3); padding:6px; border-radius:6px; margin-bottom:4px; color:var(--growth);">${esc(res.api_key)}</div>
-        <div style="font-size:12px; color:var(--muted);">Rate Limit: ${esc(res.rate_limit)} · Scopes: ${scopes.join(", ")}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Key for ${esc(res.name)}</div>
+        <div style="font-family:monospace; font-size:12px; background:rgba(0,0,0,0.3); padding:6px; border-radius:6px; margin-bottom:4px; word-break:break-all;">${esc(res.secret || "")}</div>
+        <div style="font-size:12px; color:var(--warm); font-weight:700;">${esc(res.store_it_now || "")}</div>
+        ${(res.scopes || []).length ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">Scopes: ${(res.scopes || []).map(esc).join(", ")}</div>` : ""}
       </div>
     `;
-  }, "Developer API Key Provisioned! 🔌"));
+  }));
 
+  /* Said a webhook was active against a target URL it had hardcoded to somebody's example
+     domain. The route stores the endpoint and mints a signing secret shown once. */
   on("[data-act=sub-dev-webhook]", () => act(async () => {
-    const res = await api("/v1/developers/webhooks", { target_url: "https://api.myapp.com/webhooks/connectos" });
+    const url = $("#dev-hook") ? $("#dev-hook").value.trim() : "";
+    if (!url) { toast("Which URL should events go to?"); return; }
+    const res = await api("/v1/developers/webhooks", { url });
     const out = $("#developer-output");
     if (!out) return;
-    const events = res.subscribed_events || [];
+    const events = res.events || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">⚡ Webhook Active (${events.length} Events):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Target: <strong>${esc(res.target_url)}</strong></div>
-        <div style="font-size:11px; color:var(--spark);">Signing Secret: ${esc(res.signing_secret)} (${esc(res.signature_header)})</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Endpoint recorded</div>
+        <div style="font-size:13px; margin-bottom:4px; word-break:break-all;">${esc(res.url || url)}${events.length ? ` · ${events.length} event${events.length === 1 ? "" : "s"}` : ""}</div>
+        ${res.signing_secret ? `<div style="font-family:monospace; font-size:12px; background:rgba(0,0,0,0.3); padding:6px; border-radius:6px; word-break:break-all;">${esc(res.signing_secret)}</div>` : ""}
+        <div style="font-size:12px; color:var(--warm); font-weight:700; margin-top:4px;">${esc(res.store_it_now || "")}</div>
       </div>
     `;
-  }, "Webhook Subscribed! ⚡"));
+  }));
 
+  /* Said "Plugin Sandbox Verified", with an SDK version and a monetization tier, for a
+     plugin id it had hardcoded — and nothing was executed. The route validates a manifest:
+     it reports whether the scopes are recognised, and says plainly that nothing ran. */
   on("[data-act=test-dev-sandbox]", () => act(async () => {
-    const res = await api("/v1/developers/plugin-sandbox", { plugin_id: "com.windydev.kitesurf-radar" });
+    const name = $("#dev-plugin") ? $("#dev-plugin").value.trim() : "";
+    if (!name) { toast("Which plugin?"); return; }
+    const res = await api("/v1/developers/plugin-sandbox", { name });
     const out = $("#developer-output");
     if (!out) return;
+    const unknown = res.unrecognised_scopes || [];
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #a855f7;">
-        <div style="font-size:14px; font-weight:700; color:#a855f7; margin-bottom:4px;">🛠️ Plugin Sandbox Verified (${esc(res.store_status)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Plugin: <strong>${esc(res.plugin_id)}</strong> (${esc(res.sdk_version)})</div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Rev-Share: ${esc(res.monetization_tier)}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid ${res.valid ? "var(--growth)" : "var(--warm)"};">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.name || name)}${res.version ? ` · ${esc(res.version)}` : ""}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${res.valid ? "The manifest is well formed." : esc(res.reason || res.why || "The manifest was rejected.")}</div>
+        ${unknown.length ? `<div style="font-size:12px; color:var(--warm);">Scopes this app does not recognise: ${unknown.map(esc).join(", ")}</div>` : ""}
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">${esc(res.why || "")}</div>
       </div>
     `;
-  }, "Plugin Sandbox Tested & Published! 🛠️"));
+  }));
 
   /* Said "Teleported to Tokyo! 48 active nomads nearby" and named a hub, for any string —
      including a city nobody has seeded. The route returns that city's real arrival screen,
