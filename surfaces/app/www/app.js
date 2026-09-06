@@ -4860,32 +4860,46 @@ function wire(root) {
       </div>`;
   }));
 
+  /* Reported a list of sources crawled with per-source counts, from a city hardcoded to
+     Lisbon. The route seeds real places from OpenStreetMap and syncs the calendar feeds
+     this deployment subscribes to, then reports what each returned. */
   on("[data-act=trigger-auto-ingestion]", () => act(async () => {
-    const res = await api("/v1/city/sync-live-events", { city: "Lisbon" });
+    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
+    if (!city) { toast("Which city?"); return; }
+    const res = await api("/v1/city/sync-live-events", { city });
     const out = $("#auto-ingestion-output");
     if (!out) return;
-    const sources = res.sources_crawled || [];
+    const places = res.places || {};
+    const feeds = res.feeds || {};
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🌐 Automated Ingestion Sync Complete (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Total Auto-Populated: <strong>${res.total_ingested} Venues & Events</strong></div>
-        <div style="font-size:12px; color:var(--muted);">${sources.map(s => `• <strong>${s.source}</strong>: ${s.items_ingested} ${s.type}`).join("<br>")}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city || city)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">Places from OpenStreetMap: <strong>${places.added != null ? places.added : 0}</strong></div>
+        <div style="font-size:13px; margin-bottom:4px;">Calendar feeds synced: <strong>${feeds.added != null ? feeds.added : 0}</strong></div>
+        ${res.conditions && res.conditions.status ? `<div style="font-size:12px; color:var(--muted);">${esc(res.conditions.status)}</div>` : ""}
       </div>
     `;
-  }, "Automated Venue & Event Data Ingested! 🌐"));
+  }));
 
+  /* Said a squad had been joined and a proof-of-presence badge minted, from a QR string
+     hardcoded to one table at one cafe. A check-in here is a place name somebody typed:
+     nothing is minted and no squad is joined by scanning. */
   on("[data-act=magic-qr-checkin]", () => act(async () => {
-    const res = await api("/v1/events/qr-checkin", { qr_code: "QR-FABRICA-TABLE-4" });
+    const box = $("#qr-place");
+    const place = box ? box.value.trim() : "";
+    if (!place) { toast("Which place are you at?"); return; }
+    const res = await api("/v1/events/qr-checkin", { place });
     const out = $("#convenience-output");
     if (!out) return;
+    if (box) box.value = "";
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">⚡ Magic QR Check-In Complete!</div>
-        <div style="font-size:13px; margin-bottom:4px;">Venue: <strong>${esc(res.venue)}</strong> · Squad Joined: <strong>${esc(res.active_squad_joined)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Proof-of-Presence Minted: ${esc(res.pop_badge_minted)}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Checked in</div>
+        <div style="font-size:13px;">${esc(res.place || place)}${res.city ? ` · ${esc(res.city)}` : ""}</div>
+        <div style="font-size:11px; color:var(--muted); margin-top:4px;">Your own record that you were here. Nothing is minted and nobody is notified.</div>
       </div>
     `;
-  }, "Magic QR Check-In Complete! ⚡"));
+  }));
 
   /* Minted a pass for whatever string was in `event_name` — so a pass existed for an
      event that did not — with the serial `VIP-KARMA-98` on every pass on every
@@ -5093,32 +5107,49 @@ function wire(root) {
                 "#culture-impact-output");
   }));
 
+  /* Reported a live portal venue, a count of live members and a feature list, for any two
+     city names. There is no portal and no live session: the route returns each city's real
+     arrival screen, and this shows them side by side. */
   on("[data-act=trigger-global-bridge]", () => act(async () => {
-    const res = await api("/v1/culture/global-bridge", { city_a: "Lisbon", city_b: "Tokyo" });
+    const a = $("#tc-a") ? $("#tc-a").value.trim() : "";
+    const b = $("#tc-b") ? $("#tc-b").value.trim() : "";
+    if (!a || !b) { toast("Which two cities?"); return; }
+    const res = await api("/v1/culture/global-bridge", { city_a: a, city_b: b });
     const out = $("#global-safety-output");
     if (!out) return;
-    const features = res.interactive_features || [];
+    const side = (c) => `
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:13px; font-weight:700;">${esc(c.label || c.city)}</div>
+        ${c.empty
+          ? `<div style="font-size:12px; color:var(--muted);">${esc(c.suggestion || "Nothing recorded here yet.")}</div>`
+          : `<div style="font-size:12px; color:var(--muted);">${c.place_count || 0} places · ${(c.crews || []).length} crews · ${(c.events || []).length} events</div>`}
+      </div>`;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🌐 Global Twin City Bridge Live (${esc(res.cities)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Venue Portal: <strong>${esc(res.live_portal_venue)}</strong> · ${res.participants_count} Live Members</div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Features: ${features.join(" · ")}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="display:flex; gap:12px;">${(res.cities || []).map(side).join("")}</div>
+        ${res.note ? `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(res.note)}</div>` : ""}
       </div>
     `;
-  }, "Global Twin City Bridge Activated! 🌐"));
+  }));
 
+  /* Said three crew had been notified, gave a battery level this app cannot read, and
+     offered a safe ride link that went nowhere. It starts a real watch: the people who can
+     actually see it, and the route's own note that nothing is pushed to anybody. */
   on("[data-act=trigger-squad-beacon]", () => act(async () => {
-    const res = await api("/v1/safety/squad-beacon", { location: "Cais do Sodre @ 2:30 AM" });
+    const where = $("#sb-where") ? $("#sb-where").value.trim() : "";
+    if (!where) { toast("Where are you heading?"); return; }
+    const res = await api("/v1/safety/squad-beacon", { location: where });
     const out = $("#global-safety-output");
     if (!out) return;
+    const seen = (res.watchers || []).length;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ef4444;">
-        <div style="font-size:14px; font-weight:700; color:#ef4444; margin-bottom:4px;">⚡ Squad Safety Beacon Active (${res.trusted_crew_notified} Crew Notified):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Location: <strong>${esc(res.location)}</strong> · Battery: <strong>${esc(res.battery_level)}</strong></div>
-        <div style="font-size:11px; color:var(--growth);">Safe Ride Link: ${esc(res.safe_uber_link)}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--warn);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Watch recorded — ${esc(res.destination || where)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">${seen} ${seen === 1 ? "person" : "people"} can see it${res.eta_minutes ? ` · due in ${res.eta_minutes} minutes` : ""}</div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.delivery_note || "")} ${esc(res.disclaimer || "")}</div>
       </div>
     `;
-  }, "Squad Emergency Beacon Triggered! ⚡"));
+  }));
 
   on("[data-act=award-creator-grant]", () => act(async () => {
     renderMatch(await api("/v1/culture/creator-residency",
