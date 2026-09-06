@@ -45,11 +45,18 @@ def get_personalized_event_feed(graph: Graph) -> list[dict]:
             "title": title,
             "topic": attrs.get("topic", "General"),
             "place": place,
-            "match_score": score,
             "matched_interests": matches,
+            "match_count": len(matches),
+            "_rank": score,
             "start": attrs.get("start", "")
         })
 
-    # Sort by match score descending
-    feed.sort(key=lambda x: x["match_score"], reverse=True)
+    # The score orders the list and does not leave this function. It was reported as
+    # `match_score`: a number built as 3.0 per keyword hit, which reads to a user as a
+    # measured affinity and is nothing of the kind — `matched_interests` is the same
+    # information, checkable, and says *why* a thing ranked where it did. Same reasoning as
+    # `modules/city/synergy.py`, which reports shared terms rather than a percentage.
+    feed.sort(key=lambda item: (-item["_rank"], item["title"]))
+    for item in feed:
+        item.pop("_rank", None)
     return feed

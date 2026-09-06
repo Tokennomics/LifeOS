@@ -1,5 +1,6 @@
 """City seed packs — loading, validating, and refusing to trust junk."""
 
+import datetime
 import json
 
 import pytest
@@ -162,8 +163,14 @@ def test_a_venue_advertising_no_feed_is_reported_not_silently_dropped(graph, pac
 
 
 def test_applying_can_sync_straight_away(graph, packs, monkeypatch):
+    # Dated relative to today: `seeds.apply(sync=True)` has no clock seam, so a fixed
+    # DTSTART turns this into a test that expires `ingest.STALE_DAYS` days after it is
+    # written and then reports the seeding feature as broken.
+    soon = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)
     ics = ("BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:a\nSUMMARY:Night\n"
-           "DTSTART:20260807T230000Z\nDTEND:20260808T060000Z\nEND:VEVENT\nEND:VCALENDAR\n")
+           f"DTSTART:{soon.strftime('%Y%m%dT%H%M%SZ')}\n"
+           f"DTEND:{(soon + datetime.timedelta(hours=7)).strftime('%Y%m%dT%H%M%SZ')}\n"
+           "END:VEVENT\nEND:VCALENDAR\n")
     monkeypatch.setattr(ingest, "_fetch", lambda url: PAGE if url.endswith("/") or
                         "whats-on" in url else ics)
     result = seeds.apply(graph, "lisbon", directory=packs, sync=True)
@@ -177,3 +184,58 @@ def test_the_endpoints_work(cfg):
     packs = client.get("/v1/feeds/seeds").json()["packs"]
     assert [p["slug"] for p in packs] == ["example"]
     assert client.post("/v1/feeds/seeds/nowhere", json={}).status_code == 400
+
+
+# ---- seeding on boot ---------------------------------------------------------
+
+def test_boot_seeding_is_off_unless_asked(cfg, monkeypatch):
+    from gateway import main
+    monkeypatch.delenv(main.SEED_CITY_VAR, raising=False)
+    client = TestClient(main.create_app(cfg))
+    assert client.get("/v1/feeds").json()["feeds"] == []
+
+
+def test_boot_seeding_loads_a_pack(cfg, monkeypatch, tmp_path):
+    """An empty app loses a new user in the first ten seconds, and asking them to paste
+    twenty venue websites first is not an onboarding flow."""
+    from gateway import main
+    monkeypatch.setattr(seeds, "SEEDS_DIR", tmp_path)
+    (tmp_path / "lisbon.json").write_text(json.dumps({"city": "Lisbon", "venues": [
+        {"url": "https://lux.example/e.ics", "venue": "Lux"},
+        {"url": "https://gal.example/f.ics", "venue": "Galeria"}]}), encoding="utf-8")
+    monkeypatch.setenv(main.SEED_CITY_VAR, "lisbon")
+
+    client = TestClient(main.create_app(cfg))
+    feeds = client.get("/v1/feeds").json()["feeds"]
+    assert {f["venue"] for f in feeds} == {"Lux", "Galeria"}
+
+
+def test_boot_seeding_does_not_fetch(cfg, monkeypatch, tmp_path):
+    """A boot that waits on twenty venue servers is a boot that fails its health check."""
+    from gateway import main
+    monkeypatch.setattr(seeds, "SEEDS_DIR", tmp_path)
+    (tmp_path / "lisbon.json").write_text(json.dumps({"city": "Lisbon", "venues": [
+        {"url": "https://lux.example/e.ics"}]}), encoding="utf-8")
+    monkeypatch.setenv(main.SEED_CITY_VAR, "lisbon")
+    monkeypatch.setattr(ingest, "_fetch",
+                        lambda url: pytest.fail("boot must not fetch a feed"))
+    assert TestClient(main.create_app(cfg)).get("/v1/feeds").status_code == 200
+
+
+def test_a_bad_pack_never_stops_the_gateway_starting(cfg, monkeypatch, tmp_path):
+    from gateway import main
+    monkeypatch.setattr(seeds, "SEEDS_DIR", tmp_path)
+    (tmp_path / "broken.json").write_text("{{{ not json", encoding="utf-8")
+    monkeypatch.setenv(main.SEED_CITY_VAR, "broken")
+    assert TestClient(main.create_app(cfg)).get("/health").status_code == 200
+
+
+def test_seeding_twice_does_not_double_the_city(cfg, monkeypatch, tmp_path):
+    from gateway import main
+    monkeypatch.setattr(seeds, "SEEDS_DIR", tmp_path)
+    (tmp_path / "lisbon.json").write_text(json.dumps({"city": "Lisbon", "venues": [
+        {"url": "https://lux.example/e.ics", "venue": "Lux"}]}), encoding="utf-8")
+    monkeypatch.setenv(main.SEED_CITY_VAR, "lisbon")
+    first = TestClient(main.create_app(cfg))
+    TestClient(main.create_app(cfg))          # a redeploy re-runs create_app
+    assert len(first.get("/v1/feeds").json()["feeds"]) == 1

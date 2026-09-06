@@ -14,6 +14,35 @@ def _no_ambient_credentials(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_outbound_network(monkeypatch):
+    """No test reaches the internet, whatever the host can reach.
+
+    This is here because of a real failure rather than a principle. The sandbox these
+    providers were written in cannot reach `api.open-meteo.com` or `overpass-api.de` — the
+    network policy answers 403 — so a whole batch of tests asserted "conditions unavailable"
+    and passed locally for the wrong reason. On CI, which has ordinary internet, Open-Meteo
+    answered and six of them failed.
+
+    A test whose result depends on whether the machine running it happens to have a route to
+    a third party is not a test. Every provider's `_fetch` is replaced with a refusal, so a
+    test that wants a response has to inject one — which the fixture-based tests already do
+    by passing `fetch=`, and which is the only honest way to exercise parsing anyway.
+    """
+    from modules.feeds.providers import openmeteo, overpass, ticketmaster
+    from modules.platform import webhooks
+
+    def refuse(*args, **kwargs):
+        raise OSError("outbound network is disabled in tests — inject a fetch instead")
+
+    for provider in (openmeteo, overpass, ticketmaster):
+        monkeypatch.setattr(provider, "_fetch", refuse)
+    # Webhook delivery is outbound too. A test that wants a delivery passes `post=`, and a
+    # test that wants a *failed* delivery now gets one deterministically rather than
+    # depending on a hostname failing to resolve.
+    monkeypatch.setattr(webhooks, "_post", refuse)
+
+
 @pytest.fixture
 def cfg(tmp_path):
     return {

@@ -248,6 +248,14 @@ def sync_provider(graph: Graph, name: str, city: str = "", size: int = 50,
     from modules.feeds import providers
 
     provider = providers.get(name)
+    # A weather or places provider has a different search signature and produces something
+    # that is not an event. Registering them in one registry is right — they are all
+    # "outside data" — but handing one to the event sync would be a confusing TypeError
+    # rather than a clear no.
+    if getattr(provider, "KIND", "events") != "events":
+        raise ValueError(
+            f"{provider.NAME} provides {provider.KIND}, not events — "
+            f"it cannot be synced into the event feed")
     result = provider.search(city=city, size=size, **kwargs)
     if result["status"] != "ok":
         return {"provider": provider.NAME, "city": city, "status": result["status"],

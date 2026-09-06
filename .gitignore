@@ -20,3 +20,6 @@ surfaces/app/ios/App/build/
 
 # VPS deploy: local backup snapshots stay off GitHub
 deploy/vps/backups/
+
+# a stray empty SQLite file was committed as ":memory:" in Aug 2026
+:memory:

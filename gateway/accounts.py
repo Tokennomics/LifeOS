@@ -122,6 +122,36 @@ def register_external(graph: Graph, handle: str, source: str = MODULE) -> dict:
     return {"account_id": account_id, "handle": handle, "owner_id": owner_id}
 
 
+def set_password(graph: Graph, account_id: str, password: str,
+                 source: str = MODULE) -> dict:
+    """Replace an account's password and end every session it has open.
+
+    **Revoking is not tidiness, it is the point.** Somebody resetting a password has usually
+    lost control of the account or believes they have; leaving the old sessions alive means
+    the reset changes nothing for whoever is already inside. The person resetting gets a new
+    session from the endpoint, so the cost is that their other devices sign in again — which
+    is the behaviour they expect from a password reset anyway.
+
+    A fresh salt too: reusing the old one lets anyone holding both hashes see the password
+    was changed, and costs nothing to avoid.
+    """
+    if not password or len(password) < MIN_PASSWORD:
+        raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
+    session = _sys(graph)
+    if session.get_entity(account_id) is None:
+        raise ValueError("no such account")
+
+    salt = secrets.token_bytes(SALT_BYTES).hex()
+    session.update_entity(account_id, {
+        "salt": salt, "password_hash": _hash_password(password, salt),
+        "iterations": ITERATIONS, "passwordless": False,
+        "password_set_at": now_iso(),
+    }, source=source)
+    revoked = revoke_all(graph, account_id, source=source)
+    return {"account_id": account_id, "password_set": True,
+            "sessions_revoked": revoked["revoked"]}
+
+
 def _verify_password(attrs: dict, password: str) -> bool:
     stored = attrs.get("password_hash", "")
     if not stored:
@@ -202,6 +232,49 @@ def revoke_all(graph: Graph, account_id: str, source: str = MODULE) -> dict:
             session.update_entity(s["id"], {"revoked": True}, source=source)
             count += 1
     return {"account_id": account_id, "revoked": count}
+
+
+def account_id_for(graph: Graph, who: str) -> str:
+    """An account id for a handle or an id, or "" if it is neither.
+
+    Naming somebody is how every social feature in this app addresses a second person, and
+    people type handles, not UUIDs. Where the answer only has to be readable — a SafeWalk
+    watcher list, say — an unresolved string is harmless. Where it has to be *arithmetic*,
+    like a debt on a shared tab, it is not: an entry addressed to a name nobody owns is
+    invisible to the person who supposedly owes it and can never be settled.
+
+    So this returns the id or nothing, and the caller decides which of those two cases it is
+    in. It deliberately does not reveal whether a handle exists to anyone who cannot already
+    see the roster — it is used behind an authenticated write, never as a lookup endpoint.
+    """
+    who = str(who or "").strip()
+    if not who:
+        return ""
+    session = _sys(graph)
+    row = session.get_entity(who)
+    if row is not None and row["attrs"].get("type") == "account":
+        return who
+    account = _find_account(session, _norm_handle(who))
+    return account["id"] if account else ""
+
+
+def handles_for(graph: Graph, account_ids) -> dict:
+    """Account ids to handles, for anything a person has to read.
+
+    Records address people by id, because ids are stable and handles are not. Screens have
+    the opposite requirement: "762f7110-0962-4523 owes you 30.00" is not a sentence anybody
+    can act on. Unknown ids are simply absent — the caller decides what to show instead.
+    """
+    wanted = {str(i).strip() for i in (account_ids or []) if str(i or "").strip()}
+    if not wanted:
+        return {}
+    session = _sys(graph)
+    found = {}
+    for account_id in wanted:
+        row = session.get_entity(account_id)
+        if row is not None and row["attrs"].get("type") == "account":
+            found[account_id] = row["attrs"].get("handle", "")
+    return found
 
 
 def sessions(graph: Graph, account_id: str, limit: int = 100) -> list[dict]:

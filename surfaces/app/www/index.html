@@ -30,13 +30,59 @@
     <button data-tab="today" class="tab active">Today</button>
     <button data-tab="capture" class="tab">Capture</button>
     <button data-tab="people" class="tab">People</button>
+    <button data-tab="city" class="tab">City</button>
     <button data-tab="map" class="tab">Map</button>
     <button data-tab="graph" class="tab">Graph</button>
     <button data-tab="more" class="tab">More</button>
   </nav>
 
+  <!-- The way in. Until this existed the only route to a session was pasting a bearer
+       token into the developer field below, which is not something you can ask a friend
+       to do — and docs/HOSTING.md told them to "tap Register", a button that did not
+       exist. Shown automatically when there is no session; see openAuth() in app.js. -->
+  <dialog id="auth">
+    <h2 id="auth-title">Welcome to LifeOS</h2>
+    <p class="hint" id="auth-sub" style="margin-bottom:12px;">Create an account to keep your graph across devices.</p>
+
+    <div id="auth-password-block">
+      <label>Handle
+        <input id="auth-handle" placeholder="what your crew calls you" autocapitalize="off" autocomplete="username">
+      </label>
+      <label>Password
+        <input id="auth-pass" type="password" placeholder="at least 8 characters" autocomplete="current-password">
+      </label>
+      <div class="row" style="margin-top:10px;">
+        <button id="auth-submit" class="primary">Create account</button>
+        <button id="auth-toggle" class="ghost">I already have one</button>
+      </div>
+    </div>
+
+    <div id="auth-email-block" hidden style="margin-top:14px;">
+      <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
+      <h2 style="font-size:15px; margin-bottom:4px;">✉️ Or sign in with an email code</h2>
+      <p class="hint" style="margin-bottom:8px;">No password to forget — we email you a six-digit code.</p>
+      <div class="row2">
+        <input class="field" id="auth-email" placeholder="you@example.com" autocapitalize="off" autocomplete="email">
+        <button class="primary" id="auth-email-send" style="width:auto; padding:0 16px;">Send code</button>
+      </div>
+      <div class="row2" id="auth-code-row" hidden style="margin-top:8px;">
+        <input class="field" id="auth-code" inputmode="numeric" placeholder="6-digit code">
+        <button class="primary" id="auth-code-verify" style="width:auto; padding:0 16px;">Sign in</button>
+      </div>
+    </div>
+
+    <div id="auth-oidc-block" hidden style="margin-top:12px;"></div>
+
+    <p class="hint" id="auth-error" style="color:var(--warm); margin-top:10px;" hidden></p>
+    <p class="hint" style="margin-top:12px;">Your data lives on this gateway and export is always available — the graph is yours.</p>
+  </dialog>
+
   <dialog id="settings">
     <h2>Settings</h2>
+    <div id="set-account" class="hint" style="margin-bottom:10px;"></div>
+    <div class="row" style="margin-bottom:12px;">
+      <button id="set-signout" class="ghost">Sign out</button>
+    </div>
     <label>Gateway URL <small>(empty = this server)</small>
       <input id="set-base" placeholder="http://nucbox:8787" autocapitalize="off">
     </label>
@@ -53,25 +99,13 @@
       <button id="set-tshirt" class="pill" style="border-color:var(--spark);">👕 Wearable T-Shirt Studio</button>
       <button id="set-close">Close</button>
     </div>
-    <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
-    <h2 style="font-size:16px; margin-bottom:4px;">🌐 1-Tap Social SSO & Cloud Sync</h2>
-    <p class="hint" style="margin-bottom:10px;">Sign in with your preferred account to sync your LifeOS graph seamlessly across all your phones, tablets & laptops.</p>
-    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:8px;">
-      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="google">🌐 Continue with Google</button>
-      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="apple">🍎 Continue with Apple</button>
-      <button class="ghost" style="width:100%; text-align:left; padding:10px 14px;" data-sso="meta">♾️ Continue with Meta</button>
-      <div class="row2">
-        <input class="field" id="sso-email" placeholder="Email / Phone #">
-        <button class="primary" id="sso-magic" style="width:auto; padding:0 16px;">Magic Link ✉️</button>
-      </div>
-    </div>
-
-    <hr style="border:none; border-top:1px solid var(--line-soft); margin:14px 0;">
-    <h2 style="font-size:16px; margin-bottom:4px;">🔑 Passkey & Device Login</h2>
-    <p class="hint" style="margin-bottom:10px;">Local-First Zero-Login by default. Pair additional devices using Biometric Passkey (Fingerprint / FaceID) or 1-Tap Bearer Token.</p>
-    <div class="row">
-      <button id="set-passkey" class="ghost" style="width:100%;">Sign in with Passkey (FaceID / Fingerprint) 🔑</button>
-    </div>
+    <!-- A "1-Tap Social SSO" section used to sit here with Google / Apple / Meta buttons,
+         a Magic Link field and a Passkey button. None of them signed anyone in: they
+         called /v1/auth/social-sso, which returns a made-up user id and no session, and
+         then toasted "Authenticated!". Telling somebody they are signed in when no session
+         exists is worse than offering nothing, so they are gone. Real sign-in — password,
+         email code, and Google/Apple when the operator configures them — is the #auth
+         dialog above. -->
     <p class="hint" style="margin-top:8px;">Your data lives on your own gateway. Export is always available — the graph is yours.</p>
   </dialog>
 
@@ -80,31 +114,32 @@
       <h2 style="margin:0; font-size:18px;">👕 Wearable QR & T-Shirt Studio</h2>
       <button id="tshirt-close" class="pill" style="width:auto; padding:4px 10px;">✕</button>
     </div>
-    <p class="hint" style="margin-top:0; margin-bottom:12px;">Generate print-ready vector graphics with your personal LifeOS scannable QR code for T-shirts, hoodies, and event badges.</p>
-    
-    <label>Display Name
-      <input id="tshirt-name" placeholder="Alex V." value="Alex V.">
+    <p class="hint" style="margin-top:0; margin-bottom:12px;">A printable panel with a real QR code on it. Scanning it opens your card on this gateway. Only the handle is required; anything you leave blank is left off the shirt.</p>
+
+    <label>Handle <small>(required)</small>
+      <input id="tshirt-handle" placeholder="your handle" autocomplete="off">
     </label>
-    <label>Username Handle
-      <input id="tshirt-handle" placeholder="alex_v" value="alex_v">
+    <label>Display name <small>(optional)</small>
+      <input id="tshirt-name" placeholder="the name to print, if any" autocomplete="off">
     </label>
-    <label>Custom Tagline
-      <input id="tshirt-tagline" placeholder="AI Research · Surfing · Deep Work" value="AI Research · Surfing · Deep Work">
+    <label>Tagline <small>(optional)</small>
+      <input id="tshirt-tagline" placeholder="one line about you" autocomplete="off">
     </label>
-    <label>Top 3 Interests / Badges <small>(comma separated)</small>
-      <input id="tshirt-interests" placeholder="AI Systems, Surfing, Specialty Coffee" value="AI Systems, Surfing, Specialty Coffee">
+    <label>Up to three interests <small>(optional, comma separated)</small>
+      <input id="tshirt-interests" placeholder="comma separated" autocomplete="off">
     </label>
 
     <div style="margin:16px 0; text-align:center;">
       <div id="tshirt-preview-container" style="background:#020617; border:1px solid var(--line-soft); border-radius:12px; padding:12px; min-height:220px; display:flex; align-items:center; justify-content:center;">
-        <span class="hint">Click "Generate Vector Graphic" to preview</span>
+        <span class="hint">Generate to preview the panel</span>
       </div>
     </div>
 
     <div class="row">
-      <button id="tshirt-generate-btn" class="primary" style="flex:1;">⚡ Generate Vector Graphic</button>
-      <button id="tshirt-download-btn" class="pill" style="flex:1; border-color:var(--spark);" disabled>📥 Download Print SVG</button>
+      <button id="tshirt-generate-btn" class="primary" style="flex:1;">Generate panel</button>
+      <button id="tshirt-download-btn" class="pill" style="flex:1; border-color:var(--spark);" disabled>Download SVG</button>
     </div>
+    <p class="hint" id="tshirt-status" style="margin:10px 0 0; font-size:12px;"></p>
   </dialog>
 
   <!-- Real-Time Camera Scanner Viewfinder -->
@@ -117,15 +152,17 @@
       <video id="scanner-video" style="width:100%; height:100%; object-fit:cover;" autoplay playsinline></video>
       <div id="scanner-placeholder" style="position:absolute; text-align:center; padding:20px; color:#64748b;">
         <span style="font-size:36px; display:block; margin-bottom:8px;">🎯</span>
-        <span style="font-size:13px;">Point camera at any LifeOS T-shirt, wristband or badge</span>
+        <span style="font-size:13px;">Point the camera at a LifeOS shirt code</span>
       </div>
+      <!-- Every frame is drawn here and read by jsQR. Off-screen rather than hidden:
+           a display:none canvas still works, but keeping it in the flow at zero size
+           avoids surprises with getImageData on some mobile browsers. -->
+      <canvas id="scanner-canvas" width="0" height="0" style="position:absolute; left:-9999px; top:0;"></canvas>
       <!-- Cyber Laser Scanline -->
       <div id="scanner-laser" style="position:absolute; top:0; left:0; right:0; height:2px; background:linear-gradient(90deg, transparent, #38bdf8, #c084fc, transparent); box-shadow:0 0 12px #38bdf8; animation:laserMove 2.2s ease-in-out infinite;"></div>
     </div>
-    <p class="hint" style="margin:10px 0 14px; text-align:center; font-size:12px;">Instant Proximity Encounter & Vouch (+50 Karma)</p>
-    <div class="row">
-      <button id="scanner-mock-detect-btn" class="primary" style="width:100%;">⚡ Test Connect with Nearby Member</button>
-    </div>
+    <p class="hint" id="scanner-status" style="margin:10px 0 6px; text-align:center; font-size:12px;">Starting the camera.</p>
+    <p class="hint" style="margin:0 0 4px; text-align:center; font-size:11px;">Recording a scan is your word that you met them. It verifies nothing about who they are, and you can withdraw it under trust.</p>
   </dialog>
 
   <dialog id="cmd-palette" style="background:var(--surface-1); border:1px solid var(--spark); border-radius:16px; padding:20px; max-width:480px; width:90%; color:var(--text);">
@@ -146,6 +183,7 @@
 
   <div id="toast" hidden></div>
 
+  <script src="vendor/jsQR.js"></script>
   <script src="audio_feedback.js"></script>
   <script src="sync_queue.js"></script>
   <script src="travel-coach.js"></script>

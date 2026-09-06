@@ -1,3 +1,23 @@
+"""The one-off that built the logo gallery, kept because it records how the icons were chosen.
+
+Written 2026-08-31 (`9007f8a`, updated the same day by `01d5b9d`) while the owner was
+picking a mark for the app. It base64-inlines five generated JPGs and writes one
+self-contained `logo_showcase.html` — a side-by-side of the Infinity Wave / Pure Infinity QR
+concepts plus the t-shirt and scan-flow mockups — so the whole comparison could be opened
+from a phone with no server. The concepts it shows are the JPGs now sitting in
+`surfaces/app/www/icons/`; `icon-512.png` and friends came out of that round.
+
+**It does not run anywhere but the machine it was written on**, and that is deliberate
+rather than broken: `brain_dir` is an absolute Windows path into the owner's local
+Antigravity workspace, and the source JPGs were never committed under those names. Re-point
+`brain_dir` at a folder holding the five files and it works; otherwise it raises
+`FileNotFoundError` on the first `to_b64`.
+
+It lived at `scratch/build_showcase.py` in the repo root until 2026-09-04 and was moved here
+unchanged apart from this docstring. Nothing imports it and nothing in CI runs it. It is
+kept, not deleted, because it is the record of a decision — which of thirteen concepts became
+the app icon — and that record is otherwise nowhere.
+"""
 import base64
 import os
 

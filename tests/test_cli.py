@@ -38,8 +38,14 @@ def test_cli_export_command(graph: Graph, tmp_path):
 
 
 def test_cli_synthesize_command(graph: Graph):
+    """Synthesising a day reads your rows; it writes nothing.
+
+    This asserted that a `daily_reflection` memory was persisted, because the command was
+    wired to a synthesiser that branched on the city name and sealed the result into the
+    graph. Storing an invented day is worse than showing one — every screen that reads
+    memories afterwards treats it as something you did.
+    """
     res = cli.main(["synthesize"], graph=graph)
     assert res == 0
     session = graph.session("test", {"memories:read"})
-    mems = session.find_entities("memory", {"type": "daily_reflection"}, limit=5)
-    assert len(mems) >= 1
+    assert session.find_entities("memory", {"type": "daily_reflection"}, limit=5) == []

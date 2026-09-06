@@ -16,11 +16,18 @@ permissions:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # CI pinned 3.11 while the Dockerfile shipped 3.13, so CI was not testing what
+      # deploys. That is how a version-specific syntax error reaches production (or, as
+      # actually happened, fails CI while working fine locally). Both, every time.
+      matrix:
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - uses: actions/setup-node@v4
         with:
           node-version: "20"

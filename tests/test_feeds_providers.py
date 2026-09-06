@@ -10,6 +10,8 @@ recorded-shape fixtures, not proof the live API matches — which is exactly why
 is written to survive a payload that is not what the docs say.
 """
 
+import datetime
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -47,6 +49,23 @@ def _fetch(url, params):
     return PAYLOAD
 
 
+def _payload_relative(url=None, params=None):
+    """PAYLOAD with its two listings moved to tomorrow and the day after."""
+    if params is not None:
+        assert params["apikey"] == KEY, "the key must actually be sent"
+    now = datetime.datetime.now(datetime.timezone.utc)
+    first, second = now + datetime.timedelta(days=1), now + datetime.timedelta(days=2)
+    return {"_embedded": {"events": [
+        {"id": "tm-1", "name": "Nina Kraviz", "url": "https://tm.example/tm-1",
+         "dates": {"start": {"dateTime": first.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                             "localDate": first.strftime("%Y-%m-%d")}},
+         "_embedded": {"venues": [{"name": "Lux Frágil", "city": {"name": "Lisbon"}}]}},
+        {"id": "tm-2", "name": "Date-only listing",
+         "dates": {"start": {"localDate": second.strftime("%Y-%m-%d")}},
+         "_embedded": {"venues": [{"name": "Coliseu"}]}},
+    ]}}
+
+
 # ---- the rule ----------------------------------------------------------------
 
 def test_no_key_is_a_status_not_an_error(unkeyed):
@@ -81,9 +100,15 @@ def test_configured_reports_the_truth(monkeypatch):
 
 def test_the_provider_listing_never_returns_a_key(monkeypatch):
     monkeypatch.setenv(ticketmaster.ENV_VAR, KEY)
-    listed = providers.status()
-    assert listed == [{"name": "ticketmaster", "configured": True,
-                       "env_var": ticketmaster.ENV_VAR}]
+    listed = {row["name"]: row for row in providers.status()}
+    assert listed["ticketmaster"] == {"name": "ticketmaster", "kind": "events",
+                                      "configured": True, "needs_key": True,
+                                      "env_var": ticketmaster.ENV_VAR}
+    # The registry now also holds Open-Meteo and Overpass, which need no key at all —
+    # `needs_key: False` is the field that keeps "nothing to configure" from reading as
+    # "somebody forgot to configure this".
+    assert listed["openmeteo"]["needs_key"] is False
+    assert listed["overpass"]["needs_key"] is False
     assert KEY not in repr(listed)
 
 
@@ -206,11 +231,15 @@ def test_the_horizon_applies_to_providers_too(graph, keyed, monkeypatch):
 
 def test_the_endpoints_work(cfg, monkeypatch):
     monkeypatch.setenv(ticketmaster.ENV_VAR, KEY)
-    monkeypatch.setattr(ticketmaster, "_fetch", _fetch)
+    # Every other test here pins the clock with `now=TUE` and can use PAYLOAD as written.
+    # This one goes through HTTP, which has no clock seam, so its listings have to be dated
+    # relative to today or the test expires a couple of days after it is written.
+    monkeypatch.setattr(ticketmaster, "_fetch", _payload_relative)
     client = TestClient(create_app(cfg))
 
-    listed = client.get("/v1/feeds/providers").json()["providers"]
-    assert listed[0]["name"] == "ticketmaster" and listed[0]["configured"] is True
+    listed = {row["name"]: row for row in
+              client.get("/v1/feeds/providers").json()["providers"]}
+    assert listed["ticketmaster"]["configured"] is True
     assert KEY not in client.get("/v1/feeds/providers").text
 
     r = client.post("/v1/feeds/providers/ticketmaster/sync", json={"city": "Lisbon"})

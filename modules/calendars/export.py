@@ -109,4 +109,14 @@ def export_crew_ics(graph: Graph, crew_id: str) -> str:
         if ev.get("attrs", {}).get("crew_id") == crew_id or
            ev.get("attrs", {}).get("space_id") == crew_id
     ]
+    # Standing routines belong in the feed too. They are a rule rather than rows, so they
+    # are expanded here — this is the part that makes "synced to your calendar" true, rather
+    # than the `synced_calendars: 5` the routine endpoint used to report.
+    try:
+        from modules.routines import squad
+        crew_events = crew_events + squad.events_for_ics(graph, crew_id)
+    except Exception:
+        # A calendar feed that 500s because one routine is malformed is worse than one that
+        # is missing a routine; the one-off meets above are the part people rely on.
+        pass
     return generate_ics(crew_events, calendar_name=f"LifeOS Crew - {crew_name}")

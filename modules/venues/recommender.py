@@ -45,11 +45,15 @@ def recommend_places(graph: Graph, crew_id: str | None = None) -> list[dict]:
             "place_id": p["id"],
             "name": p_name,
             "category": attrs.get("category", "General"),
-            "match_score": score,
             "matched_interests": matches,
+            "match_count": len(matches),
+            "_rank": score,
             "address": attrs.get("address", "")
         })
 
-    # Sort by match score descending
-    recommendations.sort(key=lambda x: x["match_score"], reverse=True)
+    # See event_feed.py: the score orders the list and is not reported. A user can check
+    # `matched_interests`; they cannot check a 5.0.
+    recommendations.sort(key=lambda item: (-item["_rank"], item["name"]))
+    for item in recommendations:
+        item.pop("_rank", None)
     return recommendations

@@ -20,7 +20,12 @@ def test_personalized_event_feed(graph: Graph):
     assert len(feed) >= 2
     # "Indoor Climbing Meetup" matches interest climbing, should be ranked first
     assert feed[0]["title"] == "Indoor Climbing Meetup"
-    assert feed[0]["match_score"] > 1.0
+    # Was `match_score > 1.0`. The score was 3.0 per keyword hit, reported to the user as
+    # though it measured affinity. It still orders the feed; it is no longer shown, because
+    # `matched_interests` is the same information and a reader can check it.
+    assert "climbing" in feed[0]["matched_interests"]
+    assert feed[0]["match_count"] >= 1
+    assert "match_score" not in feed[0]
 
 
 def test_gateway_personalized_feed_endpoint(cfg):
