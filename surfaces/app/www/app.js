@@ -720,7 +720,11 @@ function todayView() {
     <p class="hint" style="margin-bottom:8px;">The actual numbers the ranking uses, imported from the ranking itself — so this page cannot drift away from what the feed does. It is a description, not a control panel: the version this replaces took weights and stored none of them.</p>
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #6366f1, #10b981);" data-act="apply-algo-rules">Show me the rules 🛡️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="stack-habit">Stack Growth Habit (+14 Streak) 🌱</button>
+      <button class="primary" data-act="stack-habit">Stack a habit 🌱</button>
+    </div>
+    <div style="display:flex; gap:6px; margin-top:8px;">
+      <input id="hb-anchor" placeholder="a habit you already have" style="flex:1;">
+      <input id="hb-new" placeholder="the one to attach to it" style="flex:1;">
     </div>
     <div id="algo-revenue-output" style="margin-top:10px;"></div>
   </div>`;
@@ -810,7 +814,8 @@ function todayView() {
       <select class="field" id="wp-meetup" data-meetup-picker="1"></select>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="export-wallet-pass">Save a pass 📲</button>
     </div>
-    <button class="ghost" style="margin-top:6px;" data-act="magic-qr-checkin">Check in with a code ⚡</button>
+    <input id="qr-place" placeholder="the place you are at" style="width:100%; margin-top:6px;">
+    <button class="ghost" style="margin-top:6px;" data-act="magic-qr-checkin">Check in ⚡</button>
     <div id="convenience-output" style="margin-top:10px;"></div>
   </div>`;
 
@@ -861,7 +866,11 @@ function todayView() {
     <div style="display:flex; gap:8px;">
       <button class="primary" style="background:linear-gradient(135deg, #f0a94a, #f59e0b);" data-act="gen-ai-blueprint">AI Weekend Blueprint 🤖</button>
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="settle-one-tap-split">Clear my tab 🪄</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #a855f7);" data-act="swap-nomad-flat">Nomad House Swap 🌍</button>
+      <button class="primary" data-act="swap-nomad-flat">Swap a place 🌍</button>
+    </div>
+    <div style="display:flex; gap:6px; margin-top:8px;">
+      <input id="hs-home" placeholder="the place you are offering" style="flex:1;">
+      <input id="hs-away" placeholder="where you want to go" style="flex:1;">
     </div>
     <div id="ai-butler-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1335,14 +1344,18 @@ function todayView() {
   /* ---- Circular Economy & Barter Swap Hub ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(234,179,8,0.15)); border:1px solid rgba(16,185,129,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🔄 Circular Economy & Barter Trade Hub</h2>
-      <span class="badge good" style="font-weight:bold;">Zero Cash / Zero Waste</span>
+      <h2>🔄 Trading skills and gear</h2>
+      <span class="badge" style="font-weight:bold;">No cash, no tokens</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Trade skills & gear cash-free, borrow neighborhood tools, and earn Time Tokens!</p>
+    <p class="hint" style="margin-bottom:8px;">A swap needs both halves: what you offer, and what you want back. It finds the person whose halves mirror yours. Nothing is credited and no balance is kept.</p>
+    <div style="display:flex; gap:6px; margin-bottom:8px;">
+      <input id="sw-offer" placeholder="what you are offering" style="flex:1;">
+      <input id="sw-seek" placeholder="what you want back" style="flex:1;">
+    </div>
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #eab308);" data-act="trade-barter-swap">Trade Skill / Item 🔄</button>
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #10b981);" data-act="borrow-gear-library">Borrow Gear Tent ♻️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #eab308, #f59e0b);" data-act="earn-time-token">Time Bank (+1 Hr) 🌱</button>
+      <button class="primary" data-act="trade-barter-swap">Find the mirror 🔄</button>
+      <button class="primary" data-act="borrow-gear-library">Borrow gear ♻️</button>
+      <button class="primary" data-act="earn-time-token">Swap an hour 🌱</button>
     </div>
     <div id="circular-economy-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1373,14 +1386,19 @@ function todayView() {
   /* ---- Global City Bridge & Squad Beacon ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(99,102,241,0.15)); border:1px solid rgba(6,182,212,0.3);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌐 Global City Bridge & Safety Beacon</h2>
-      <span class="badge good" style="font-weight:bold;">Global & Secure</span>
+      <h2>🌐 Two cities, and telling someone where you are going</h2>
+      <span class="badge" style="font-weight:bold;">Nothing is broadcast</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Live multi-city portal linkups, 1-tap trusted safety escort beacons, and artist residencies!</p>
+    <p class="hint" style="margin-bottom:8px;">Compare what is actually recorded in two cities, or record a walk so the people you name can see it. This app sends no push and places no call.</p>
+    <div style="display:flex; gap:6px; margin-bottom:8px;">
+      <input id="tc-a" placeholder="one city" style="flex:1;">
+      <input id="tc-b" placeholder="the other" style="flex:1;">
+    </div>
+    <input id="sb-where" placeholder="where you are heading" style="width:100%; margin-bottom:8px;">
     <div style="display:flex; gap:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #6366f1);" data-act="trigger-global-bridge">Global City Bridge (LIS ⟷ TYO) 🌐</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ef4444, #f59e0b);" data-act="trigger-squad-beacon">Squad S.O.S. Beacon ⚡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="award-creator-grant">Creator Grant 💎</button>
+      <button class="primary" data-act="trigger-global-bridge">Compare the two 🌐</button>
+      <button class="primary" data-act="trigger-squad-beacon">Record a walk ⚡</button>
+      <button class="primary" data-act="award-creator-grant">Creator residency 💎</button>
     </div>
     <div id="global-safety-output" style="margin-top:10px;"></div>
   </div>`;
@@ -4515,18 +4533,24 @@ function wire(root) {
     out.innerHTML = renderFeedRules(await api("/v1/feed/transparent-rules", {}));
   }));
 
+  /* Reported a "compounding score" and a streak for a stack it had just created, and
+     defaulted both habits, so the card described somebody else's morning. The route makes
+     a real recurring routine; nothing measures whether you keep it, and it says so. */
   on("[data-act=stack-habit]", () => act(async () => {
-    const res = await api("/v1/growth/habit-stacking", { anchor_habit: "Morning Espresso", new_habit: "20-Min Deep Reading" });
+    const anchor = $("#hb-anchor") ? $("#hb-anchor").value.trim() : "";
+    const habit = $("#hb-new") ? $("#hb-new").value.trim() : "";
+    if (!anchor || !habit) { toast("Which habit are you anchoring to, and what is the new one?"); return; }
+    const res = await api("/v1/growth/habit-stacking", { anchor_habit: anchor, new_habit: habit });
     const out = $("#algo-revenue-output");
     if (!out) return;
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌱 Habit Stacked (${res.compounding_score} Score):</div>
-        <div style="font-size:13px; margin-bottom:4px;">New Habit: <strong>${esc(res.new_habit)}</strong> anchored to <em>${esc(res.anchor_habit)}</em></div>
-        <div style="font-size:12px; color:var(--spark); font-weight:700;">Streak: ${res.streak_days} Days Compounding 🔥</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--growth);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">Routine created</div>
+        <div style="font-size:13px; margin-bottom:4px;"><strong>${esc(res.habit)}</strong>, after <em>${esc(res.anchor)}</em></div>
+        <div style="font-size:12px; color:var(--muted);">${esc(res.no_adherence_score || "")}</div>
       </div>
     `;
-  }, "Growth Habit Stacked! 🌱"));
+  }));
 
   /* Every money screen answers the same way when no processor is connected: name the keys
      the operator has to set, and point at the thing that does work without them. These
@@ -4942,18 +4966,22 @@ function wire(root) {
                 "#human-needs-output");
   }));
 
+  /* Reported a swap "agreed" with an invented partner, a swap id and an amount of cash
+     saved, for two strings in the request body. It is a complementary match: the route
+     runs synergy.swap, and renderMatch already reads that shape. */
+  function swapPair() {
+    const offer = $("#sw-offer") ? $("#sw-offer").value.trim() : "";
+    const seek = $("#sw-seek") ? $("#sw-seek").value.trim() : "";
+    return { offer, seek };
+  }
+
   on("[data-act=trade-barter-swap]", () => act(async () => {
-    const res = await api("/v1/economy/barter-swap", { offering: "1-Hour Surf Lesson", seeking: "Portuguese Conversation Practice" });
-    const out = $("#circular-economy-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🔄 Barter Swap Agreed (${esc(res.cash_saved)} Cash Saved!):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Trading: <strong>${esc(res.offering)}</strong> ➔ <strong>${esc(res.seeking)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Partner: ${esc(res.match_partner)} (Swap ID: ${esc(res.swap_id)})</div>
-      </div>
-    `;
-  }, "Barter Swap Agreed! 🔄"));
+    const { offer, seek } = swapPair();
+    if (!offer || !seek) { toast("What are you offering, and what do you want back?"); return; }
+    renderMatch(await api("/v1/economy/barter-swap",
+                          { offering: offer, seeking: seek, city: synergyCity() }),
+                "#circular-economy-output");
+  }));
 
   on("[data-act=borrow-gear-library]", () => act(async () => {
     renderMatch(await api("/v1/economy/community-borrow",
@@ -4961,18 +4989,16 @@ function wire(root) {
                 "#circular-economy-output");
   }));
 
+  /* Credited you an hour into a bank with no other members, and reported a running token
+     balance and a karma bonus. There is no ledger of hours and no token. The real thing
+     underneath is the same mirror: an hour you will give against one you want. */
   on("[data-act=earn-time-token]", () => act(async () => {
-    const res = await api("/v1/economy/time-bank", { service: "Helped neighbor fix bicycle chain", hours: 1 });
-    const out = $("#circular-economy-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #eab308;">
-        <div style="font-size:14px; font-weight:700; color:#eab308; margin-bottom:4px;">🌱 Time Token Earned (+${res.tokens_earned} Hr):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Service: <strong>${esc(res.service)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Total Balance: ${res.current_time_token_balance} Time Tokens (${esc(res.community_karma_bonus)})</div>
-      </div>
-    `;
-  }, "Time Token Earned! 🌱"));
+    const { offer, seek } = swapPair();
+    if (!offer || !seek) { toast("Which hour are you offering, and which do you want?"); return; }
+    renderMatch(await api("/v1/economy/time-bank",
+                          { offering: offer, service: seek, city: synergyCity() }),
+                "#circular-economy-output");
+  }));
 
   /* Reported four waypoints, six members "synced on route" and a next turn — "Turn left
      at Miradouro de Santa Luzia in 80m" — for a route name taken from the request body, by
@@ -5124,18 +5150,17 @@ function wire(root) {
          </div>`;
   }));
 
+  /* Said "Swap Confirmed" between two cities with nobody on the other side, and attached
+     a "Shield: Trust Verified" and an amount saved. Nothing was confirmed, nobody was
+     verified, and both cities came from the request body. */
   on("[data-act=swap-nomad-flat]", () => act(async () => {
-    const res = await api("/v1/housing/nomad-house-swap", { home_city: "Lisbon (Alfama Flat)", destination_city: "Tokyo (Shibuya Loft)" });
-    const out = $("#ai-butler-output");
-    if (!out) return;
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">🌍 Nomad House Swap Confirmed (${esc(res.duration)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Swap: <strong>${esc(res.home_city)} ⟷ ${esc(res.destination_city)}</strong></div>
-        <div style="font-size:12px; color:var(--growth); font-weight:700;">Shield: ${esc(res.trust_verification)} · ${esc(res.cost_saved)}</div>
-      </div>
-    `;
-  }, "Nomad House Swap Confirmed! 🌍"));
+    const home = $("#hs-home") ? $("#hs-home").value.trim() : "";
+    const away = $("#hs-away") ? $("#hs-away").value.trim() : "";
+    if (!home || !away) { toast("Which place are you offering, and where do you want to go?"); return; }
+    renderMatch(await api("/v1/housing/nomad-house-swap",
+                          { home_city: home, destination_city: away, city: synergyCity() }),
+                "#ai-butler-output");
+  }));
 
   on("[data-act=join-secret-comedy]", () => act(async () => {
     renderMatch(await api("/v1/culture/secret-comedy",
@@ -6097,20 +6122,32 @@ function wire(root) {
     `;
   }, "Plugin Sandbox Tested & Published! 🛠️"));
 
+  /* Said "Teleported to Tokyo! 48 active nomads nearby" and named a hub, for any string —
+     including a city nobody has seeded. The route returns that city's real arrival screen,
+     which on an unseeded city is honestly empty. The box defaulted to Tokyo, so an empty
+     field reported on a city the user had not asked about. */
   on("[data-act=switch-nomad-city]", () => act(async () => {
-    const target = $("#np-city").value.trim() || "Tokyo";
+    const box = $("#np-city");
+    const target = box ? box.value.trim() : "";
+    if (!target) { toast("Which city do you want to look at?"); return; }
     const res = await api("/v1/nomad/city-switch", { target_city: target });
     const out = $("#nomad-teleport-output");
     if (!out) return;
-    $("#np-city").value = "";
+    if (box) box.value = "";
+    const counts = [
+      [res.place_count, "places"], [(res.crews || []).length, "crews"],
+      [(res.events || []).length, "events"], [(res.messages || []).length, "messages"],
+    ].filter(([n]) => n).map(([n, label]) => `${n} ${label}`).join(" · ");
     out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">🌐 Teleported to ${esc(res.current_city)}!</div>
-        <div style="font-size:13px; margin-bottom:4px;">${res.active_nomads_count} Active Nomads Nearby · Hub: <strong>${esc(res.recommended_hub)}</strong></div>
-        <div style="font-size:11px; color:var(--muted);">Events: ${res.local_events.join(" · ")}</div>
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.label || res.city)}</div>
+        ${res.empty
+          ? `<div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "Nothing has been recorded in this city yet.")}</div>`
+          : `<div style="font-size:13px;">${esc(counts)}</div>`}
+        ${res.you_are_here ? `<div style="font-size:11px; color:var(--spark); margin-top:4px;">You have announced you are here.</div>` : ""}
       </div>
     `;
-  }, "Teleported City via Nomad Passport! 🌐"));
+  }));
 
   /* ---- Web Audio Haptic Chimes & Theme Engine ---- */
   function playChime(freq = 520, type = "sine") {
@@ -6509,11 +6546,12 @@ function wire(root) {
     if (!out) return;
     out.innerHTML = `
       <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--spark)40;">
-        <div style="font-size:15px; font-weight:700; color:var(--spark); margin-bottom:8px;">🏆 Your ConnectOS ${esc(res.month)} Wrapped:</div>
-        <div style="font-size:13px; margin-bottom:4px;">⚡ <strong>${res.focus_hours} Hours</strong> of Deep Work Focus</div>
-        <div style="font-size:13px; margin-bottom:4px;">🧗 <strong>${res.real_world_meetups} Real-World Outings</strong> & Crew Meets</div>
-        <div style="font-size:13px; margin-bottom:4px;">📍 Top Venue: <strong>${esc(res.top_venue)}</strong></div>
-        <div style="font-size:13px; margin-bottom:6px;">👏 <strong>${res.kudos_received} Kudos</strong> Received from Friends</div>
+        <div style="font-size:15px; font-weight:700; color:var(--spark); margin-bottom:8px;">Your ${esc(res.month)}</div>
+        <div style="font-size:13px; margin-bottom:4px;">Days you showed up: <strong>${res.days_shown_up}</strong></div>
+        <div style="font-size:13px; margin-bottom:4px;">Outings attended: <strong>${res.meets_attended}</strong></div>
+        <div style="font-size:13px; margin-bottom:4px;">Goals finished: <strong>${res.goals_done}</strong> · Tasks done: <strong>${res.tasks_done}</strong></div>
+        ${res.top_place ? `<div style="font-size:13px; margin-bottom:4px;">Where you went most: <strong>${esc(res.top_place)}</strong></div>` : ""}
+        ${res.empty ? `<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${esc(res.note || "")}</div>` : ""}
         <button class="ghost" style="margin-top:8px; font-size:12px; padding:6px 12px;" data-act="share-wrapped" data-text="${esc(res.share_text || "")}">Copy it 📲</button>
       </div>
     `;
