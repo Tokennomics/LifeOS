@@ -101,6 +101,22 @@ the payment processors, both of which are refusals rather than fakes. The tool n
 pass** as well — handlers that reach the graph and still assert an invented value, which the first
 pass calls clean by construction. Read its docstring before trusting either number.
 
+**And the defect that success created.** Replacing a prop stops its invented keys being
+returned, and the card reading them then renders `undefined` where a fabrication used to be —
+better, and still broken. `python3 tools/audit_dead_keys.py` measures it and reads **0 of 214
+`res.X` reads**, down from 76; `tests/test_pwa_honesty.py` pins it there, so the next replaced
+handler cannot quietly leave a card printing undefined behind it. Two keys are allowlisted in
+the tool with the reason in the source: `_with_handles` builds `counterparty_handle` and
+`to_account_handle` by concatenation, so no literal exists to find.
+
+**Three latent flakes were found by CI on this branch, not by anybody reading the code.** A
+three-digit substring negative matched a random UUID (`834280809e63` contains `342`); a weekend
+test asserted 2 or 3 days and failed on the one day a week the digest returns 1. Both are fixed
+at the cause, and `test_trust_atlas.py` now strips ids and timestamps before any whole-body
+substring check, because such a check is only meaningful over text a human wrote. The lesson is
+worth keeping: **an assertion that can fail on the shape of an identifier or the day of the week
+costs a real investigation the day it fires.**
+
 ### The launch blocker — provisioning, and it is the owner's
 
 Everything this file describes is written, tested and merged. **The one thing standing between
