@@ -18,9 +18,27 @@ from modules.personal import atlas
 from modules.social import signals, trust
 
 PW = "correct-horse-battery"
+# The phrases the props asserted. "342" was here too — from a time capsule counting down
+# 342 days — and it is gone, because a bare three-digit string is not a safe negative: a
+# response carrying account ids matches it whenever a UUID happens to contain those digits,
+# which CI hit on 2026-09-05 (`834280809e63`). A test that fails on the shape of a random
+# identifier teaches nobody anything, and the day it fires it costs a real investigation.
+# The countdown is pinned by `test_the_atlas_has_no_coordinates_and_no_time_capsule`
+# instead, which asserts `time_capsule is None` — on the key, which cannot flake.
 INVENTED = ("98/100", "tier-1", "zero-knowledge", "community_verified",
-            "calton hill", "eisbachwelle", "catriona", "time-capsule", "342",
+            "calton hill", "eisbachwelle", "catriona", "time-capsule",
             "flourishing", "deep_connection", "screen time")
+
+
+def _without_ids(payload: dict) -> str:
+    """The body, minus anything that is an identifier or a timestamp.
+
+    A substring check against a whole response is only meaningful over text a human wrote.
+    Ids and stamps are neither, and matching them is how a passing test becomes a flake.
+    """
+    import re
+    return re.sub(r"[0-9a-f]{8}-[0-9a-f-]{27,}|\d{4}-\d{2}-\d{2}t[\d:.+]+", " ",
+                  str(payload).lower())
 
 
 @pytest.fixture
@@ -48,7 +66,7 @@ def test_nothing_is_scored_or_verified(graph, people):
     assert out["no_score"] is True
     assert out["verified"] is False
     assert out["disclaimer"]
-    text = str(out).lower()
+    text = _without_ids(out)
     for invented in INVENTED:
         assert invented not in text
 
@@ -123,7 +141,7 @@ def test_an_empty_atlas_is_empty(graph, people):
     """It reported 48 pins and three memories in three cities, on any account."""
     out = atlas.pins(graph, account_id=people["ana"])
     assert out["empty"] is True and out["count"] == 0
-    text = str(out).lower()
+    text = _without_ids(out)
     for invented in INVENTED:
         assert invented not in text
 
@@ -170,7 +188,7 @@ def test_wellness_is_counts_not_a_score(graph, people):
     assert out["places"] == 1
     assert out["cities"] == 1
     assert out["no_score"]
-    text = str(out).lower()
+    text = _without_ids(out)
     for invented in INVENTED:
         assert invented not in text
 
