@@ -203,7 +203,24 @@ def test_the_endpoints_work(cfg):
     r = client.get("/v1/weekend", params={"city": "Lisbon"})
     assert r.status_code == 200
     body = r.json()
-    assert len(body["days"]) in (2, 3) and "text" in body
+    assert "text" in body
+
+    # Was `len(body["days"]) in (2, 3)`, which passed six days a week and failed on Sunday:
+    # `core.drop_past` trims a weekend already under way, so by Sunday only Sunday is left
+    # and the count is 1. CI caught it on Sunday 2026-09-06 — a test that depends on the
+    # day it runs is a test that eventually fails for a reason unrelated to the code.
+    #
+    # What the endpoint actually promises is a suffix of this weekend, so that is asserted:
+    # between one and three days, all of them inside the window the module computes, ending
+    # on its Sunday. The rule comes from the module rather than a constant, so the test
+    # cannot drift away from it.
+    import datetime
+    from modules.weekend import core
+    window = core.weekend_window(datetime.datetime.now(datetime.timezone.utc).isoformat())
+    expected = [d["date"] for d in window["days"]]
+    got = [d["date"] for d in body["days"]]
+    assert 1 <= len(got) <= 3
+    assert got == expected[len(expected) - len(got):], (got, expected)
 
     s = client.get("/v1/weekend/share", params={"city": "Lisbon"})
     assert s.status_code == 200
