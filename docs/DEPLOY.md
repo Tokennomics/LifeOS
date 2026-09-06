@@ -12,10 +12,29 @@ account and two secrets that must never live in this repo or in a chat log.
    disks *and* sleeps — which also breaks certificate renewal. `starter` is the floor that
    works.
 
-## 2. Set the two secrets
+## 2. The two secrets — Render generates them, you only read them
 
-In the dashboard, on the service, under **Environment**. Generate each **separately** —
-reusing one value for both makes the signing key as widely known as the gateway token:
+`render.yaml` marks `LIFEOS_SIGNING_KEY` and `LIFEOS_GATEWAY_TOKEN` as `generateValue: true`,
+so Render mints both when the service is created. **There is nothing to paste in**, and
+nothing to forget. After the first deploy, read them in the dashboard under **Environment**:
+`LIFEOS_GATEWAY_TOKEN` is your own bearer token and the moderator credential for the abuse
+queue.
+
+They are generated independently, so they are different, which is the part that matters:
+`LIFEOS_SIGNING_KEY` blinds dating matching as well as signing payloads, and reusing the
+bearer token as that key would leak one into the other.
+
+**Why this is generated rather than pasted.** With no accounts yet and no gateway token,
+`gateway/auth.py` takes its "localhost dev" branch and returns without checking anything.
+On a laptop that is right. On a public URL it means `GET /v1/graph`, `/v1/today` and
+`/v1/people` answer **200 to anybody** — verified on a fresh box — until the first account
+is registered, by whoever registers first. `sync: false` would leave exactly that window
+open while somebody remembers to paste a value in. `generateValue` closes it before the
+service ever starts. `tests/test_fresh_deploy_is_not_open.py` pins both the behaviour and
+the blueprint.
+
+If you are deploying by hand rather than from the blueprint, set `LIFEOS_GATEWAY_TOKEN`
+**before** the first start, not after:
 
 ```
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"   # LIFEOS_SIGNING_KEY
