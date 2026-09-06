@@ -252,7 +252,7 @@ async function refresh() {
       state.convoy = convoyRes;
       state.venuePrograms = venuePrograms;
     } else if (state.tab === "more") {
-      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury] = await Promise.all([
+      const [convoy, decisions, spend, vitals, spaces, people, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury, devKeys] = await Promise.all([
         api("/v1/convoy"), api("/v1/decisions"), api("/v1/ledger"),
         api("/v1/vitals"), api("/v1/spaces"), api("/v1/people"),
         // The route is `/triage/card`; this asked for `/triage/critical` and 404'd on
@@ -265,9 +265,11 @@ async function refresh() {
         api("/v1/trust/badge").catch(() => null),
         api("/v1/wrapped/monthly").catch(() => null),
         api("/v1/telemetry/consent").catch(() => ({ enabled: false, share_interests: true, share_city_events: true })),
-        api("/v1/treasury/status").catch(() => null)
+        api("/v1/treasury/status").catch(() => null),
+        // The key list was two entries written into this file. This is the real one.
+        api("/v1/developer/keys").catch(() => null)
       ]);
-      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury };
+      state.more = { convoy, decisions, spend, vitals, spaces, critical, deadman, datingAvail, datingMatches, miniapps, trust, wrapped, consent, treasury, devKeys };
       state.people = people.people;
     } else {
       const [graphRes, centralityRanks, timeline] = await Promise.all([
@@ -1644,35 +1646,24 @@ function todayView() {
     </div>`;
   }
 
-  /* ---- AI Coach Suggestions (L0 Propose-Only) ---- */
-  if (window.TravelCoach) {
-    const coachCtx = {
-      thisWeek: t ? t.week : "",
-      weeks: t ? [t] : [],
-      log: (state.graph && state.graph.recent) || [],
-      goals: state.visions || [],
-      retrosCompleted: (state.journal || []).length,
-      dismissed: state.dismissedProposals || new Set()
-    };
-    try {
-      const proposals = window.TravelCoach.proposals(coachCtx);
-      if (proposals && proposals.length) {
-        html += `<div class="card"><h2>AI Coach Suggestions</h2>`;
-        html += proposals.map(p => `
-          <div class="feed-item" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <div>
-              <div class="kind" style="color:var(--spark); font-weight:600;">${esc(p.title)}</div>
-              <div class="label" style="font-size:13px; color:var(--text); margin-top:2px;">${esc(p.why || p.text || "")}</div>
-            </div>
-            <button class="pill" style="margin-left:8px; width:auto; padding:4px 10px;" data-act="coach-dismiss" data-id="${esc(p.id)}">✕</button>
-          </div>
-        `).join("");
-        html += `</div>`;
-      }
-    } catch (err) {
-      console.warn("Coach error:", err);
-    }
-  }
+  /* The AI Coach card was here and could never have rendered.
+
+     `TravelCoach.proposals(items, today, thisWeek, dismissed, limit)` takes five positional
+     arguments, the first an array of graph items; this passed one object. So `items` was
+     that object, `list.filter` was undefined, and every Today render threw a TypeError
+     straight into the card's own `catch`, which logged a warning nobody reads. The card
+     never appeared, and the failure was invisible for as long as it existed.
+
+     Calling it correctly would not have helped. The coach reads Travel Mode's item shape —
+     `{type: "entity", kind, key, attrs}`, built client-side in `travel.js` and kept in
+     localStorage — and the main app has no such collection: `/v1/graph` returns
+     `{kind, label, created_at}` rows for a recent-activity list, with no attrs and no keys
+     to filter on. The two surfaces have different data models, which is why the coach lives
+     in `travel.js` and works there.
+
+     So the card is gone rather than repaired: bridging the models is a feature, not a fix,
+     and a card that silently renders nothing is worse than no card. The working coach is
+     Travel Mode's, at `travel.html`. */
 
   html += `<div class="card"><h2>Week ${esc(t.week)}</h2>`;
   if (!t.tasks.length) {
@@ -2869,61 +2860,64 @@ function moreView() {
   </div>`;
 
   /* ---- 20% Democratic Community Impact Treasury ---- */
-  const trData = m.treasury || { profit_share_percent: 20, treasury_balance: 12450, total_disbursed: 0, proposals: [] };
+  /* The fallback alone asserted a 12,450 pool and a 20% profit share, so the card showed
+     both even when the route returned nothing at all. */
+  const trData = m.treasury || { proposals: [], count: 0, asked_for: [] };
   const props = trData.proposals || [];
 
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(37,99,235,0.15)); border:1px solid rgba(16,185,129,0.3);">
-    <h2>🏛️ 20% Community Impact Treasury</h2>
-    <p class="hint" style="margin-bottom:10px;">20% of net platform profits are given back to the community and governed democratically by members (1-Member 1-Vote).</p>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; text-align:center;">
-      <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
-        <div style="font-size:20px; font-weight:800; color:var(--growth);">$${(trData.treasury_balance || 0).toLocaleString()}</div>
-        <div style="font-size:11px; color:var(--muted);">Treasury Pool (20%)</div>
-      </div>
-      <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px;">
-        <div style="font-size:20px; font-weight:800; color:var(--spark);">$${(trData.total_disbursed || 0).toLocaleString()}</div>
-        <div style="font-size:11px; color:var(--muted);">Disbursed Grants</div>
-      </div>
-    </div>
-    
-    <div class="subhead" style="margin-top:12px;">Submit Community Grant / Charity Proposal</div>
-    <div class="row2"><input class="field" id="tr-title" placeholder="Proposal (e.g. Lisbon Crag Clean-up)">
-    <input class="field" id="tr-amount" type="number" value="500" placeholder="Grant ($)"></div>
-    <button class="primary" data-act="tr-submit">Submit Democratic Proposal 🗳️</button>
+    <h2>🏛️ What this community has asked for</h2>
+    <p class="hint" style="margin-bottom:10px;">There is no fund and no vote here. Nobody has committed to sharing any profit, nothing is held, and nothing is approved. A proposal is a public ask, and the total below is a sum of asks — not a balance.</p>
+    ${(trData.asked_for || []).length ? `
+      <div style="margin:10px 0; text-align:center;">
+        ${(trData.asked_for || []).map(a => `
+          <div style="background:rgba(255,255,255,0.05); padding:10px; border-radius:10px; display:inline-block; margin:2px;">
+            <div style="font-size:20px; font-weight:800;">${esc(String(a.amount))} ${esc(a.currency)}</div>
+            <div style="font-size:11px; color:var(--muted);">asked for, held by nobody</div>
+          </div>`).join("")}
+      </div>` : ""}
+
+    <div class="subhead" style="margin-top:12px;">Record an ask</div>
+    <div class="row2"><input class="field" id="tr-title" placeholder="what the money would be for">
+    <input class="field" id="tr-amount" type="number" placeholder="how much"></div>
+    <button class="primary" data-act="tr-submit">Record it 🗳️</button>
 
     ${props.length ? `
-      <div class="subhead" style="margin-top:12px;">Active Community Proposals</div>
+      <div class="subhead" style="margin-top:12px;">Asks recorded here</div>
       ${props.map(pr => `
         <div class="person"><div class="who">
-          <div class="name">${esc(pr.title)} · <strong style="color:var(--growth);">$${pr.grant_amount}</strong></div>
-          <div class="meta">Category: ${esc(pr.category)} · Proposed by ${esc(pr.proposed_by)} — ${pr.votes} votes (${esc(pr.status)})</div>
-        </div><div class="pills">
-          <button class="pill good" data-act="tr-vote" data-id="${pr.id}">Vote 🗳️ (${pr.votes})</button>
-        </div></div>
+          <div class="name">${esc(pr.project)} · <strong>${esc(String(pr.amount))} ${esc(pr.currency || "")}</strong></div>
+          <div class="meta">asked by ${esc(pr.proposed_by_handle || pr.proposed_by)}${pr.yours ? " · yours" : ""}</div>
+        </div>${pr.yours ? `<div class="pills">
+          <button class="pill" data-act="tr-withdraw" data-id="${esc(pr.proposal_id || pr.id)}">Withdraw</button>
+        </div>` : ""}</div>
       `).join("")}
-    ` : ""}
+    ` : `<p class="empty" style="margin-top:12px;">${esc(trData.suggestion || "Nobody has asked for anything here yet.")}</p>`}
   </div>`;
 
-  /* ---- Developer Platform & Open API Keys ---- */
-  const devKeys = [
-    { id: "key_live_9921", name: "Zapier Automation Key", created_at: "2026-08-05T19:30:00Z", status: "active" },
-    { id: "key_live_4412", name: "Python Script Runner", created_at: "2026-08-05T19:30:00Z", status: "active" }
-  ];
+  /* ---- Developer Platform & Open API Keys ----
+
+     Two keys were written into this file — a "Zapier Automation Key" and a "Python Script
+     Runner", both created at the same instant on 5 August, both shown as active, on every
+     account on every instance. Nobody had issued them and the ids authenticated nothing,
+     so an operator reading this screen believed two integrations held live credentials
+     against their graph. `GET /v1/developer/keys` lists the keys that actually exist. */
+  const devKeys = (m.devKeys && m.devKeys.keys) || [];
 
   html += `<div class="card"><h2>Developer Platform & Open API Keys</h2>
     <p class="hint" style="margin-bottom:10px;">Issue personal API keys to connect Python scripts, Zapier webhooks, or custom hardware buttons to your graph.</p>
     <div class="row2"><input class="field" id="dk-name" placeholder="Key Label (e.g. Home Assistant)">
     <button class="primary" style="width:auto; padding:10px 16px;" data-act="dev-key-gen">Generate Secret Key 🔑</button></div>
     
-    <div class="subhead" style="margin-top:12px;">Active API Keys</div>
-    ${devKeys.map(k => `
+    <div class="subhead" style="margin-top:12px;">Keys you have issued</div>
+    ${devKeys.length ? devKeys.map(k => `
       <div class="person"><div class="who">
-        <div class="name">${esc(k.name)} · <code style="color:var(--spark);">${esc(k.id)}</code></div>
-        <div class="meta">Status: ${esc(k.status)} · Created ${esc(k.created_at.slice(0, 10))}</div>
+        <div class="name">${esc(k.name)}</div>
+        <div class="meta">${k.created_at ? `created ${esc(String(k.created_at).slice(0, 10))}` : ""}${k.last_used_at ? ` · last used ${esc(String(k.last_used_at).slice(0, 10))}` : " · never used"}</div>
       </div><div class="pills">
-        <span class="badge good" style="font-size:11px;">Active</span>
+        <span class="badge" style="font-size:11px;">${k.revoked ? "revoked" : "active"}</span>
       </div></div>
-    `).join("")}
+    `).join("") : `<p class="empty">No keys yet. The secret is shown once when you make one — this list can only ever show what a key is called and when it was used, never the key itself.</p>`}
 
     <div style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap;">
       <a href="/docs" target="_blank" class="pill" style="text-decoration:none; display:inline-block; padding:6px 12px; background:var(--surface-2s);">📚 Interactive OpenAPI Docs (/docs)</a>
@@ -3034,12 +3028,6 @@ function wire(root) {
     state.retro = (await api("/v1/retro", {})).text;
     render();
   }));
-
-  on("[data-act=coach-dismiss]", (el) => {
-    if (!state.dismissedProposals) state.dismissedProposals = new Set();
-    state.dismissedProposals.add(el.dataset.id);
-    render();
-  });
 
   on("[data-act=parked-promote]", (el) => act(async () => {
     await api(`/v1/parked/${el.dataset.id}/promote`, { target_level: "goal" });
@@ -3680,27 +3668,40 @@ function wire(root) {
 
   /* ---- 20% Community Impact Treasury Handlers ---- */
 
+  /* The amount defaulted to 500, so an empty box asked for five hundred of something. */
   on("[data-act=tr-submit]", () => act(async () => {
-    const title = $("#tr-title").value.trim();
-    const grant_amount = parseFloat($("#tr-amount").value) || 500;
-    if (!title) return toast("Provide proposal title.");
-    await api("/v1/treasury/proposals", { title, category: "charity", grant_amount });
+    const project = $("#tr-title").value.trim();
+    const amount = $("#tr-amount").value.trim();
+    if (!project || !amount) { toast("What is it for, and how much?"); return; }
+    await api("/v1/treasury/proposals", { project, amount, city: state.city || "" });
     $("#tr-title").value = "";
+    $("#tr-amount").value = "";
     await refresh();
-  }, "Democratic Proposal Submitted 🗳️"));
+  }, "Recorded"));
 
-  on("[data-act=tr-vote]", (el) => act(async () => {
-    await api("/v1/treasury/vote", { proposal_id: el.dataset.id });
+  /* Voting is gone. It counted votes without recording who cast them, so one caller could
+     post five times and flip a proposal to "approved" — and nothing here can release money
+     to an approved one anyway. Withdrawing your own ask is the state change that is real. */
+  on("[data-act=tr-withdraw]", (el) => act(async () => {
+    await apiDelete("/v1/community/micro-grants", { proposal_id: el.dataset.id });
     await refresh();
-  }, "Vote Cast 🗳️"));
+  }, "Withdrawn"));
 
+  /* `const secret = res.secret || "los_sk_demo123"` copied a placeholder to the clipboard
+     whenever the call did not return one, and toasted its first twelve characters as though
+     it were a key. Somebody would paste that into a config and wonder why nothing
+     authenticated. The secret exists once, in this response, so a failure to get one has to
+     say so rather than substitute a string. */
   on("[data-act=dev-key-gen]", () => act(async () => {
-    const name = $("#dk-name").value.trim() || "New Integration Key";
+    const box = $("#dk-name");
+    const name = box ? box.value.trim() : "";
+    if (!name) { toast("What should the key be called?"); return; }
     const res = await api("/v1/developer/keys", { name });
-    const secret = res.secret || "los_sk_demo123";
-    await navigator.clipboard.writeText(secret).catch(() => {});
-    $("#dk-name").value = "";
-    toast(`API Key Created! Secret copied to clipboard: ${secret.slice(0, 12)}... 🔑`);
+    if (!res.secret) { toast("No key came back — nothing was created."); return; }
+    await navigator.clipboard.writeText(res.secret).catch(() => {});
+    if (box) box.value = "";
+    toast(res.store_it_now || "Key created and copied. It is shown once.");
+    await refresh();
   }));
 
   /* It echoed two times back, stored nothing, and toasted "Daily Push Notifications
