@@ -1118,18 +1118,25 @@ function todayView() {
     <div id="life-value-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Zero-User Autonomous Event Seeding & Tastemaker Studio ---- */
+  /* ---- Seeding a city that has nobody in it yet ----
+
+     Four buttons, three of which called `_guide(..., "culture")` and so returned the same
+     response byte for byte: "Top Hidden Gems", "Recurring Real Hubs" and "7-Day Culture
+     Guide" were one route wearing three labels, and each read a different invented key off
+     it. They are one button now. The crawler is the other real thing here: give it a venue's
+     website and it looks for the calendar feed nobody knows the URL of. It writes public
+     rows and calls somebody else's server, so it is the operator's. */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🌐 Zero-User Autonomous Event Seeding & Tastemaker</h2>
-      <span class="badge good" style="font-weight:bold;">Cold-Start Solved</span>
+      <h2>🌐 Seeding a city with nobody in it</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted); font-weight:bold;">Map and feeds only</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Multi-feed live event crawler (RA, Luma, Dice), hidden gem tastemaker scoring, recurring real-world gravity hubs, and 7-day city culture guide!</p>
+    <p class="hint" style="margin-bottom:8px;">Two things need no users: the places OpenStreetMap already has, and the calendar a venue already publishes. Nothing is taken from a site that has not offered it.</p>
+    <input class="field" id="zs-city" placeholder="Which city?" style="margin-bottom:8px;">
+    <input class="field" id="zs-url" placeholder="A venue's website, to look for its calendar (operator)" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="crawl-zero-user-events">Crawl 220+ Events (RA/Luma) 📡</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="curate-hidden-gems">Top Hidden Gems 💎</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="sync-gravity-hubs">Recurring Real Hubs 📍</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="gen-city-culture-guide">7-Day Culture Guide 📅</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="gen-city-culture-guide">What is on there 📅</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="crawl-zero-user-events">Find a venue's calendar 📡</button>
     </div>
     <div id="zero-user-seeding-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1189,15 +1196,16 @@ function todayView() {
   /* ---- Next-Gen Content Seeding & Insider Radar Studio ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(236,72,153,0.18), rgba(245,158,11,0.18)); border:1px solid rgba(236,72,153,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>📡 Next-Gen Content Seeding & Insider Radar</h2>
-      <span class="badge good" style="font-weight:bold;">Insider Discovery</span>
+      <h2>📡 Slices of a city</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted); font-weight:bold;">From the map and the board</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Underground vinyl listening sessions, secret ramen test kitchens, unmapped wild waterfalls, and candlelit poetry bookshop salons!</p>
+    <p class="hint" style="margin-bottom:8px;">The same question asked four ways: what is here, of this kind? Answered from the places this city has mapped and what people have put on the board. A city with none of a kind is told it has none.</p>
+    <input class="field" id="ng-city" placeholder="Which city?" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="view-vinyl-radar">Underground Vinyl Radar 🎙️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="view-culinary-drops">Culinary Secret Drops 🥐</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="view-wild-nature">Wild Nature & Waterfalls ⛰️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #3b82f6);" data-act="view-literary-salons">Literary & Poetry Salons 📚</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #8b5cf6);" data-act="view-vinyl-radar">Records and live music 🎙️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="view-culinary-drops">Food, markets and pop-ups 🥐</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="view-wild-nature">Trails, parks and wild swims ⛰️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #3b82f6);" data-act="view-literary-salons">Books, readings and quiet rooms 📚</button>
     </div>
     <div id="nextgen-seeding-output" style="margin-top:10px;"></div>
   </div>`;
@@ -1205,16 +1213,17 @@ function todayView() {
   /* ---- Hyper-Autonomous Event & Spot Discovery Studio ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(6,182,212,0.18), rgba(99,102,241,0.18)); border:1px solid rgba(6,182,212,0.4);">
     <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🛰️ Hyper-Autonomous Event & Spot Discovery</h2>
-      <span class="badge good" style="font-weight:bold;">Live Real-Time APIs</span>
+      <h2>🛰️ What is busy, and what it is like outside</h2>
+      <span class="badge" style="color:var(--muted); border-color:var(--muted); font-weight:bold;">One live source: open-meteo.com</span>
     </div>
-    <p class="hint" style="margin-bottom:8px;">Live Open-Meteo weather telemetry, Wikipedia encyclopedia feeds, Reddit/Instagram viral surges & OSM footfall anomalies!</p>
+    <p class="hint" style="margin-bottom:8px;">The forecast is a live reading. There is no footfall sensor here and nothing scrapes a publication, so those two buttons say so and hand back what is real instead.</p>
+    <input class="field" id="hd-city" placeholder="Which city?" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="view-viral-pulse">Social & Viral Pulse 📱</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-footfall-anomalies">Footfall Surge Anomaly 🗺️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-editorial-press">Cultural Press Scraper 📰</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #f59e0b);" data-act="view-weather-triggers">Weather & Tide Triggers ☀️</button>
-      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981); grid-column: 1 / -1;" data-act="fetch-live-apis">🌐 Ingest Live External APIs (Open-Meteo & Wiki) 🚀</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="view-viral-pulse">Where people said they are going 📱</button>
+      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ec4899);" data-act="view-footfall-anomalies">Why there is no crowd count 🗺️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #6366f1, #8b5cf6);" data-act="view-editorial-press">Why nothing is scraped 📰</button>
+      <button class="primary" style="background:linear-gradient(135deg, #10b981, #f59e0b);" data-act="view-weather-triggers">What the conditions make worth doing ☀️</button>
+      <button class="primary" style="background:linear-gradient(135deg, #ec4899, #10b981); grid-column: 1 / -1;" data-act="fetch-live-apis">🌐 The forecast itself</button>
     </div>
     <div id="hyper-discovery-output" style="margin-top:10px;"></div>
   </div>`;
@@ -4563,6 +4572,152 @@ function wire(root) {
     }
   });
 
+  /* ---- The shapes the seeding and discovery routes actually return ----
+
+     Fourteen `/seeding/*` cards each promised a curated list and each read its own invented
+     key — `top_hidden_gems`, `curated_underground_sessions`, `detected_footfall_hotspots`,
+     `secret_nature_spots`, `real_world_recurring_gatherings`. Those handlers now run through
+     `modules/city/guide.py`, which asks one question — what is here, of this kind? — of the
+     two sources this app really has: the OpenStreetMap places a city was seeded with, and
+     the meetups and venue-feed listings people actually put on the board. So the cards share
+     four renderers instead of carrying fourteen bespoke ones reading keys nobody emits.
+
+     Each of these renders the route's own `suggestion` when there is nothing, because an
+     honest empty state and a broken panel look identical to a user unless the empty state is
+     a sentence. */
+
+  function guidePlace(p) {
+    const bits = [p.category, p.street, p.opening_hours].filter(Boolean).join(" · ");
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div><strong>${esc(p.name || "")}</strong></div>
+        ${bits ? `<div style="font-size:11px; color:var(--muted);">${esc(bits)}</div>` : ""}
+      </div>`;
+  }
+
+  function guideListing(e) {
+    const bits = [e.venue || e.place || "", e.start ? whenLabel(e.start) : ""]
+      .filter(Boolean).join(" · ");
+    return `
+      <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+        <div><strong>${esc(e.title || "")}</strong></div>
+        ${bits ? `<div style="font-size:11px; color:var(--muted);">${esc(bits)}</div>` : ""}
+        ${e.going_count !== undefined ? `<div style="font-size:11px; color:var(--muted);">${e.going_count} interested</div>` : ""}
+      </div>`;
+  }
+
+  /* `guide.view` — mapped places, meetups on the board, listings from subscribed feeds. */
+  function renderGuideView(res, sel, heading) {
+    const out = $(sel);
+    if (!out) return;
+    const places = res.places || [];
+    const board = res.meetups || [];
+    const listed = res.events || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(heading || res.label || "")}${res.city ? ` · ${esc(res.city)}` : ""}</div>
+        ${places.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">On the map</div>` : ""}
+        ${places.map(guidePlace).join("")}
+        ${board.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">On the board</div>` : ""}
+        ${board.map(matchMeetup).join("")}
+        ${listed.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">From subscribed venue feeds</div>` : ""}
+        ${listed.map(guideListing).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "Nothing here yet.")}</div>` : ""}
+        ${res.attribution ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.attribution)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  /* `guide.busiest` — the board ordered by the only measure here: who said they are going.
+     This card used to report a "virality index" over view counts nothing collects. */
+  function renderBoard(res, sel, heading) {
+    const out = $(sel);
+    if (!out) return;
+    const board = res.meetups || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(heading || "")}${res.city ? ` · ${esc(res.city)}` : ""}</div>
+        ${board.length ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">Ordered by ${esc(res.measure || "")}</div>` : ""}
+        ${board.map(matchMeetup).join("")}
+        ${res.empty ? `<div style="font-size:13px; color:var(--muted);">${esc(res.suggestion || "Nothing on the board in this city yet.")}</div>` : ""}
+        ${res.no_virality_index ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_virality_index)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  /* `guide.unavailable` — `{available:false, what, reason, instead}`. Distinct from
+     `renderUnavailable`, which takes the 503 `{capability, why, needs}` shape: this one
+     answers 200 and carries the nearest real thing in `instead`, so the panel has to show
+     both the refusal and what came back with it. */
+  function renderNoSource(res, sel, heading) {
+    const out = $(sel);
+    if (!out) return;
+    const instead = res.instead || {};
+    const board = instead.meetups || [];
+    const found = instead.candidates || [];
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(heading || "No source for this")}</div>
+        ${res.what ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">${esc(res.what)}</div>` : ""}
+        <div style="font-size:13px; margin-bottom:6px;">${esc(res.reason || "")}</div>
+        ${board.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">What there is instead, by ${esc(instead.measure || "")}</div>` : ""}
+        ${board.map(matchMeetup).join("")}
+        ${found.length ? `<div style="font-size:12px; color:var(--muted); margin:6px 0 4px;">Feeds that site publishes</div>` : ""}
+        ${found.map(c => `<div style="font-size:13px; margin-bottom:4px;">${esc(c.title || c.url || "")} <span style="font-size:11px; color:var(--muted);">${esc(c.kind || "")}</span></div>`).join("")}
+        ${instead.status && instead.status !== "ok" ? `<div style="font-size:12px; color:var(--muted);">${esc(instead.status)}</div>` : ""}
+        ${instead.no_virality_index ? `<div style="font-size:11px; color:var(--muted); margin-top:6px;">${esc(instead.no_virality_index)}</div>` : ""}
+        ${instead.suggestion ? `<div style="font-size:12px; color:var(--spark); margin-top:6px;">${esc(instead.suggestion)}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
+  /* `conditions.read` and `conditions.triggers`. Both can answer `available: false` — the
+     geocoder could not place the city, or the forecast fetch failed — and that is a status,
+     not a temperature. The old card fell back to a hardcoded 22.4 degrees either way. Every
+     trigger carries the reading it fired on and the threshold, so it is checkable rather
+     than asserted. */
+  function renderConditions(res, sel, heading) {
+    const out = $(sel);
+    if (!out) return;
+    const where = res.city_label || res.city || "";
+    if (res.available === false) {
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--muted);">
+          <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(heading || "No reading")}${where ? ` · ${esc(where)}` : ""}</div>
+          <div style="font-size:13px; margin-bottom:4px;">${esc(res.detail || res.status || "")}</div>
+          <div style="font-size:12px; color:var(--muted);">${esc(res.suggestion || "No weather source reachable, so nothing is claimed.")}</div>
+        </div>`;
+      bindLater(out);
+      return;
+    }
+    const w = res.weather || {};
+    const sea = res.marine || {};
+    const fired = res.triggers || [];
+    const num = (v) => v !== undefined && v !== null;
+    const reading = [
+      num(w.temp_c) ? `${w.temp_c} °C` : "",
+      num(w.wind_kmh) ? `wind ${w.wind_kmh} km/h` : "",
+      num(w.cloud_pct) ? `${w.cloud_pct}% cloud` : "",
+      num(w.rain_chance_pct) ? `${w.rain_chance_pct}% chance of rain` : "",
+    ].filter(Boolean).join(" · ");
+    const wave = num(sea.wave_height_m) ? `${sea.wave_height_m} m swell` : "";
+    out.innerHTML = `
+      <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:14px; font-weight:700; margin-bottom:6px;">${esc(heading || "Conditions")}${where ? ` · ${esc(where)}` : ""}</div>
+        ${reading ? `<div style="font-size:13px; margin-bottom:4px;">${esc(reading)}</div>` : ""}
+        ${wave ? `<div style="font-size:13px; margin-bottom:4px;">${esc(wave)}</div>` : ""}
+        ${(!wave && res.marine_status && res.marine_status !== "ok") ? `<div style="font-size:12px; color:var(--muted); margin-bottom:4px;">No sea state for this coordinate.</div>` : ""}
+        ${fired.map(t => `
+          <div style="font-size:13px; margin-bottom:6px; background:var(--surface-1); padding:8px 10px; border-radius:8px;">
+            <div><strong>${esc(t.trigger)}</strong></div>
+            <div style="font-size:11px; color:var(--muted);">${esc(t.reading)} · fires at ${esc(t.rule)}</div>
+          </div>`).join("")}
+        ${res.suggestion ? `<div style="font-size:12px; color:var(--muted); margin-top:4px;">${esc(res.suggestion)}</div>` : ""}
+        ${res.source ? `<div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.source)}${res.cached ? " · cached" : ""}</div>` : ""}
+      </div>`;
+    bindLater(out);
+  }
+
   function renderNoProcessor(err, sel, title) {
     const out = $(sel);
     if (!out) return;
@@ -5436,64 +5591,42 @@ function wire(root) {
     renderAI({ recent: res.recent || [], suggestion: res.privacy || "", assisted: true },
              "#life-value-output", res.logged ? `Written down (${res.total})` : "Yours so far");
   }));
+  /* Listed 220 "verified events" aggregated from Resident Advisor, Luma and Dice.fm, none
+     of which this app integrates and none of which had agreed to it. The real crawler is
+     feed discovery: hand it a venue's website and it finds the ICS the venue already
+     publishes. It needs a URL, and it is the operator's because it writes public rows. */
   on("[data-act=crawl-zero-user-events]", () => act(async () => {
-    const res = await api("/v1/seeding/zero-user-event-crawler", { city: "Edinburgh" });
+    const url = $("#zs-url") ? $("#zs-url").value.trim() : "";
+    if (!url) { toast("A venue website to look at."); return; }
     const out = $("#zero-user-seeding-output");
     if (!out) return;
-    const srcs = res.sources_aggregated || [];
-    const items = srcs.map(s => `<div style="margin-top:2px;">• <strong>${esc(s.source)}</strong>: ${s.events_ingested} events (<em>${esc(s.category)}</em>)</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📡 Zero-User Event Ingestion (${esc(res.city)}):</div>
-        <div style="font-size:13px; margin-bottom:4px;">Total Ingested: <strong>${res.total_verified_events} live events</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(res.quality_filter_pass_rate)}</span>)</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "220 Live Events Ingested from Multi-Sources! 📡"));
+    try {
+      const res = await api("/v1/seeding/zero-user-event-crawler",
+                            { url, city: $("#zs-city") ? $("#zs-city").value.trim() : "" });
+      const found = res.candidates || [];
+      out.innerHTML = `
+        <div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+          <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.url || url)}</div>
+          <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${esc(res.status || "")}</div>
+          ${found.map(c => `<div style="font-size:13px; margin-bottom:4px;">${esc(c.title || c.url || "")} <span style="font-size:11px; color:var(--muted);">${esc(c.kind || "")}</span></div>`).join("")}
+          ${found.length ? "" : `<div style="font-size:13px; color:var(--muted);">No feed advertised on that page.</div>`}
+          ${res.added ? `<div style="font-size:12px; color:var(--spark); margin-top:6px;">Subscribed.</div>` : ""}
+        </div>`;
+      bindLater(out);
+    } catch (e) {
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; font-size:13px;">${esc(e.status === 403 ? "This one is the operator's — it writes public rows and calls somebody else's server." : e.message)}</div>`;
+    }
+  }));
 
-  on("[data-act=curate-hidden-gems]", () => act(async () => {
-    const res = await api("/v1/seeding/tastemaker-curation", { city: "Edinburgh" });
-    const out = $("#zero-user-seeding-output");
-    if (!out) return;
-    const gems = res.top_hidden_gems || [];
-    const items = gems.map(g => `<div style="margin-top:3px; padding:6px; background:rgba(0,0,0,0.2); border-radius:8px;">• <strong>${esc(g.name)}</strong> (${g.insider_score}/100 score)<br><span style="font-size:11px; color:var(--spark);">${esc(g.vibe)}</span><br><span style="font-size:11px; color:var(--growth);">${esc(g.timing)} @ ${esc(g.neighborhood)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">💎 AI Tastemaker Top Hidden Gems (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Top Hidden Gems Curated! 💎"));
-
-  on("[data-act=sync-gravity-hubs]", () => act(async () => {
-    const res = await api("/v1/seeding/recurring-gravity-hubs", { city: "Edinburgh" });
-    const out = $("#zero-user-seeding-output");
-    if (!out) return;
-    const hubs = res.real_world_recurring_gatherings || [];
-    const items = hubs.map(h => `<div style="margin-top:3px;">• <strong>${esc(h.title)}</strong> (${esc(h.schedule)})<br><span style="font-size:11px; color:var(--growth);">Crowd: ${esc(h.real_world_crowd)} @ ${esc(h.venue)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">📍 Recurring Real-World Gravity Hubs (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--spark); font-weight:700; margin-top:2px;">Real humans show up every week with 0 app downloads needed!</div>
-      </div>
-    `;
-  }, "Recurring Real-World Hubs Synced! 📍"));
-
+  /* Returned a seven-day itinerary under a `title`, with a `weekly_highlights` list of a
+     day and a highlight for each — written, for any city, by nobody. The route is one
+     `guide` view over the same two sources everything else here reads. */
   on("[data-act=gen-city-culture-guide]", () => act(async () => {
-    const res = await api("/v1/seeding/city-culture-guide", { city: "Edinburgh" });
-    const out = $("#zero-user-seeding-output");
-    if (!out) return;
-    const days = res.weekly_highlights || [];
-    const items = days.map(d => `<div style="margin-top:2px;">• <strong>${esc(d.day)}</strong>: ${esc(d.highlight)}</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">📅 ${esc(res.title)}:</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:700; margin-top:4px;">Status: ${esc(res.status)}</div>
-      </div>
-    `;
-  }, "7-Day City Culture Guide Synthesized! 📅"));
+    const city = $("#zs-city") ? $("#zs-city").value.trim() : "";
+    if (!city) { toast("Which city?"); return; }
+    renderGuideView(await api("/v1/seeding/city-culture-guide", { city }),
+                    "#zero-user-seeding-output", "Galleries, viewpoints and markets");
+  }));
 
   /* A six-entry timeline of a day nobody lived, with a "dopamine vitality score" of
      98/100 beside it. Nothing here measures attention, and there is no simulator. */
@@ -5632,136 +5765,96 @@ function wire(root) {
     out.innerHTML = renderFeedRules(res);
   }));
 
+  /* Four cards, four invented lists — `curated_underground_sessions`,
+     `exclusive_food_drops`, `secret_nature_spots`, `curated_salons` — each with a venue, a
+     time and a vibe for a night nobody was running. They are four named views over one
+     function now, so they share one renderer and one city box. The route stays a literal in
+     each: a path built from a variable cannot be checked against the router. */
+  const guideCity = () => ($("#ng-city") ? $("#ng-city").value.trim() : "");
+
+  function showGuide(res, heading) {
+    renderGuideView(res, "#nextgen-seeding-output", heading);
+  }
+
   on("[data-act=view-vinyl-radar]", () => act(async () => {
-    const res = await api("/v1/seeding/underground-vinyl-radar", { city: "Edinburgh" });
-    const out = $("#nextgen-seeding-output");
-    if (!out) return;
-    const sess = res.curated_underground_sessions || [];
-    const items = sess.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(s.venue)} · ${esc(s.time)} (${esc(s.vibe)})</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #ec4899;">
-        <div style="font-size:14px; font-weight:700; color:#ec4899; margin-bottom:4px;">🎙️ Underground Vinyl & Secret DJ Radar (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Underground Vinyl Radar Synced! 🎙️"));
+    const city = guideCity();
+    if (!city) { toast("Which city?"); return; }
+    showGuide(await api("/v1/seeding/underground-vinyl-radar", { city }),
+              "Records and live music");
+  }));
 
   on("[data-act=view-culinary-drops]", () => act(async () => {
-    const res = await api("/v1/seeding/culinary-popup-drops", { city: "Edinburgh" });
-    const out = $("#nextgen-seeding-output");
-    if (!out) return;
-    const drops = res.exclusive_food_drops || [];
-    const items = drops.map(d => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(d.title)}</strong><br><span style="font-size:11px; color:var(--growth);">${esc(d.bakery || d.chef || d.host)} · ${esc(d.time)} (<em>${esc(d.quantity || d.access)}</em>)</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🥐 Culinary Secret Pop-Up Drops (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Culinary Pop-Up Drops Synced! 🥐"));
+    const city = guideCity();
+    if (!city) { toast("Which city?"); return; }
+    showGuide(await api("/v1/seeding/culinary-popup-drops", { city }), "Food, markets and pop-ups");
+  }));
 
   on("[data-act=view-wild-nature]", () => act(async () => {
-    const res = await api("/v1/seeding/wild-nature-trails", { city: "Edinburgh" });
-    const out = $("#nextgen-seeding-output");
-    if (!out) return;
-    const spots = res.secret_nature_spots || [];
-    const items = spots.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong> (${esc(s.distance)})<br><span style="font-size:11px; color:var(--spark);">${esc(s.difficulty)} · ${esc(s.stargazing_rating || s.water_quality)} · GPX Cached: 🟢</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">⛰️ Wild Nature & Hidden Coordinates (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:bold; margin-top:4px;">${esc(res.offline_maps_ready)}</div>
-      </div>
-    `;
-  }, "Wild Nature Trails Synced! ⛰️"));
+    const city = guideCity();
+    if (!city) { toast("Which city?"); return; }
+    showGuide(await api("/v1/seeding/wild-nature-trails", { city }), "Trails, parks and wild swims");
+  }));
 
   on("[data-act=view-literary-salons]", () => act(async () => {
-    const res = await api("/v1/seeding/literary-salon-radar", { city: "Edinburgh" });
-    const out = $("#nextgen-seeding-output");
-    if (!out) return;
-    const salons = res.curated_salons || [];
-    const items = salons.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.title)}</strong><br><span style="font-size:11px; color:var(--spark);">${esc(s.venue)} · ${esc(s.time)} (<em>${esc(s.entry || s.topic)}</em>)</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📚 Literary Salons & Bookshop Radar (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Literary Salons Synced! 📚"));
+    const city = guideCity();
+    if (!city) { toast("Which city?"); return; }
+    showGuide(await api("/v1/seeding/literary-salon-radar", { city }), "Books, readings and quiet rooms");
+  }));
 
+  const discoverCity = () => ($("#hd-city") ? $("#hd-city").value.trim() : "");
+
+  /* Reported `social_signals_detected`: a venue, a signal, an insight and a velocity, over
+     a Reddit and Instagram integration that does not exist. The board ordered by who said
+     they are going is the same question with a source behind it. */
   on("[data-act=view-viral-pulse]", () => act(async () => {
-    const res = await api("/v1/seeding/social-viral-pulse", { city: "Edinburgh" });
-    const out = $("#hyper-discovery-output");
-    if (!out) return;
-    const sigs = res.social_signals_detected || [];
-    const items = sigs.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.venue)}</strong> (<span style="color:var(--spark);">${esc(s.signal)}</span>)<br><span style="font-size:11px; color:var(--growth);">${esc(s.insight)} · <em>${esc(s.velocity)}</em></span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #06b6d4;">
-        <div style="font-size:14px; font-weight:700; color:#06b6d4; margin-bottom:4px;">📱 Social & Viral Pulse Surges (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Social Viral Pulse Synced! 📱"));
+    const city = discoverCity();
+    if (!city) { toast("Which city?"); return; }
+    renderBoard(await api("/v1/seeding/social-viral-pulse", { city }),
+                "#hyper-discovery-output", "Where people said they are going");
+  }));
 
+  /* Read `detected_footfall_hotspots` and a `confidence_score` off a route that now
+     answers `available: false` — there is no sensor, camera or telemetry source connected
+     and no honest way to infer crowd density from a graph of meetups. The button stays
+     because the question is a fair one; it says what it would take instead. */
   on("[data-act=view-footfall-anomalies]", () => act(async () => {
-    const res = await api("/v1/seeding/live-footfall-anomalies", { city: "Edinburgh" });
-    const out = $("#hyper-discovery-output");
-    if (!out) return;
-    const spots = res.detected_footfall_hotspots || [];
-    const items = spots.map(s => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(s.zone)}</strong>: ${esc(s.probable_event)}<br><span style="font-size:11px; color:var(--spark);">${esc(s.anomaly_type)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #f59e0b;">
-        <div style="font-size:14px; font-weight:700; color:#f59e0b; margin-bottom:4px;">🗺️ Live Footfall & OSM Anomalies (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:11px; color:var(--growth); font-weight:bold; margin-top:4px;">Confidence: ${esc(res.confidence_score)}</div>
-      </div>
-    `;
-  }, "Footfall Anomalies Synced! 🗺️"));
+    const city = discoverCity();
+    if (!city) { toast("Which city?"); return; }
+    renderNoSource(await api("/v1/seeding/live-footfall-anomalies", { city }),
+                   "#hyper-discovery-output", "No crowd count");
+  }));
 
+  /* Read `editorial_recommendations` — a named city magazine and its pick — off a route
+     that refuses. Scraping a publication with no agreement to do so is somebody else's work
+     taken without asking; the route says so and offers the thing it will do instead, which
+     is find a feed a site actually publishes. */
   on("[data-act=view-editorial-press]", () => act(async () => {
-    const res = await api("/v1/seeding/editorial-press-scraper", { city: "Edinburgh" });
-    const out = $("#hyper-discovery-output");
-    if (!out) return;
-    const recs = res.editorial_recommendations || [];
-    const items = recs.map(r => `<div style="margin-top:3px;">• <strong style="color:var(--spark);">${esc(r.source)}</strong>: ${esc(r.highlight)}</div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #6366f1;">
-        <div style="font-size:14px; font-weight:700; color:#6366f1; margin-bottom:4px;">📰 Cultural Press & Critic Picks (${esc(res.city)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Editorial Cultural Press Synced! 📰"));
+    renderNoSource(await api("/v1/seeding/editorial-press-scraper",
+                             { city: discoverCity() }),
+                   "#hyper-discovery-output", "Nothing is scraped here");
+  }));
 
+  /* `spontaneous_weather_triggers` and a `current_conditions` string, for a route that
+     branched on the word "munich" and gave everyone else Edinburgh's. Each trigger now
+     carries the reading it fired on and the threshold, and a reading the forecast did not
+     return produces no trigger at all. */
   on("[data-act=view-weather-triggers]", () => act(async () => {
-    const res = await api("/v1/seeding/weather-tide-triggers", { city: "Edinburgh" });
-    const out = $("#hyper-discovery-output");
-    if (!out) return;
-    const trigs = res.spontaneous_weather_triggers || [];
-    const items = trigs.map(t => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(t.trigger)}</strong> (<span style="color:var(--growth);">${esc(t.condition)}</span>)<br><span style="font-size:11px; color:var(--spark);">${esc(t.action)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">☀️ Weather & Tide Activity Triggers (${esc(res.current_conditions)}):</div>
-        <div style="font-size:12px;">${items}</div>
-      </div>
-    `;
-  }, "Weather & Tide Triggers Synced! ☀️"));
+    const city = discoverCity();
+    if (!city) { toast("Which city?"); return; }
+    renderConditions(await api("/v1/seeding/weather-tide-triggers", { city }),
+                     "#hyper-discovery-output", "Worth doing right now");
+  }));
 
+  /* Read `live_weather`, `live_cultural_events` and a `connected_apis` list naming
+     integrations this app does not have. It does make one real call — Open-Meteo, through a
+     geocoder — and the old card fell back to a hardcoded 22.4 degrees whenever that failed,
+     from a lat/lon table with two cities in it. A failed fetch is a status now. */
   on("[data-act=fetch-live-apis]", () => act(async () => {
-    const res = await api("/v1/seeding/live-external-api-ingest", { city: "Edinburgh" });
-    const out = $("#hyper-discovery-output");
-    if (!out) return;
-    const w = res.live_weather || {};
-    const events = res.live_cultural_events || [];
-    const items = events.map(e => `<div style="margin-top:3px; padding:4px; background:rgba(0,0,0,0.2); border-radius:6px;">• <strong>${esc(e.title)}</strong> (<span style="color:var(--growth); font-weight:bold;">${esc(e.source)}</span>)<br><span style="font-size:11px; color:var(--spark);">${esc(e.extract)}</span></div>`).join("");
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid #10b981;">
-        <div style="font-size:14px; font-weight:700; color:#10b981; margin-bottom:4px;">🌐 Live External APIs Ingested (${esc(res.city)}):</div>
-        <div style="font-size:12px; margin-bottom:4px; color:var(--growth); font-weight:bold;">⛅ Live Weather: ${w.temp_c}°C · Wind: ${w.wind_kmh} km/h (${esc(w.status)})</div>
-        <div style="font-size:12px;">${items}</div>
-        <div style="font-size:10px; color:var(--muted); margin-top:4px;">Connected: ${esc((res.connected_apis || []).join(", "))}</div>
-      </div>
-    `;
-  }, "Live External APIs Ingested! 🌐"));
+    const city = discoverCity();
+    if (!city) { toast("Which city?"); return; }
+    renderConditions(await api("/v1/seeding/live-external-api-ingest", { city }),
+                     "#hyper-discovery-output", "The forecast");
+  }));
 
   on("[data-act=view-nightlife-party]", () => act(async () => {
     renderMatch(await api("/v1/nightlife/party-radar",

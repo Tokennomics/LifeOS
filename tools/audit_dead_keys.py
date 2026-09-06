@@ -14,7 +14,7 @@ the list against the handler the card actually calls.
 As of 2026-09-05 it reports 76 dead of 263 reads. `docs/tickets/T5-dead-response-keys.md`
 is the ticket to close that.
 """
-import re, pathlib
+import os, re, sys, pathlib
 js = pathlib.Path("surfaces/app/www/app.js").read_text()
 # strip comments so changelog prose does not count as a read
 js = re.sub(r'/\*.*?\*/', '', js, flags=re.S)
@@ -28,5 +28,12 @@ for p in list(pathlib.Path("gateway").rglob("*.py")) + list(pathlib.Path("module
 emitted = set(re.findall(r'"([a-z_][a-z0-9_]*)"\s*:', server))
 emitted |= set(re.findall(r"'([a-z_][a-z0-9_]*)'\s*:", server))
 dead = sorted(k for k in reads if k not in emitted)
-print(f"{len(reads)} distinct res.X reads, {len(dead)} with no server-side key")
-for k in dead: print("  ", k)
+# `| head` closes the pipe mid-write; that is the shell being asked for fewer lines, not an
+# error, and a traceback there makes a working tool look broken.
+try:
+    print(f"{len(reads)} distinct res.X reads, {len(dead)} with no server-side key")
+    for k in dead:
+        print("  ", k)
+    sys.stdout.flush()
+except BrokenPipeError:
+    os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
