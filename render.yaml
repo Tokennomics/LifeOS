@@ -4,8 +4,10 @@
 # no compose, no firewall rules. It costs a few dollars more than Hetzner and that is the
 # right trade when the alternative is not being able to deploy at all.
 #
-# To use: Render dashboard -> New -> Blueprint -> point at this repo. Then set the two
-# secrets marked sync:false below, in the dashboard, and deploy.
+# To use: Render dashboard -> New -> Blueprint -> point at this repo, and deploy. The two
+# secrets are `generateValue: true`, so Render mints them at create time: there is nothing
+# to paste in and nothing to forget. Read them afterwards under Environment. Everything
+# still marked `sync: false` below is optional — the app works without all of them.
 #
 # THE DISK IS NOT OPTIONAL. Everything lives in one SQLite file. Without a persistent disk
 # every deploy and every restart resets the database to empty — and Render's free tier has
