@@ -25,6 +25,11 @@ Owner action, still open: **enable branch protection on `main`** in GitHub → S
 Branches — block force-pushes and require a pull request. That is the only thing that makes
 this rule hold against a tool that does not read files.
 
+Until that exists, `.github/workflows/force-push-alarm.yml` is the fallback: it cannot stop a
+force-push, but it fires on one, names the commits that left the branch, opens an issue with
+the recovery that worked both times, and fails the run. It denies the erasure its silence —
+both previous ones were noticed by chance, days later. It is a smoke alarm, not a sprinkler.
+
 ## 2. One ticket, one branch, one PR
 
 Work on a branch. Open a PR. Keep the diff small. **One ticket per PR** — stop and report
