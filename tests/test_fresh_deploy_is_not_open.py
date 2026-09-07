@@ -71,3 +71,34 @@ def test_the_two_generated_secrets_are_separate_entries():
     keys = [v["key"] for s in blueprint["services"] for v in s.get("envVars", [])]
     assert keys.count("LIFEOS_SIGNING_KEY") == 1
     assert keys.count("LIFEOS_GATEWAY_TOKEN") == 1
+
+
+def test_the_blueprint_header_does_not_contradict_its_own_config():
+    """The comment somebody reads while deploying has to match the file it sits in.
+
+    It said "set the two secrets marked sync:false below, in the dashboard" — written when
+    they were `sync: false`, and left behind when they became `generateValue: true`. At
+    that point it told the operator to go and set two values that Render had already
+    generated, at the exact moment they were following it step by step. A stale instruction
+    in a deploy doc is worse than none: it is read with trust, once, under time pressure.
+    """
+    import pathlib
+    import re
+
+    blueprint = pathlib.Path(__file__).resolve().parent.parent / "render.yaml"
+    text = blueprint.read_text()
+    header = text.split("services:", 1)[0]
+
+    generated = set(re.findall(r"- key: (\w+)\n\s+generateValue: true", text))
+    assert {"LIFEOS_SIGNING_KEY", "LIFEOS_GATEWAY_TOKEN"} <= generated
+
+    # Comment prose wraps, so a phrase is split by a newline and a `#`. Flatten the block
+    # to one line of words before matching — asserting a phrase against raw comment text
+    # tests the line width, not the sentence.
+    lowered = " ".join(header.replace("#", " ").split()).lower()
+
+    # It must not tell anybody to go and set what Render already generates.
+    assert "set the two secrets" not in lowered
+    assert "sync:false below" not in lowered.replace(" ", "")
+    # And it should say plainly that there is nothing to paste.
+    assert "nothing to paste" in lowered
