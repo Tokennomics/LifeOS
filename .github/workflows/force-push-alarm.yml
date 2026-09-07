@@ -1,0 +1,125 @@
+# A force-push to `main` has erased this repository's work twice: on 2026-08-2x and
+# again on 2026-08-31, each time dropping 77 commits (PRs #19-#25) and restoring two
+# modules that fabricate data. Both times it was noticed by chance, days later.
+#
+# This workflow cannot *prevent* that — only branch protection can, and that is a
+# repository setting no workflow can reach. What it can do is make it loud. GitHub sets
+# `forced: true` on the push event when a ref moves non-fast-forward, so the erasure
+# announces itself: this fails the check and opens an issue naming exactly which commits
+# left `main` and how to get them back.
+#
+# The recovery it prints is the one that worked both times. A `merge` keeps both lines of
+# history; a `reset` keeps one, which is how the work was lost in the first place.
+name: force-push alarm
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  detect:
+    # `github.event.forced` is true only for a non-fast-forward push. An ordinary merge or
+    # a fast-forward never reaches this job, so a green run here means nothing happened.
+    if: github.event.forced
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Name the commits that left main
+        id: lost
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -u
+          # The old tip may already be unreachable; ask for it explicitly rather than
+          # assuming the checkout has it.
+          git fetch --quiet origin "$BEFORE" 2>/dev/null || true
+
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "count=unknown" >> "$GITHUB_OUTPUT"
+            {
+              echo "list<<EOF"
+              echo "The previous tip ($BEFORE) is no longer in this repository, so the"
+              echo "dropped commits cannot be listed from here. They may still exist on a"
+              echo "contributor's branch or in the reflog of a local clone."
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Commits reachable from the old tip but not the new one: exactly what was erased.
+          git log --oneline "$AFTER..$BEFORE" > /tmp/lost.txt || true
+          echo "count=$(wc -l < /tmp/lost.txt | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          {
+            echo "list<<EOF"
+            head -50 /tmp/lost.txt
+            [ "$(wc -l < /tmp/lost.txt)" -gt 50 ] && echo "... and more"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue naming what was dropped
+        uses: actions/github-script@v7
+        env:
+          LOST_COUNT: ${{ steps.lost.outputs.count }}
+          LOST_LIST: ${{ steps.lost.outputs.list }}
+        with:
+          script: |
+            const { LOST_COUNT, LOST_LIST } = process.env;
+            const before = context.payload.before;
+            const after = context.payload.after;
+            const who = context.payload.pusher?.name || context.actor;
+            const body = [
+              `\`main\` was force-pushed by **${who}**.`,
+              ``,
+              `- was: \`${before}\``,
+              `- now: \`${after}\``,
+              `- commits no longer on \`main\`: **${LOST_COUNT}**`,
+              ``,
+              `\`\`\``,
+              LOST_LIST.trim() || '(none listed)',
+              `\`\`\``,
+              ``,
+              `### If this was not deliberate`,
+              ``,
+              `Nothing is gone yet — the old tip is still an object in this repository`,
+              `until it is garbage-collected, and the work is very likely also on the`,
+              `branch it came from. Recover it with a **merge**, which keeps both lines:`,
+              ``,
+              `\`\`\`bash`,
+              `git fetch origin`,
+              `git checkout -b recover-main ${after}`,
+              `git merge ${before}     # resolve conflicts, keep both histories`,
+              `\`\`\``,
+              ``,
+              `Do **not** reset \`main\` back to \`${before}\`: that would drop \`${after}\``,
+              `the same way this push dropped the others. A merge has two parents and`,
+              `loses nothing.`,
+              ``,
+              `### To stop this happening again`,
+              ``,
+              `Settings → Branches → add a rule for \`main\`: block force pushes, require a`,
+              `pull request. That is the only thing that prevents it; this issue only`,
+              `reports it after the fact.`,
+              ``,
+              `See \`AGENTS.md\` for the full history of the two previous incidents.`,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `main was force-pushed — ${LOST_COUNT} commits dropped`,
+              body,
+              labels: ['force-push'],
+            });
+
+      - name: Fail, so the push is not silent
+        run: |
+          echo "::error::main was force-pushed; ${{ steps.lost.outputs.count }} commits left the branch. See the issue just opened."
+          exit 1
