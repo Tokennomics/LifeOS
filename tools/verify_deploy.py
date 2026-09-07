@@ -98,8 +98,14 @@ def verify(base, city, keep=False):
     elif any(h in base for h in ("127.0.0.1", "localhost", "[::1]")):
         # TLS matters because of the path between a user and the server. Loopback has no
         # path, so this is worth saying and not worth failing over.
-        out.note("served over TLS", "loopback, so nothing is on the wire — but a real "
-                                    "deployment must be HTTPS")
+        #
+        # The detail leads with what is true. Rendered inline the step name reads as a
+        # claim — "served over TLS — loopback, so nothing is on the wire" asserts TLS on a
+        # plain-HTTP URL, in the one tool somebody runs to find out whether their box is
+        # safe to put people on.
+        out.note("served over TLS", "not here: this is plain HTTP. It is loopback, so "
+                                    "nothing is on the wire and there is nothing to fix — "
+                                    "but a real deployment must be HTTPS.")
     else:
         out.fail("served over TLS",
                  "this is plain HTTP — a session token is a bearer token, so anyone on the "
