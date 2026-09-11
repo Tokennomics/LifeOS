@@ -8,6 +8,24 @@
 (function () {
     const API_BASE = '/v1';
 
+    /* Every string below is interpolated into `innerHTML`. Without escaping, a routine
+       named `<img src=x onerror=...>` executes — confirmed in Chromium, not inferred — and
+       this page keeps the session bearer token in localStorage, so script execution here
+       is account takeover. The three widgets read the account's own rows today, which makes
+       it latent rather than live; it stops being latent the moment any of this text arrives
+       from an ICS import, a seeded venue name, or another account. Matches `esc` in app.js. */
+    function esc(value) {
+        return String(value ?? "").replace(/[&<>"']/g, (c) => ({
+            "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    /* A number, or nothing. Interpolating an unchecked value into `style="width: …%"` is a
+       CSS injection even when HTML-escaped, because the quotes are already there. */
+    function num(value, { min = -Infinity, max = Infinity } = {}) {
+        const n = Number(value);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : 0;
+    }
+
     async function fetchJSON(endpoint, options = {}) {
         try {
             const token = localStorage.getItem("lifeos.token");
@@ -30,12 +48,12 @@
         let html = '<div class="card"><h3>🔥 Habit Routines</h3><ul class="routine-list">';
         data.forEach(r => {
             html += `
-                <li class="routine-item" data-id="${r.routine_id}">
+                <li class="routine-item" data-id="${esc(r.routine_id)}">
                     <div class="routine-info">
-                        <strong>${r.name}</strong> — <span>${r.trigger}</span>
-                        <span class="badge">Streak: ${r.streak} 🔥</span>
+                        <strong>${esc(r.name)}</strong> — <span>${esc(r.trigger)}</span>
+                        <span class="badge">Streak: ${num(r.streak, { min: 0 })} 🔥</span>
                     </div>
-                    <button class="btn-complete" onclick="LifeOSDashboard.completeRoutine('${r.routine_id}')">Done</button>
+                    <button class="btn-complete" data-act="complete-routine" data-routine="${esc(r.routine_id)}">Done</button>
                 </li>`;
         });
         html += '</ul></div>';
@@ -52,10 +70,10 @@
             <div class="card energy-card ${riskClass}">
                 <h3>⚡ Energy & Focus Balance</h3>
                 <div class="meter-group">
-                    <p>Cognitive Load Index: <strong>${data.cognitive_load_index}</strong></p>
-                    <p>Burnout Risk: <span class="risk-tag">${data.burnout_risk.toUpperCase()}</span></p>
+                    <p>Cognitive Load Index: <strong>${esc(data.cognitive_load_index)}</strong></p>
+                    <p>Burnout Risk: <span class="risk-tag">${esc(String(data.burnout_risk ?? "").toUpperCase())}</span></p>
                 </div>
-                <p class="recommendation">💡 <em>${data.recommendation}</em></p>
+                <p class="recommendation">💡 <em>${esc(data.recommendation)}</em></p>
             </div>`;
         container.innerHTML += html;
     }
@@ -70,10 +88,10 @@
             html += `
                 <div class="finance-goal">
                     <div class="goal-header">
-                        <strong>${g.title}</strong>
-                        <span>${g.current_amount} / ${g.target_amount} ${g.currency} (${g.completion_percentage}%)</span>
+                        <strong>${esc(g.title)}</strong>
+                        <span>${esc(g.current_amount)} / ${esc(g.target_amount)} ${esc(g.currency)} (${num(g.completion_percentage, { min: 0, max: 100 })}%)</span>
                     </div>
-                    <div class="progress-bar"><div class="fill" style="width: ${g.completion_percentage}%"></div></div>
+                    <div class="progress-bar"><div class="fill" style="width: ${num(g.completion_percentage, { min: 0, max: 100 })}%"></div></div>
                 </div>`;
         });
         html += '</div>';
@@ -85,6 +103,22 @@
         async init(containerId) {
             const container = document.getElementById(containerId);
             if (!container) return;
+
+            /* One delegated listener, bound once, instead of an `onclick` attribute per row.
+               The attribute version interpolated the routine id into HTML, so an id
+               containing a quote broke out of it — and it was the last inline handler in the
+               codebase, the other five having been removed because each one lied about what
+               it did. `dataset` carries the id as data, where it cannot be parsed as code. */
+            if (!container.dataset.wired) {
+                container.addEventListener("click", (event) => {
+                    const button = event.target.closest("[data-act=complete-routine]");
+                    if (button && button.dataset.routine) {
+                        window.LifeOSDashboard.completeRoutine(button.dataset.routine);
+                    }
+                });
+                container.dataset.wired = "1";
+            }
+
             container.innerHTML = '';
             await renderEnergyWidget(container);
             await renderRoutinesWidget(container);

@@ -285,7 +285,7 @@ def test_standing_reports_what_you_did_not_a_score_out_of_100(two):
     every account, including one made ten seconds ago. Nobody rates anybody in this app, so
     the score could only ever have been invented."""
     client, heads = two
-    body = client.get("/v1/trust/karma-score", headers=heads["ana"]).json()
+    body = client.get("/v1/trust/standing", headers=heads["ana"]).json()
     assert "karma_score" not in body and "trust_tier" not in body
     assert body["outings_attended"] == 0 and body["empty"] is True
     assert "nothing logged" in body["summary"].lower()
@@ -339,3 +339,19 @@ def test_the_invented_leaderboard_is_gone(two):
     client, heads = two
     assert client.get("/v1/gamification/leaderboard",
                       headers=heads["ana"]).status_code == 404
+
+
+def test_the_old_karma_path_still_answers(two):
+    """`/trust/karma-score` was renamed to `/trust/standing`: the body had been counts since
+    the score was removed, but the path still named a thing this app does not have, and a
+    route name is read by anybody integrating long before they see a response.
+
+    The old path stays as an alias because the PWA is served from this origin and the APK
+    bundles a copy, so an old `app.js` can outlive a deploy by however long its cache does.
+    Same handler, so the two cannot drift.
+    """
+    client, heads = two
+    new = client.get("/v1/trust/standing", headers=heads["ana"]).json()
+    old = client.get("/v1/trust/karma-score", headers=heads["ana"]).json()
+    assert old == new
+    assert "karma" not in str(new).lower()
