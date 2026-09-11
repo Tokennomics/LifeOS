@@ -233,11 +233,11 @@ def test_a_check_in_makes_outings_attended_true(city):
     """The number `standing()` reports has to come from something. This is that something —
     an RSVP is an intention, a check-in is the evening."""
     client, people = city
-    before = client.get("/v1/trust/karma-score", headers=people["ana"]["h"]).json()
+    before = client.get("/v1/trust/standing", headers=people["ana"]["h"]).json()
     assert before["outings_attended"] == 0 and before["empty"] is True
     client.post("/v1/events/qr-checkin", json={"place": "The viewpoint"},
                 headers=people["ana"]["h"])
-    after = client.get("/v1/trust/karma-score", headers=people["ana"]["h"]).json()
+    after = client.get("/v1/trust/standing", headers=people["ana"]["h"]).json()
     assert after["outings_attended"] == 1 and after["empty"] is False
 
 

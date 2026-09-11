@@ -199,7 +199,7 @@ def test_karma_audio_itinerary_and_sos(cfg):
     # Was `karma_score == 98` — returned to every account on the instance, including one
     # created a second earlier. There is no score now: nobody rates anybody in this app, so
     # a number out of 100 could only ever have been invented.
-    res1 = client.get("/v1/trust/karma-score")
+    res1 = client.get("/v1/trust/standing")
     assert res1.status_code == 200
     assert res1.json()["outings_attended"] == 0 and res1.json()["empty"] is True
 

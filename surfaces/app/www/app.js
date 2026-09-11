@@ -4309,7 +4309,7 @@ function wire(root) {
   on("[data-act=load-standing]", () => act(async () => {
     /* The leaderboard route was removed on its merits, so there is no rank to show. This
        is your own side of it: what you turned up to, counted from your rows. */
-    const res = await api("/v1/trust/karma-score");
+    const res = await api("/v1/trust/standing");
     const out = $("#standing-output");
     if (!out) return;
     out.innerHTML = `

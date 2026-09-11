@@ -3004,12 +3004,31 @@ def build_router(auth) -> APIRouter:
         from modules.platform import overview
         return guard(lambda: overview.globe(_graph(request)))
 
+    @router.get("/trust/standing")
+    def get_trust_standing_endpoint(request: Request):
+        """What you have actually turned up to.
+
+        Was 98/100 "LEGEND_CREW_MEMBER" with a 4.98 crew rating, for every account including
+        one made ten seconds ago — and a single trust score invites farming, explains
+        nothing, and cannot be computed honestly from data this app has. Nobody rates
+        anybody here.
+
+        The body has been counts since that was fixed; the *path* still said `karma-score`,
+        which is the last place in the API that named a thing this app does not have. A
+        route name is read by anybody integrating against it, long before they see the
+        response, so it was still making the claim.
+        """
+        from modules.personal import recap
+        return guard(lambda: recap.standing(_graph(request)))
+
     @router.get("/trust/karma-score")
     def get_social_karma_score_endpoint(request: Request):
-        """What you have actually turned up to. Was 98/100 "LEGEND_CREW_MEMBER" with a 4.98
-        crew rating, for every account including one made ten seconds ago — and a single
-        trust score invites farming, explains nothing, and cannot be computed honestly from
-        data this app has. Nobody rates anybody here."""
+        """The old path for `/trust/standing`, kept so a cached client does not break.
+
+        The PWA is served from this origin and the APK bundles a copy, so an old `app.js`
+        can outlive a deploy by however long its cache does. Same handler, same body: this
+        is an alias, not a second implementation that could drift.
+        """
         from modules.personal import recap
         return guard(lambda: recap.standing(_graph(request)))
     @router.get("/audio/lounge-spaces")

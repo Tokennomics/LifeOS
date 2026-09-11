@@ -53,8 +53,10 @@ list from 21 to 8.
   indistinguishable from `"trust_score": "98% (KYC & Graph Verified)"` — both are a percent
   string after an `=` or `:`. That false positive is left in rather than special-cased,
   because narrowing the rule until the SVG passes is how the rule stops catching the other
-  one. A handler's own *name* is scanned too, which is why `/trust/karma-score` still
-  appears: the module behind it is honest and the endpoint is still called karma.
+  one. A handler's own *name* is scanned too. That is what surfaced
+  `/trust/karma-score`, whose body had been honest counts for some time while the path
+  still named a thing this app does not have; it is `/trust/standing` now, with the old
+  path kept as an alias, so the alias is the one that still appears here.
 - **Resolution is one hop and by name.** `alias.function(...)` resolves when the import is
   visible in this file and the function is top-level in that module. `session.foo()`, two
   hops, or anything assembled dynamically is invisible, so a handler can still assert an
