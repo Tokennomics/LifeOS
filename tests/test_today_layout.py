@@ -17,6 +17,8 @@ import re
 WWW = pathlib.Path(__file__).resolve().parent.parent / "surfaces/app/www"
 APP = (WWW / "app.js").read_text()
 INDEX = (WWW / "index.html").read_text()
+# The agent card renders from its own file and is ordered by the same heading match.
+AGENT = (WWW / "agent.js").read_text()
 
 
 def _list(name):
@@ -27,7 +29,7 @@ def _list(name):
 def _headings():
     """Every card heading in app.js, normalised the way cardKey() normalises it."""
     out = []
-    for raw in re.findall(r"<h[23][^>]*>(.*?)</h[23]>", APP, re.S):
+    for raw in re.findall(r"<h[23][^>]*>(.*?)</h[23]>", APP + AGENT, re.S):
         text = re.sub(r"<[^>]+>", "", raw)
         text = re.sub(r"\$\{[^}]*\}", "X", text)
         text = text.replace("&amp;", "&").lower()
@@ -43,7 +45,7 @@ def test_every_card_the_reorder_names_still_exists():
 
 
 def test_the_daily_cards_come_first_in_order():
-    assert _list("TODAY_CORE") == ["welcome to lifeos", "week ", "weekend digest",
+    assert _list("TODAY_CORE") == ["your agent", "welcome to lifeos", "week ", "weekend digest",
                                    "steward", "reflection journal"]
 
 
