@@ -329,10 +329,76 @@ async function fillPickers() {
   }
 }
 
+/* ---- Today leads with today ---------------------------------------------------
+   A brand-new account landed on seventy cards and nearly two hundred buttons. The four
+   a person actually uses every day — this week's plan, the weekend, Steward and the
+   journal — were cards 67 to 70, under a "Spotlight Feature Palette", a guided tour of
+   "5 core pillars", and operator tools (Revenue, Stripe & PayPal, the plugin SDK, the
+   content pipeline) that have no business on somebody's Today.
+
+   So after Today renders: the daily cards go first, in this order; everything else
+   folds into one Explore section, with the feature search at its head; and the
+   operator tools fold into their own section at the very end. Nothing is deleted and
+   nothing is re-templated — cards are moved, so every handler still binds, and each
+   section remembers whether you opened it.
+
+   Cards are matched by heading. `tests/test_today_layout.py` asserts every heading
+   named here still exists in this file, so renaming a card cannot silently drop it
+   out of the order. */
+const TODAY_CORE = ["welcome to lifeos", "week ", "weekend digest", "steward", "reflection journal"];
+const TODAY_OPERATOR = ["revenue", "stripe & paypal", "connectos open developer plugin hub",
+  "what is switched on", "automated city content", "auto-populated event",
+  "seeding a city with nobody", "simulate somebody", "frontier engine", "ultimate frontier"];
+
+function cardKey(card) {
+  const h = card.querySelector("h2, h3");
+  return h ? h.textContent.toLowerCase().replace(/^[^a-z]+/, "").trim() : "";
+}
+
+function foldSection(id, title, hint, cards, openByDefault) {
+  const box = document.createElement("details");
+  box.className = "fold";
+  box.id = id;
+  let open = openByDefault;
+  try { const saved = localStorage.getItem("lifeos.fold." + id); if (saved !== null) open = saved === "1"; } catch (e) {}
+  box.open = open;
+  const summary = document.createElement("summary");
+  summary.innerHTML = `<span class="fold-title">${esc(title)}</span>
+    <span class="fold-hint">${esc(hint)} · ${cards.length}</span>`;
+  box.appendChild(summary);
+  cards.forEach((c) => box.appendChild(c));
+  box.addEventListener("toggle", () => {
+    try { localStorage.setItem("lifeos.fold." + id, box.open ? "1" : "0"); } catch (e) {}
+  });
+  return box;
+}
+
+function tidyToday(view) {
+  const cards = [...view.querySelectorAll(":scope > .card")];
+  if (cards.length < 8) return;
+  const keyed = cards.map((card) => ({ card, key: cardKey(card) }));
+  const core = [];
+  TODAY_CORE.forEach((want) => {
+    keyed.filter((k) => !k.used && k.key.startsWith(want)).forEach((k) => { k.used = true; core.push(k.card); });
+  });
+  const operator = keyed.filter((k) => !k.used && TODAY_OPERATOR.some((w) => k.key.startsWith(w)));
+  operator.forEach((k) => { k.used = true; });
+  const rest = keyed.filter((k) => !k.used).map((k) => k.card);
+  // The feature search is the way to find one card among fifty; it heads Explore.
+  rest.sort((a, b) => (b.querySelector("#global-feature-search") ? 1 : 0) - (a.querySelector("#global-feature-search") ? 1 : 0));
+
+  core.forEach((c) => view.appendChild(c));
+  if (rest.length) view.appendChild(foldSection("today-explore", "Explore",
+    "everything else in the app", rest, false));
+  if (operator.length) view.appendChild(foldSection("today-operator", "Running this box",
+    "payments, pipelines, plugins", operator.map((k) => k.card), false));
+}
+
 function render() {
   const view = $("#view");
   const views = { today: todayView, capture: captureView, people: peopleView, city: cityView, map: mapView, graph: graphView, more: moreView };
   view.innerHTML = views[state.tab]();
+  if (state.tab === "today") tidyToday(view);
   fillPickers();
   // Entrance animation only on tab change — never on in-tab updates (no flashing).
   view.classList.toggle("enter", state.enter);
@@ -353,37 +419,14 @@ function render() {
     }, 50);
   }
 
-  /* ---- Sticky Glassmorphic Mobile Dock ---- */
-  let dock = $("#mobile-dock");
-  if (!dock) {
-    dock = document.createElement("nav");
-    dock.id = "mobile-dock";
-    dock.className = "mobile-dock";
-    document.body.appendChild(dock);
-  }
-  dock.innerHTML = `
-    <button class="dock-btn ${state.tab === "today" ? "active" : ""}" data-dock="today">☀️ Today</button>
-    <button class="dock-btn ${state.tab === "people" ? "active" : ""}" data-dock="people">💬 Crews</button>
-    <button class="dock-btn ${state.tab === "city" ? "active" : ""}" data-dock="city">🏙️ City</button>
-    <button class="dock-btn ${state.tab === "map" ? "active" : ""}" data-dock="map">🗺️ Radar</button>
-    <button class="dock-btn ${state.tab === "graph" ? "active" : ""}" data-dock="graph">💎 Graph</button>
-    <button class="dock-btn ${state.tab === "more" ? "active" : ""}" data-dock="more">⚙️ More</button>
-  `;
-  dock.querySelectorAll(".dock-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const target = btn.dataset.dock;
-      if (state.tab !== target) {
-        state.tab = target;
-        state.enter = true;
-        // `refresh()`, not `render()`. Each tab loads its own data in refresh(); rendering
-        // alone paints the new tab from whatever state was left over, so on a phone — where
-        // this dock covers the nav bar and is the only navigation — every tab showed stale
-        // or empty content until something else happened to trigger a fetch. The top nav
-        // has always called refresh(); the dock never did.
-        refresh();
-      }
-    });
-  });
+  /* One navigation bar, not two. A floating "mobile dock" used to be created here on
+     every render, on top of the fixed bottom nav: six buttons to the nav's seven, no
+     Capture, different names for the same tabs (Crews / People, Radar / Map), and too
+     wide to fit a phone, so only four showed. Both bars rendered at once and the dock
+     swallowed taps meant for the nav beneath it. The bottom nav already sits in the
+     thumb zone and already calls refresh(); it is the one that stays. */
+  const staleDock = $("#mobile-dock");
+  if (staleDock) staleDock.remove();
 }
 
 function todayView() {
@@ -6280,6 +6323,8 @@ function wire(root) {
   if (searchInput) {
     searchInput.addEventListener("input", (e) => {
       const q = e.target.value.toLowerCase().trim();
+      const explore = $("#today-explore");
+      if (q && explore) explore.open = true;
       document.querySelectorAll(".card").forEach((card) => {
         if (!q) {
           card.style.display = "";
@@ -6295,16 +6340,10 @@ function wire(root) {
     });
   }
 
-  window.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-      e.preventDefault();
-      const el = $("#global-feature-search");
-      if (el) {
-        el.focus();
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
-  });
+  /* Ctrl+K used to be bound here, inside the render wiring, so every re-render added
+     another listener; it also raced the shortcuts dialog bound below for the same key,
+     opening a modal over the search box it was trying to focus. It lives in one place
+     now: the keyboard handler at the end of this file. */
 
   on("[data-act=clear-feature-search]", () => {
     const el = $("#global-feature-search");
@@ -6850,10 +6889,84 @@ if (cmdBtn) cmdBtn.addEventListener("click", openCmd);
 const cmdCloseBtn = $("#cmd-close");
 if (cmdCloseBtn) cmdCloseBtn.addEventListener("click", closeCmd);
 
+/* ---- Keyboard ----------------------------------------------------------------
+   The shortcuts dialog listed seven single-key shortcuts and none of them existed: no
+   handler anywhere read T, P, M, S, V, F or B. It advertised a way of working the app
+   did not support. They are real now, each routed through the same control a tap would
+   use, so a shortcut cannot drift from the button it stands for. V ("VoiceOS Mic
+   Capture") had nothing behind it by that name; Capture is where voice and text go in,
+   so that key is C.
+
+   Ctrl+K finds a feature: it goes to Today, opens Explore and focuses the search. The
+   header button still opens this list — press ? for it too. */
+function goTab(tab) {
+  const button = document.querySelector(`nav [data-tab="${tab}"]`);
+  if (button) button.click();
+}
+
+function onToday(then) {
+  if (state.tab !== "today") goTab("today");
+  let tries = 0;
+  const attempt = () => {
+    if (then()) return;
+    if (++tries < 40) setTimeout(attempt, 50);   // refresh() is async; wait up to 2s
+  };
+  attempt();
+}
+
+function pressToday(act) {
+  onToday(() => {
+    const el = document.querySelector(`[data-act="${act}"]`);
+    if (!el) return false;
+    el.click();
+    return true;
+  });
+}
+
+function findFeature() {
+  onToday(() => {
+    const input = $("#global-feature-search");
+    if (!input) return false;
+    const explore = $("#today-explore");
+    if (explore) explore.open = true;
+    input.focus();
+    input.scrollIntoView({ behavior: "smooth", block: "center" });
+    return true;
+  });
+}
+
+const SHORTCUTS = {
+  t: () => goTab("today"),
+  c: () => goTab("capture"),
+  p: () => goTab("people"),
+  m: () => goTab("map"),
+  s: () => { const b = $("#camera-scan-btn"); if (b) b.click(); },
+  f: () => pressToday("focus-start"),
+  b: () => pressToday("mindfulness-start"),
+  "?": () => openCmd(),
+};
+
+function typingInto(target) {
+  if (!target) return false;
+  const tag = (target.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
+}
+
 window.addEventListener("keydown", (evt) => {
   if ((evt.ctrlKey || evt.metaKey) && evt.key.toLowerCase() === "k") {
     evt.preventDefault();
-    openCmd();
+    if (cmdDlg && cmdDlg.open) closeCmd();
+    findFeature();
+    return;
+  }
+  // A single letter is only a shortcut when nobody is typing and no dialog is up —
+  // otherwise "p" in a message box would throw you onto the People tab.
+  if (evt.ctrlKey || evt.metaKey || evt.altKey || typingInto(evt.target)) return;
+  if (document.querySelector("dialog[open]") && evt.key !== "?") return;
+  const run = SHORTCUTS[evt.key.toLowerCase()] || SHORTCUTS[evt.key];
+  if (run) {
+    evt.preventDefault();
+    run();
   }
 });
 
