@@ -193,6 +193,7 @@ async function refresh() {
         api("/v1/routines/chaining-recommendation", {}).catch(() => null),
         api("/v1/horizon/energy-balance").catch(() => null),
         api("/v1/routines/heatmap").catch(() => null),
+        window.LifeAgent ? window.LifeAgent.load().catch(() => null) : null,
       ]);
     } else if (state.tab === "people") {
       const [people, crews, feed, venues, heatmap, synergyOverlaps, venuePrograms, communityReviews, cityPassport] = await Promise.all([
@@ -345,7 +346,7 @@ async function fillPickers() {
    Cards are matched by heading. `tests/test_today_layout.py` asserts every heading
    named here still exists in this file, so renaming a card cannot silently drop it
    out of the order. */
-const TODAY_CORE = ["welcome to lifeos", "week ", "weekend digest", "steward", "reflection journal"];
+const TODAY_CORE = ["your agent", "welcome to lifeos", "week ", "weekend digest", "steward", "reflection journal"];
 const TODAY_OPERATOR = ["revenue", "stripe & paypal", "connectos open developer plugin hub",
   "what is switched on", "automated city content", "auto-populated event",
   "seeding a city with nobody", "simulate somebody", "frontier engine", "ultimate frontier"];
@@ -404,6 +405,7 @@ function render() {
   view.classList.toggle("enter", state.enter);
   state.enter = false;
   wire(view);
+  if (state.tab === "today" && window.LifeAgent) window.LifeAgent.attach(view);
 
   if (state.tab === "people" && state.activeChat) {
     const el = $("#chat-messages");
@@ -432,6 +434,9 @@ function render() {
 function todayView() {
   const t = state.today;
   let html = "";
+
+  /* ---- The agent: goals -> plans, memory, check-ins, approvals (agent.js) ---- */
+  if (window.LifeAgent) html += window.LifeAgent.cardHtml();
 
   /* ---- Universal Command Palette & Quick-Nav Horizon Bar ---- */
   html += `<div class="card" style="background: linear-gradient(135deg, rgba(99,102,241,0.2), rgba(16,185,129,0.15)); border:1px solid rgba(99,102,241,0.4); padding:16px; margin-bottom:14px;">
@@ -6937,6 +6942,7 @@ function findFeature() {
 
 const SHORTCUTS = {
   t: () => goTab("today"),
+  a: () => onToday(() => { if (!window.LifeAgent || !$("#agent-input")) return false; window.LifeAgent.focus(); return true; }),
   c: () => goTab("capture"),
   p: () => goTab("people"),
   m: () => goTab("map"),

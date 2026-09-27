@@ -462,3 +462,29 @@ details.fold .fold-title { font-weight: 700; color: var(--text); }
 details.fold .fold-hint { font-size: 12px; color: var(--muted); margin-left: auto; }
 details.fold[open] { padding-bottom: 6px; }
 details.fold > .card { margin-left: 8px; margin-right: 8px; }
+
+/* ---- The agent card (agent.js) ---- */
+#agent-card { border-color: var(--spark-deep); }
+#agent-card.agent-busy { opacity: .75; }
+.agent-log { max-height: 280px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.agent-msg { padding: 9px 12px; border-radius: 12px; line-height: 1.45; font-size: 14px; max-width: 88%; overflow-wrap: anywhere; }
+.agent-msg.agent { background: var(--surface-3); align-self: flex-start; }
+.agent-msg.you { background: var(--spark); color: var(--spark-ink); align-self: flex-end; }
+.agent-open { display: block; margin-top: 6px; color: var(--calm); font-weight: 600; }
+.agent-inline { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+#agent-card .agent-inline .field { flex: 1 1 0; width: auto; min-width: 0; margin: 0; }
+#agent-card .agent-small { flex: none; width: auto; padding: 9px 14px; white-space: nowrap; }
+.agent-chips { display: flex; gap: 6px; overflow-x: auto; margin-top: 8px; padding-bottom: 2px; }
+.agent-chips .pill { white-space: nowrap; font-size: 12px; }
+.agent-h { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 16px 0 6px; }
+.agent-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.agent-row-text { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.agent-row-acts { display: flex; gap: 6px; }
+details.agent-goal { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; margin-top: 8px; }
+details.agent-goal > summary { cursor: pointer; display: flex; flex-direction: column; gap: 2px; list-style: none; font-weight: 600; overflow-wrap: anywhere; }
+details.agent-goal > summary::-webkit-details-marker { display: none; }
+.agent-meta { color: var(--muted); font-weight: 400; font-size: 12px; white-space: nowrap; }
+.agent-step { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; font-size: 14px; }
+.agent-step input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.agent-step.done span { color: var(--faint); text-decoration: line-through; }
+.agent-step.next span { color: var(--spark); }

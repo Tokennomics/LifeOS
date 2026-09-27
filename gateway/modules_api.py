@@ -242,6 +242,31 @@ class CoachRewordIn(BaseModel):
     proposals: list[dict]
 
 
+class AgentAskIn(BaseModel):
+    message: str
+
+
+class AgentGoalIn(BaseModel):
+    title: str
+    why: str = ""
+    deadline: str = ""
+    steps: list[str] = []
+
+
+class AgentStepIn(BaseModel):
+    title: str
+
+
+class AgentRememberIn(BaseModel):
+    text: str
+
+
+class AgentProposeIn(BaseModel):
+    action: str
+    args: dict = {}
+    summary: str = ""
+
+
 class GoalMilestoneIn(BaseModel):
     title: str
     target_week: str = ""
@@ -966,6 +991,85 @@ def build_router(auth) -> APIRouter:
             raise HTTPException(status_code=400, detail="action must be approve or dismiss")
         fn = steward_actions.approve if body.action == "approve" else steward_actions.dismiss
         return guard(lambda: fn(_graph(request), body.item_id))
+
+    # ---- Agent: goals -> plans, memory, check-ins, approvals ----------------
+    #
+    # The loop Meta's Muse made the expectation, over rows this app already had. See
+    # modules/agent/core.py for what it will and will not do. Every action the agent wants
+    # to take is a pending proposal until the caller approves it here.
+
+    @router.post("/agent/ask")
+    def agent_ask(request: Request, body: AgentAskIn):
+        from modules.agent import core as agent
+        return guard(lambda: agent.ask(_graph(request), body.message, claude=_claude(request)))
+
+    @router.get("/agent/checkin")
+    def agent_checkin(request: Request):
+        from modules.agent import core as agent
+        return agent.checkin(_graph(request))
+
+    @router.get("/agent/context")
+    def agent_context(request: Request):
+        """Exactly what a model is shown — the honesty claim, made checkable."""
+        from modules.agent import core as agent
+        return agent.context(_graph(request))
+
+    @router.get("/agent/goals")
+    def agent_goals(request: Request, include_done: bool = False):
+        from modules.agent import core as agent
+        return {"goals": agent.goals(_graph(request), include_done=include_done)}
+
+    @router.post("/agent/goals")
+    def agent_goal_create(request: Request, body: AgentGoalIn):
+        from modules.agent import core as agent
+        return guard(lambda: agent.create_goal(_graph(request), body.title, why=body.why,
+                                               deadline=body.deadline, steps=body.steps,
+                                               claude=_claude(request)))
+
+    @router.post("/agent/goals/{goal_id}/steps")
+    def agent_step_add(request: Request, goal_id: str, body: AgentStepIn):
+        from modules.agent import core as agent
+        return guard(lambda: agent.add_step(_graph(request), goal_id, body.title))
+
+    @router.post("/agent/steps/{step_id}/done")
+    def agent_step_done(request: Request, step_id: str):
+        from modules.agent import core as agent
+        return guard(lambda: agent.complete_step(_graph(request), step_id))
+
+    @router.get("/agent/memory")
+    def agent_memory(request: Request):
+        from modules.agent import core as agent
+        return {"memory": agent.facts(_graph(request))}
+
+    @router.post("/agent/memory")
+    def agent_remember(request: Request, body: AgentRememberIn):
+        from modules.agent import core as agent
+        return guard(lambda: agent.remember(_graph(request), body.text))
+
+    @router.delete("/agent/memory/{fact_id}")
+    def agent_forget(request: Request, fact_id: str):
+        from modules.agent import core as agent
+        return guard(lambda: agent.forget(_graph(request), fact_id))
+
+    @router.get("/agent/proposals")
+    def agent_proposals(request: Request, status: str = "pending"):
+        from modules.agent import core as agent
+        return {"proposals": agent.proposals(_graph(request), status)}
+
+    @router.post("/agent/proposals")
+    def agent_propose(request: Request, body: AgentProposeIn):
+        from modules.agent import core as agent
+        return guard(lambda: agent.propose(_graph(request), body.action, body.args, body.summary))
+
+    @router.post("/agent/proposals/{proposal_id}/approve")
+    def agent_approve(request: Request, proposal_id: str):
+        from modules.agent import core as agent
+        return guard(lambda: agent.approve(_graph(request), proposal_id))
+
+    @router.post("/agent/proposals/{proposal_id}/reject")
+    def agent_reject(request: Request, proposal_id: str):
+        from modules.agent import core as agent
+        return guard(lambda: agent.reject(_graph(request), proposal_id))
 
     # ---- Coach Reword ----------------------------------------------------
 
