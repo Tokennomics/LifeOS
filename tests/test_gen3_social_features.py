@@ -1114,13 +1114,18 @@ def test_daily_reflection_synthesis(cfg):
         assert invented not in res.text.lower()
 
 def test_voice_copilot_and_spoken_ar(cfg):
+    """It used to pin "Blitz Club" — a paragraph returned for any "vinyl" question in any
+    city. The intent kept: a spoken reply comes back, with SSML to speak it. What changed:
+    an empty Munich says it has nothing, rather than naming a club."""
     client = TestClient(create_app(cfg))
     res = client.post("/v1/voice/copilot-chat", json={"query": "What vinyl clubs are open tonight?", "city": "Munich"})
     assert res.status_code == 200
     data = res.json()
     assert data["voice_response_generated"] is True
-    assert "Blitz Club" in data["voice_reply_text"]
+    assert data["voice_reply_text"] and data["empty"] is True and data["sources"] == []
     assert "<speak>" in data["tts_ssml"]
+    for invented in ("blitz", "void sound", "unter deck", "robert", "29.6", "lukas", "sophie"):
+        assert invented not in res.text.lower()
 
 def test_universal_markdown_export(cfg):
     """It asserted 40+ vault files on an empty database. Nothing was exported: the

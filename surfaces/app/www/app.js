@@ -1326,18 +1326,21 @@ function todayView() {
     <div id="journal-synthesis-output" style="margin-top:10px;"></div>
   </div>`;
 
-  /* ---- Voice Copilot & Eyes-Up Audio AR Studio ---- */
-  html += `<div class="card" style="background: linear-gradient(135deg, rgba(59,130,246,0.18), rgba(168,85,247,0.18)); border:1px solid rgba(59,130,246,0.4);">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <h2>🎙️ Voice AI Copilot & Eyes-Up Audio AR</h2>
-      <span class="badge good" style="font-weight:bold; background:linear-gradient(135deg,#3b82f6,#a855f7); color:#fff;">Spoken AI</span>
-    </div>
-    <p class="hint" style="margin-bottom:8px;">Hands-free, eyes-up audio copilot! Ask about tonight's vinyl sessions, food, or friend locations.</p>
+  /* ---- Voice Copilot ----
+     Asked "best vinyl club tonight?" and "best warm sourdough?" and promised "friend
+     locations", and every button called a triggerVoiceQuery() that was never written, so
+     each tap threw. The server side answered from a fixed paragraph anyway. Both halves are
+     real now: the answer is built from events, plans and places this app holds, and the
+     phone speaks it with its own speech engine. */
+  html += `<div class="card">
+    <h2>🎙️ Voice Copilot</h2>
+    <p class="hint" style="margin-bottom:8px;">Ask out loud and hear the answer. It only names events, plans and places LifeOS actually has, and says so when it has nothing.</p>
+    <input class="field" id="vc-city" placeholder="City (optional once you've checked in)" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #3b82f6, #6366f1);" data-act="voice-ask-nightlife">🔊 "Best vinyl club tonight?"</button>
-      <button class="primary" style="background:linear-gradient(135deg, #a855f7, #ec4899);" data-act="voice-ask-food">🔊 "Best warm sourdough?"</button>
-      <button class="primary" style="background:linear-gradient(135deg, #10b981, #06b6d4);" data-act="voice-ask-squad">🔊 "Who is nearby?"</button>
-      <button class="primary" style="background:linear-gradient(135deg, #f59e0b, #ef4444);" data-act="voice-custom-prompt">🎙️ Speak Custom Prompt</button>
+      <button class="ghost" data-act="voice-ask-nightlife">What's on tonight?</button>
+      <button class="ghost" data-act="voice-ask-food">Coffee and food</button>
+      <button class="ghost" data-act="voice-ask-squad">My plans with people</button>
+      <button class="primary" data-act="voice-custom-prompt">🎙️ Ask out loud</button>
     </div>
     <div id="voice-copilot-output" style="margin-top:10px;"></div>
   </div>`;
@@ -6114,22 +6117,54 @@ function wire(root) {
         <div style="font-size:11px; color:var(--muted); margin-top:8px;">${esc(res.no_score)}${res.sources.length ? ` · built from ${res.sources.length} of your own entries` : ""}</div>
       </div>`;
   }));
-  on("[data-act=voice-ask-nightlife]", () => act(async () => {
-    await triggerVoiceQuery("What are the best vinyl clubs and parties tonight?");
-  }, "Spoken Nightlife Query Sent! 🔊"));
+  const vcCity = $("#vc-city");
+  if (vcCity) {
+    try { vcCity.value = localStorage.getItem("lifeos.vc.city") || ""; } catch (e) {}
+  }
 
-  on("[data-act=voice-ask-food]", () => act(async () => {
-    await triggerVoiceQuery("Where is the best warm sourdough and food?");
-  }, "Spoken Food Query Sent! 🔊"));
+  async function triggerVoiceQuery(query) {
+    const city = vcCity ? vcCity.value.trim() : "";
+    try { localStorage.setItem("lifeos.vc.city", city); } catch (e) {}
+    const res = await api("/v1/voice/copilot-chat", { query, city });
+    const out = $("#voice-copilot-output");
+    if (out) {
+      const src = (res.sources || []).map((x) => esc(x.what)).filter(Boolean);
+      out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px;">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:4px;">“${esc(res.user_query)}”${res.city ? ` · ${esc(res.city)}` : ""}</div>
+        <div style="font-size:14px;">${esc(res.voice_reply_text)}</div>
+        ${res.empty && res.suggestion ? `<div style="font-size:12px; color:var(--muted); margin-top:6px;">${esc(res.suggestion)}</div>` : ""}
+        ${src.length ? `<div style="font-size:11px; color:var(--muted); margin-top:6px;">From: ${src.join(" · ")}</div>` : ""}
+      </div>`;
+    }
+    if (window.speechSynthesis && res.voice_reply_text) {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(new SpeechSynthesisUtterance(res.voice_reply_text));
+    }
+  }
 
-  on("[data-act=voice-ask-squad]", () => act(async () => {
-    await triggerVoiceQuery("Who from my squad is nearby right now?");
-  }, "Spoken Squad Query Sent! 🔊"));
+  on("[data-act=voice-ask-nightlife]", () => act(() => triggerVoiceQuery("What's on tonight?")));
+  on("[data-act=voice-ask-food]", () => act(() => triggerVoiceQuery("Where can I get coffee or food?")));
+  on("[data-act=voice-ask-squad]", () => act(() => triggerVoiceQuery("Who from my crew am I seeing soon?")));
 
-  on("[data-act=voice-custom-prompt]", () => act(async () => {
-    const q = prompt("What would you like to ask your Voice AI Butler?", "What's happening nearby right now?");
-    if (q) await triggerVoiceQuery(q);
-  }, "Custom Voice Prompt Spoken! 🎙️"));
+  on("[data-act=voice-custom-prompt]", () => {
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Speech) {
+      const q = prompt("Ask the copilot");
+      if (q) act(() => triggerVoiceQuery(q));
+      return;
+    }
+    try {
+      const rec = new Speech();
+      rec.lang = navigator.language || "en-US";
+      rec.interimResults = false;
+      rec.onresult = (evt) => act(() => triggerVoiceQuery(evt.results[0][0].transcript));
+      rec.onerror = () => toast("Didn't catch that. Try again.");
+      rec.start();
+      toast("Listening…");
+    } catch (e) {
+      toast("Speech input failed to start.");
+    }
+  });
 
   /* ---- Micro-Masterclasses Handler ---- */
   on("[data-act=view-micro-workshops]", () => act(async () => {
