@@ -5302,75 +5302,26 @@ def build_router(auth) -> APIRouter:
 
     @router.post("/voice/copilot-chat")
     def voice_copilot_chat_endpoint(request: Request, body: dict):
-        """An answer built from what your graph actually holds.
+        """A spoken answer built from what the graph actually holds.
 
-        Ported from the other line of work, which gathers real places, events, goals and
-        people rather than returning prose. Its defaults were removed: it answered about
-        "Munich" for a caller who named no city, which is the same guess this repo removed
-        everywhere else.
+        With no key, this used to return a fixed paragraph per keyword: "Blitz Club with its
+        world-class VOID sound system", "your squad members Lukas and Sophie", and "Hey
+        Robert! … weather is 29.6°C … 3 friends nearby" for anything else, whoever asked and
+        wherever they were. See `modules/ai/assist.copilot` for what replaced it. The SSML
+        is escaped because the reply can carry venue and event names people typed.
         """
-        query = body.get("query", "").strip()
-        city = body.get("city", "").strip()
-        graph = _graph(request)
-        claude = _claude(request)
-        
-        session = graph.session("assistant", {"*"})
-        places = session.find_entities("place", limit=20)
-        events = session.find_entities("event", limit=20)
-        goals = session.find_entities("goal", limit=10)
-        people = session.find_entities("person", limit=10)
-        
-        city_places = [p["attrs"].get("name") for p in places if p.get("attrs", {}).get("name")]
-        city_events = [e["attrs"].get("title") for e in events if e.get("attrs", {}).get("title")]
-        focus_goals = [g["attrs"].get("title") for g in goals if g.get("attrs", {}).get("focus")]
-        
-        reply_text = ""
-        action_tag = "GENERAL_COPILOT"
+        from xml.sax.saxutils import escape as xml_escape
 
-        if claude and getattr(claude, "available", False):
-            try:
-                sys_prompt = "You are the ConnectOS AI Voice Life Butler. Provide a direct, spoken, 1-2 sentence response grounded in the user's graph and city. Be concise, punchy, and helpful."
-                user_msg = f"User Query: {query}\nCity: {city}\nKnown Places: {', '.join(city_places[:5])}\nKnown Events: {', '.join(city_events[:5])}\nFocus Goals: {', '.join(focus_goals[:3])}"
-                schema = {
-                    "type": "object",
-                    "properties": {
-                        "reply_text": {"type": "string"},
-                        "action_tag": {"type": "string"}
-                    },
-                    "required": ["reply_text", "action_tag"]
-                }
-                res = claude.classify(sys_prompt, user_msg, schema=schema)
-                reply_text = res.get("reply_text", "")
-                action_tag = res.get("action_tag", "GENERAL_COPILOT")
-            except Exception:
-                pass
+        from modules.ai import assist
+        account_id, _ = _signal_caller(request)
+        out = guard(lambda: assist.copilot(_graph(request), body.get("query", ""),
+                                           str(body.get("city", "") or "").strip(),
+                                           account_id=account_id, claude=_claude(request)))
+        out["action_tag"] = out["topic"]
+        out["tts_ssml"] = (f"<speak><prosody rate='medium'>"
+                           f"{xml_escape(out['voice_reply_text'])}</prosody></speak>")
+        return out
 
-        if not reply_text:
-            query_lower = query.lower()
-            if "vinyl" in query_lower or "music" in query_lower or "club" in query_lower or "party" in query_lower:
-                reply_text = f"In {city} tonight, you have Blitz Club with its world-class VOID sound system on the Isar riverbank, and Unter Deck hosting an analog synth session starting at 21:00."
-                action_tag = "NIGHTLIFE_RADAR"
-            elif "eat" in query_lower or "food" in query_lower or "coffee" in query_lower or "sourdough" in query_lower:
-                reply_text = f"In {city}, I recommend swinging by Julius Brantner for freshly baked warm sourdough, or the hidden 12-hour Tonkotsu ramen test kitchen in Glockenbachviertel."
-                action_tag = "CULINARY_RADAR"
-            elif "squad" in query_lower or "friend" in query_lower or "who" in query_lower:
-                names = [p["attrs"].get("name", "Friend") for p in people[:3]]
-                names_str = ", ".join(names) if names else "Lukas and Sophie"
-                reply_text = f"Your squad members {names_str} are active near Gärtnerplatz terrace for sunset drinks."
-                action_tag = "SQUAD_RADAR"
-            else:
-                reply_text = f"Hey Robert! In {city} today, weather is 29.6°C. You have 3 friends nearby at Gärtnerplatz, river surfing active at Eisbachwelle, and sunset at 20:45."
-                action_tag = "GENERAL_COPILOT"
-
-        return {
-            "voice_response_generated": True,
-            "city": city,
-            "user_query": query,
-            "voice_reply_text": reply_text,
-            "tts_ssml": f"<speak><prosody rate='medium' pitch='+0st'>{reply_text}</prosody></speak>",
-            "action_tag": action_tag,
-            "message": f"🎙️ Voice AI Copilot Generated Spoken Answer for '{query}' in {city}."
-        }
     @router.post("/export/universal-markdown")
     def universal_markdown_export_endpoint(request: Request, body: dict):
         """Everything you own, as Markdown, in this response.

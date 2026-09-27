@@ -528,3 +528,132 @@ def _ledger_rows(graph: Graph) -> list[dict]:
             "created_at": r["attrs"].get("created_at", "")} for r in rows]
     out.sort(key=lambda r: str(r["created_at"]), reverse=True)
     return out
+
+
+# ---- voice copilot -------------------------------------------------------------
+
+_COPILOT_TOPICS = (
+    # (tag, words that pick it, place categories it reads). Order matters: first match wins.
+    ("PEOPLE", ("who ", "friend", "squad", "crew"), ()),
+    ("FOOD", ("eat", "food", "coffee", "cafe", "café", "breakfast", "lunch", "dinner",
+              "market", "bakery", "sourdough"), ("coffee", "market")),
+    ("OUTDOORS", ("park", "walk", "hike", "trail", "view", "swim", "outside", "sunset"),
+     ("park", "trail", "viewpoint", "swim")),
+    ("TONIGHT", ("tonight", "party", "club", "music", "vinyl", "gig", "concert", "going on",
+                 "happening", "what's on", "whats on", "event"), ()),
+)
+
+_COPILOT_SYSTEM = (
+    "You answer a spoken question for somebody using a travel and social app. Reply in one "
+    "or two short spoken sentences using only the facts given. Never name a venue, person, "
+    "time, temperature or event that is not in the facts; if the facts are empty, say you "
+    "have nothing for that yet. Plain words, no emoji, no greeting."
+)
+
+
+def _copilot_topic(query: str) -> tuple[str, tuple]:
+    q = f" {query.lower()} "
+    for tag, words, categories in _COPILOT_TOPICS:
+        if any(w in q for w in words):
+            return tag, categories
+    return "GENERAL", ()
+
+
+def _say_list(items: list[str]) -> str:
+    items = [i for i in items if i]
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def copilot(graph: Graph, query: str, city: str = "", *, account_id: str = "",
+            claude=None) -> dict:
+    """A spoken answer, built only from rows this app holds.
+
+    With no key this returned a fixed paragraph per keyword: "In Munich tonight, you have
+    Blitz Club with its world-class VOID sound system…", "your squad members Lukas and Sophie
+    are active near Gärtnerplatz", and for anything else "Hey Robert! … weather is 29.6°C.
+    You have 3 friends nearby … sunset at 20:45" — a named stranger, a temperature and a
+    friend count, in whatever city you asked about. `voice_response_generated: True` was
+    true of all of it.
+
+    Now the question picks a topic, the topic picks real rows (events and meetups coming up,
+    your own plans, seeded places), and the sentence lists those. An empty city says so and
+    names what would fill it. Friends' locations are not something this app knows, so
+    "who is nearby" answers with who is going to the plans you share instead.
+    """
+    from modules.city import meetups, places
+
+    query = str(query or "").strip()
+    if not query:
+        raise ValueError("ask something")
+    facts = grounding(graph, account_id=account_id, city=city)
+    city = facts["city"]
+    tag, categories = _copilot_topic(query)
+
+    soon_events = [{"what": e.get("title", ""), "when": e.get("start", ""),
+                    "where": e.get("venue", "") or e.get("city", ""), "kind": "event",
+                    "ref": e.get("id", "")} for e in _soon(facts["events"], "start")]
+    soon_meetups = [{"what": m.get("title", ""), "when": m.get("starts_at", ""),
+                     "where": m.get("place", ""), "kind": "meetup",
+                     "going": m.get("going_count", 0), "ref": m.get("meetup_id", "")}
+                    for m in _soon(facts["meetups"], "starts_at")]
+    yours = [{"what": m.get("title", ""), "when": m.get("starts_at", ""),
+              "where": m.get("place", ""), "kind": "your_plan", "ref": m.get("meetup_id", "")}
+             for m in facts["your_plans"]]
+    found_places = []
+    if city:
+        for category in categories:
+            listed = _safely(lambda c=category: places.listing(graph, city, category=c),
+                             {"places": []})
+            found_places += [{"what": p.get("name", ""), "kind": "place",
+                              "category": p.get("category", ""), "ref": p.get("place_id", "")}
+                             for p in listed["places"] if p.get("name")]
+
+    if tag == "PEOPLE":
+        used = yours[:3]
+        if used:
+            lines = [f"{p['what']}" + (f" at {p['where']}" if p['where'] else "") for p in used]
+            text = (f"I can't see where your friends are; LifeOS doesn't track locations. "
+                    f"You're going to {_say_list(lines)}.")
+        else:
+            text = ("I can't see where your friends are; LifeOS doesn't track locations. "
+                    "You have no plans with anyone yet.")
+    elif tag in ("FOOD", "OUTDOORS"):
+        used = found_places[:3]
+        where = f" in {city}" if city else ""
+        if used:
+            text = f"Places{where} I know of: {_say_list([p['what'] for p in used])}."
+        elif not city:
+            text = "Which city? I don't know where you are yet."
+        else:
+            text = f"I don't have any places{where} for that yet."
+    else:
+        used = sorted(soon_meetups + soon_events, key=lambda s: s["when"])[:3]
+        where = f" in {city}" if city else ""
+        if used:
+            text = f"Coming up{where}: {_say_list([s['what'] for s in used])}."
+        elif not city:
+            text = "Which city? I don't know where you are yet."
+        else:
+            text = f"Nothing is on{where} in the next day and a half that I know of."
+
+    reply, assisted = text, False
+    if used:
+        reply, assisted = _write(claude, _COPILOT_SYSTEM,
+                                 f"Question: {query}\nCity: {city or 'unknown'}\n"
+                                 f"Facts: {used}", text)
+    return {
+        "city": city,
+        "user_query": query,
+        "topic": tag,
+        "voice_reply_text": reply,
+        "voice_response_generated": True,
+        "sources": used,
+        "empty": not used,
+        "assisted": assisted,
+        "reason": available(claude)["reason"],
+        "suggestion": "" if used else (
+            "Seed the city's places, or propose a meetup, and this has something true to "
+            "say." if city else "Name a city, or check in to one."),
+    }
