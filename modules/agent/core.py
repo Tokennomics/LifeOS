@@ -39,7 +39,7 @@ from modules.horizon.planner import week_id
 from substrate.graph import Graph
 
 MODULE = "agent"
-SCOPES = {"goals:write", "tasks:write", "memories:write", "content:write", "events:read"}
+SCOPES = {"goals:write", "tasks:write", "memories:write", "content:write", "events:write"}
 
 MAX_STEPS = 7
 MAX_FACTS = 200
@@ -62,6 +62,7 @@ ACTIONS = {
     "remember": "Remember a fact about you",
     "draft_message": "Draft a message for you to send",
     "set_focus": "Make a goal this week's focus",
+    "add_plan": "Put a stop from a day plan in your calendar",
 }
 
 NEEDS_KEY = {
@@ -334,6 +335,11 @@ def _validate(action: str, args: dict) -> dict:
         raise ValueError(f"{action} needs a goal_id")
     if action == "remember" and not _clean(args.get("text")):
         raise ValueError("remember needs text")
+    if action == "add_plan":
+        if not _clean(args.get("title")) or _parse_date(args.get("day")) is None:
+            raise ValueError("add_plan needs a title and a day")
+        if args.get("start") and _parse(args.get("start")) is None:
+            raise ValueError("add_plan start must be an ISO time")
     if action == "draft_message":
         if not _clean(args.get("body")):
             raise ValueError("draft_message needs a body")
@@ -389,6 +395,26 @@ def _execute(graph: Graph, action: str, args: dict, source: str) -> dict:
         g = goal(graph, args["goal_id"])
         _session(graph).update_entity(g["id"], {"focus": True}, source=source)
         return {"done": True, "goal_id": g["id"], "what": f"'{g['title']}' is this week's focus"}
+    if action == "add_plan":
+        # A stop with a time is an event in your calendar, and so in the calendar feed. A
+        # place has no time — nobody scheduled one — so it becomes a task for that day
+        # rather than an event pinned to midnight.
+        title = _clean(args["title"], 200)
+        common = {"origin": "agent_plan", "plan_day": args["day"], "ref": args.get("ref", ""),
+                  "city": _clean(args.get("city"), 80), "url": _clean(args.get("url"), 500)}
+        if args.get("start"):
+            event_id = _session(graph).create_entity("event", {
+                **common, "title": title, "start": args["start"],
+                "end": args.get("end") or args["start"], "place": _clean(args.get("where"), 200),
+                "busy": True, "visibility": "private"}, source=source)
+            return {"done": True, "event_id": event_id, "url": common["url"],
+                    "what": f"'{title}' is in your calendar"
+                            + (" — buying a ticket is still yours to do" if common["url"] else "")}
+        task_id = _session(graph).create_entity("task", {
+            **common, "title": f"{title} (any time {args['day']})", "status": "open",
+            "week": week_id(datetime.date.fromisoformat(args["day"]))}, source=source)
+        return {"done": True, "task_id": task_id, "url": common["url"],
+                "what": f"'{title}' is on your list for {args['day']}"}
     if action == "draft_message":
         # LifeOS has no outbound mail or SMS of its own. The approval hands you a link that
         # opens your own app with the draft filled in; you press send, or you do not.
@@ -439,7 +465,8 @@ _ASK_SYSTEM = (
     "invent a person, place, time, price or event. You cannot send messages, book, buy or "
     "browse; when doing something would help, propose it using only these actions: "
     "add_task {title, goal_id?}, add_step {goal_id, title}, remember {text}, set_focus "
-    "{goal_id}, draft_message {channel: email|sms, to, subject?, body}. Proposals wait for "
+    "{goal_id}, draft_message {channel: email|sms, to, subject?, body}. To plan a day, tell "
+    "the user to say \"plan <day> in <city>\". Proposals wait for "
     "the user's approval; never say an action has happened. Reply in at most five short "
     "sentences, plain words, no emoji."
 )
@@ -488,7 +515,7 @@ def context(graph: Graph) -> dict:
     }
 
 
-def ask(graph: Graph, message: str, *, claude=None) -> dict:
+def ask(graph: Graph, message: str, *, claude=None, account_id: str = "") -> dict:
     """One turn. Plain commands work without a key; open questions need one, and say so."""
     text = _clean(message, 2000)
     if not text:
@@ -511,6 +538,21 @@ def ask(graph: Graph, message: str, *, claude=None) -> dict:
                  "\n".join(f"- {f['text']}" for f in known)) if known else \
             "Nothing yet. Say \"remember …\" and I will keep it here, where you can delete it."
         return {"intent": "recall", "reply": reply, "memory": known, "assisted": False}
+    from modules.agent import day as day_plan
+    wanted = day_plan.match(text)
+    if wanted:
+        p = day_plan.plan(graph, wanted[0], wanted[1], account_id=account_id, claude=claude)
+        if p["stops"]:
+            lines = [f"Plan for {p['day']} in {p['city']}:"]
+            for st in p["stops"]:
+                when = st["start"][11:16] if st.get("start") else "any time"
+                lines.append(f"{when} · {st['title']}" + (f" — {st['why']}" if st.get("why") else ""))
+            lines.append(f"{len(p['proposals'])} stop(s) waiting for your approval below.")
+            reply = "\n".join(lines)
+        else:
+            reply = p["suggestion"]
+        return {"intent": "plan", "reply": reply, "plan": p, "proposals": p["proposals"],
+                "assisted": p["assisted"]}
     if _CHECKIN.match(text):
         c = checkin(graph)
         return {"intent": "checkin", "reply": _checkin_text(c), "checkin": c, "assisted": False}
@@ -531,8 +573,8 @@ def ask(graph: Graph, message: str, *, claude=None) -> dict:
     if not _assisted(claude):
         return {"intent": "question", "reply": (
             "I can't answer open questions without a model on this server. Without one I "
-            "can still: plan a goal (\"I want to …\"), remember things (\"remember …\"), "
-            "and check in (\"what's next?\")."), "assisted": False, **NEEDS_KEY}
+            "can still: plan a goal (\"I want to …\"), plan a day (\"plan Saturday in "
+            "Lisbon\"), remember things (\"remember …\"), and check in (\"what's next?\")."), "assisted": False, **NEEDS_KEY}
 
     try:
         data = claude.complete_json(_ASK_SYSTEM,

@@ -246,6 +246,11 @@ class AgentAskIn(BaseModel):
     message: str
 
 
+class AgentPlanDayIn(BaseModel):
+    when: str = "today"
+    city: str = ""
+
+
 class AgentGoalIn(BaseModel):
     title: str
     why: str = ""
@@ -1001,7 +1006,18 @@ def build_router(auth) -> APIRouter:
     @router.post("/agent/ask")
     def agent_ask(request: Request, body: AgentAskIn):
         from modules.agent import core as agent
-        return guard(lambda: agent.ask(_graph(request), body.message, claude=_claude(request)))
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: agent.ask(_graph(request), body.message, claude=_claude(request),
+                                       account_id=account_id))
+
+    @router.post("/agent/plan-day")
+    def agent_plan_day(request: Request, body: AgentPlanDayIn):
+        """A day out of what is actually on: listed events, meetups and places, never
+        double-booked against your calendar. Every stop is a pending proposal."""
+        from modules.agent import day
+        account_id, _ = _signal_caller(request)
+        return guard(lambda: day.plan(_graph(request), body.when, body.city,
+                                      account_id=account_id, claude=_claude(request)))
 
     @router.get("/agent/checkin")
     def agent_checkin(request: Request):

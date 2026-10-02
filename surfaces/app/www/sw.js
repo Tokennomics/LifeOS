@@ -1,5 +1,6 @@
 // LifeOS service worker: cache the shell, never cache the API.
-const CACHE = "lifeos-shell-v5";
+const CACHE = "lifeos-shell-v6";
+const SHELL_FINGERPRINT = "786a484ba36d47c6";  // see tests/test_sw_fingerprint.py
 const SHELL = ["./", "./index.html", "./style.css", "./app.js", "./agent.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
