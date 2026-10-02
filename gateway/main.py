@@ -311,6 +311,10 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         return JSONResponse(status_code=404 if missing else 400, content={"detail": str(exc)})
 
     _seed_on_boot(graph)
+    # Keeps public listings and places fresh on its own; off unless LIFEOS_AUTOSYNC_HOURS
+    # is set, so tests and a laptop never start a thread. See modules/feeds/autosync.py.
+    from modules.feeds import autosync
+    autosync.start(graph)
 
     auth = make_auth_dependency(cfg.get("gateway", {}).get("auth_token", ""))
     app.include_router(build_router(auth))  # reconnect/convoy/memento/steward/vitals/ledger/calibre/hearth
