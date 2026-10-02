@@ -30,7 +30,7 @@ and makes it obvious that none of it is a switch somebody forgot to flip.
 import os
 
 #: Capability keys. Endpoints refer to these, never to the prose.
-PUSH = "push notifications"
+PUSH = "text messages and native app push"
 PAYMENTS = "payments"
 IDENTITY = "identity verification"
 WEARABLES = "wearables and body sensors"
@@ -53,10 +53,12 @@ BUILD_FILES = (
 #: Every capability this app is asked for and cannot provide, with why not and what would
 #: have to be true instead. `why` is one sentence, present tense, about this deployment.
 UNAVAILABLE: dict[str, dict] = {
+    # Web Push is real now (modules/notifications/webpush.py) and is listed as available in
+    # platform.overview. What remains unbuildable is reaching a phone some other way.
     PUSH: {
-        "why": "no VAPID key pair, no APNs certificate and no SMS provider in this repo",
-        "needs": ["a VAPID key pair, or an APNs certificate, or an SMS provider account",
-                  "a device that has granted notification permission"],
+        "why": ("no SMS provider and no APNs certificate are connected; notifications go "
+                "out over Web Push only"),
+        "needs": ["an SMS provider account, or an APNs certificate for a native iOS build"],
     },
     PAYMENTS: {
         "why": ("no payment processor is connected; the shared tab records what is owed "

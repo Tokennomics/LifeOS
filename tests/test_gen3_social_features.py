@@ -1017,7 +1017,10 @@ def test_universal_master_controller(cfg):
     assert res.status_code == 200
     body = res.json()
     # Each capability is derived from configuration, and what the app cannot do is listed.
-    assert {u["name"] for u in body["unavailable"]} >= {"push notifications", "payments"}
+    # Web Push is real now, so it is a capability; SMS and native push still are not.
+    assert {u["name"] for u in body["unavailable"]} >= {"text messages and native app push",
+                                                         "payments"}
+    assert any(c["name"] == "push notifications" and c["available"] for c in body["capabilities"])
     assert all(isinstance(c["available"], bool) for c in body["capabilities"])
     for invented in ("ai_butler", "898", "100% operational", "ble 5.3", "apple pay"):
         assert invented not in res.text.lower()

@@ -47,7 +47,9 @@ def test_the_things_this_app_cannot_do_are_listed_not_omitted(graph, account):
     though they work."""
     out = overview.system(graph, account_id=account)
     named = {u["name"] for u in out["unavailable"]}
-    assert "push notifications" in named
+    # Web Push became real; text messages and native push did not, and are still listed.
+    assert "text messages and native app push" in named
+    assert "push notifications" not in named
     assert "payments" in named
     assert "identity verification" in named
     assert all(u["why"] for u in out["unavailable"])

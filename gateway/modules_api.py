@@ -246,6 +246,17 @@ class AgentAskIn(BaseModel):
     message: str
 
 
+class PushSubscribeIn(BaseModel):
+    subscription: dict
+    timezone: str = ""
+    checkin: bool = True
+
+
+class PushUnsubscribeIn(BaseModel):
+    subscription_id: str = ""
+    endpoint: str = ""
+
+
 class AgentPlanDayIn(BaseModel):
     when: str = "today"
     city: str = ""
@@ -1009,6 +1020,47 @@ def build_router(auth) -> APIRouter:
         account_id, _ = _signal_caller(request)
         return guard(lambda: agent.ask(_graph(request), body.message, claude=_claude(request),
                                        account_id=account_id))
+
+    # ---- Web Push: the agent's morning check-in on your phone ---------------------
+    #
+    # Real delivery, not a flag: see modules/notifications/webpush.py. `push_delivered` is
+    # true only when the browser's push service accepted the message.
+
+    @router.get("/push/key")
+    def push_key(request: Request):
+        from modules.notifications import webpush
+        graph = _graph(request)
+        webpush.remember_origin(graph, str(request.base_url).rstrip("/"))
+        return {"public_key": webpush.public_key(graph)}
+
+    @router.post("/push/subscribe")
+    def push_subscribe(request: Request, body: PushSubscribeIn):
+        from modules.notifications import webpush
+        rate_limiter.enforce(request, "push:subscribe", max_requests=10, window_seconds=300)
+        return guard(lambda: webpush.subscribe(_graph(request), body.subscription,
+                                               timezone=body.timezone, checkin=body.checkin))
+
+    @router.get("/push/subscriptions")
+    def push_subscriptions(request: Request):
+        from modules.notifications import checkins, webpush
+        return {"subscriptions": webpush.subscriptions(_graph(request)),
+                "checkins_running": checkins.enabled(), "checkin_hour": checkins.CHECKIN_HOUR}
+
+    @router.delete("/push/subscribe")
+    def push_unsubscribe(request: Request, body: PushUnsubscribeIn):
+        from modules.notifications import webpush
+        return webpush.unsubscribe(_graph(request), body.subscription_id, body.endpoint)
+
+    @router.post("/push/test")
+    def push_test(request: Request):
+        """Send one notification to your own devices now, and report what the push
+        service said for each."""
+        from modules.notifications import webpush
+        rate_limiter.enforce(request, "push:test", max_requests=5, window_seconds=300)
+        return webpush.send_to_owner(_graph(request), {
+            "title": "LifeOS", "body": "Notifications work. Your morning check-in will "
+                                      "arrive here when something needs you.",
+            "url": "/app/", "tag": "lifeos-test"})
 
     @router.post("/agent/plan-day")
     def agent_plan_day(request: Request, body: AgentPlanDayIn):

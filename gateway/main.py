@@ -315,6 +315,9 @@ def create_app(cfg: dict | None = None) -> FastAPI:
     # is set, so tests and a laptop never start a thread. See modules/feeds/autosync.py.
     from modules.feeds import autosync
     autosync.start(graph)
+    # Morning check-ins over Web Push; off unless LIFEOS_PUSH_CHECKINS is set.
+    from modules.notifications import checkins
+    checkins.start(graph)
 
     auth = make_auth_dependency(cfg.get("gateway", {}).get("auth_token", ""))
     app.include_router(build_router(auth))  # reconnect/convoy/memento/steward/vitals/ledger/calibre/hearth

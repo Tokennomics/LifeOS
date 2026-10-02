@@ -6,3 +6,5 @@ pyyaml>=6.0
 tzdata>=2024.1
 pytest>=8.0
 segno>=1.6
+# Web Push: VAPID signatures and RFC 8291 payload encryption (modules/notifications/webpush.py).
+cryptography>=41

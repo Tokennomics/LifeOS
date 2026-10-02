@@ -89,6 +89,11 @@ services:
       - key: LIFEOS_SYNC_CITIES
         value: ""
 
+      # Push the agent's morning check-in (08:00 local, only when something needs you) to
+      # devices that turned notifications on. Keys are generated on first use.
+      - key: LIFEOS_PUSH_CHECKINS
+        value: "1"
+
       # Free key from developer.ticketmaster.com; adds ticketed listings for every city above.
       - key: LIFEOS_TICKETMASTER_KEY
         sync: false
