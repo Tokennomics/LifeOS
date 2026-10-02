@@ -23,14 +23,15 @@
   }
 
   async function load() {
-    const [checkin, goals, proposals, memory, push] = await Promise.all([
+    const [checkin, goals, proposals, memory, push, calendars] = await Promise.all([
       api("/v1/agent/checkin").catch(() => null),
       api("/v1/agent/goals").then((r) => r.goals).catch(() => []),
       api("/v1/agent/proposals").then((r) => r.proposals).catch(() => []),
       api("/v1/agent/memory").then((r) => r.memory).catch(() => []),
       api("/v1/push/subscriptions").catch(() => null),
+      api("/v1/calendar/sources").then((r) => r.sources).catch(() => []),
     ]);
-    A.data = { checkin, goals, proposals, memory, push };
+    A.data = { checkin, goals, proposals, memory, push, calendars };
     return A.data;
   }
 
@@ -95,6 +96,26 @@
     </div>`;
   }
 
+  /* Your calendar both ways (modules/calendars/personal.py). Out: a subscribe link your
+     phone's calendar app reads. In: your calendar's secret address, read as free/busy so
+     "plan my day" stops planning over meetings. The secret address is never shown back. */
+  function calendarBlock(cals) {
+    const rows = cals.map((c) => `<div class="agent-row"><div class="agent-row-text">${esc(c.calendar)}<br><span class="agent-meta">${esc(c.last_status || "")}</span></div>
+      <div class="agent-row-acts"><button class="ghost agent-small" data-agent="cal-remove" data-id="${esc(c.source_id)}">Remove</button></div></div>`).join("");
+    return `<details class="agent-goal" id="agent-calendar">
+      <summary><span>Calendar</span><span class="agent-meta">${cals.length ? `${cals.length} connected` : "not connected"}</span></summary>
+      <div class="agent-row"><div class="agent-row-text">Put your LifeOS plans in your phone's calendar</div>
+        <div class="agent-row-acts"><button class="ghost agent-small" data-agent="cal-link">Get link</button></div></div>
+      <div id="agent-cal-link"></div>
+      <p class="hint" style="margin-top:8px;">Show your busy times here, so plans avoid your meetings. Paste your calendar's secret iCal address (Google: Settings → your calendar → "Secret address in iCal format"). Only the times are kept, not titles.</p>
+      <div class="agent-inline">
+        <input class="field" id="agent-cal-url" placeholder="https://… or webcal://…" autocomplete="off">
+        <button class="ghost agent-small" data-agent="cal-add">Connect</button>
+      </div>
+      ${rows}
+    </details>`;
+  }
+
   async function pushOn() {
     const allowed = await Notification.requestPermission();
     if (allowed !== "granted") throw new Error("Notifications were not allowed in this browser.");
@@ -144,6 +165,7 @@
       ${needs.length ? `<h3 class="agent-h">Needs you</h3>${needs.map((i) => `<div class="agent-row"><div class="agent-row-text">${esc(i.why)}</div></div>`).join("")}` : ""}
       ${d.goals.length ? `<h3 class="agent-h">Goals</h3>${d.goals.map(goalBlock).join("")}` : ""}
       ${pushBlock(d.push)}
+      ${calendarBlock(d.calendars || [])}
       <details class="agent-goal">
         <summary><span>What I remember</span><span class="agent-meta">${d.memory.length}</span></summary>
         ${d.memory.length ? d.memory.map((f) => `<div class="agent-row"><div class="agent-row-text">${esc(f.text)}</div>
@@ -159,6 +181,12 @@
   function redraw(card) {
     const open = [...card.querySelectorAll("details.agent-goal")].map((d) => d.open);
     card.innerHTML = inner();
+    const linkBox = card.querySelector("#agent-cal-link");
+    if (linkBox && A.calLink) {
+      linkBox.innerHTML = `<div class="agent-row"><div class="agent-row-text" style="font-size:12px;">${esc(A.calLink.https)}<br><span class="agent-meta">${esc(A.calLink.warning)}</span></div></div>
+        <div class="agent-inline"><a class="agent-open" href="${esc(A.calLink.webcal)}">Open in calendar</a>
+        <button class="ghost agent-small" data-agent="cal-copy">Copy</button></div>`;
+    }
     card.querySelectorAll("details.agent-goal").forEach((d, i) => { if (open[i]) d.open = true; });
     const log = card.querySelector("#agent-log");
     if (log) log.scrollTop = log.scrollHeight;
@@ -254,6 +282,27 @@
         const title = input ? input.value.trim() : "";
         if (!title) return toast("Write the step first.");
         run(card, () => api(`/v1/agent/goals/${encodeURIComponent(el.dataset.goal)}/steps`, { title }));
+      } else if (what === "cal-link") {
+        run(card, async () => {
+          const r = await api("/v1/calendar/link", {});
+          const https = new URL(r.path, location.origin).href;
+          A.calLink = { https, webcal: https.replace(/^https?:/, "webcal:"), warning: r.warning };
+        });
+      } else if (what === "cal-copy") {
+        if (A.calLink && navigator.clipboard) navigator.clipboard.writeText(A.calLink.https).then(() => toast("Copied"), () => toast("Copy failed — select and copy it"));
+      } else if (what === "cal-add") {
+        const url = card.querySelector("#agent-cal-url").value.trim();
+        if (!url) return toast("Paste the address first.");
+        run(card, async () => {
+          const r = await api("/v1/calendar/sources", { url });
+          const synced = await api(`/v1/calendar/sources/${encodeURIComponent(r.source_id)}/sync`, {});
+          A.log.push({ who: "agent", text: synced.status === "ok"
+            ? `Connected. ${synced.busy_blocks} busy time(s) in the next month; I'll plan around them.`
+            : "Saved, but the calendar could not be read yet. Check the address; it retries on every refresh." });
+          saveLog();
+        });
+      } else if (what === "cal-remove") {
+        run(card, () => apiDelete(`/v1/calendar/sources/${encodeURIComponent(id)}`));
       } else if (what === "push-on") {
         run(card, pushOn);
       } else if (what === "push-off") {

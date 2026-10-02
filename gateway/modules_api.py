@@ -246,6 +246,11 @@ class AgentAskIn(BaseModel):
     message: str
 
 
+class CalendarSourceIn(BaseModel):
+    url: str
+    keep_titles: bool = False
+
+
 class PushSubscribeIn(BaseModel):
     subscription: dict
     timezone: str = ""
@@ -1061,6 +1066,49 @@ def build_router(auth) -> APIRouter:
             "title": "LifeOS", "body": "Notifications work. Your morning check-in will "
                                       "arrive here when something needs you.",
             "url": "/app/", "tag": "lifeos-test"})
+
+    # ---- Your calendar, both ways (modules/calendars/personal.py) -----------------
+
+    @router.post("/calendar/link")
+    def calendar_link(request: Request):
+        """A subscribe URL for your phone's calendar app. Shown once."""
+        from modules.calendars import personal
+        rate_limiter.enforce(request, "calendar:link", max_requests=10, window_seconds=3600)
+        return guard(lambda: personal.mint_link(_graph(request)))
+
+    @router.get("/calendar/links")
+    def calendar_links(request: Request):
+        from modules.calendars import personal
+        return {"links": personal.links(_graph(request))}
+
+    @router.delete("/calendar/links/{link_id}")
+    def calendar_link_revoke(request: Request, link_id: str):
+        from modules.calendars import personal
+        return guard(lambda: personal.revoke_link(_graph(request), link_id))
+
+    @router.get("/calendar/sources")
+    def calendar_sources(request: Request):
+        from modules.calendars import personal
+        return {"sources": personal.sources(_graph(request))}
+
+    @router.post("/calendar/sources")
+    def calendar_source_add(request: Request, body: CalendarSourceIn):
+        """Your calendar's secret iCal address. Free/busy only unless keep_titles."""
+        from modules.calendars import personal
+        rate_limiter.enforce(request, "calendar:source", max_requests=10, window_seconds=3600)
+        return guard(lambda: personal.add_source(_graph(request), body.url,
+                                                 keep_titles=body.keep_titles))
+
+    @router.post("/calendar/sources/{source_id}/sync")
+    def calendar_source_sync(request: Request, source_id: str):
+        from modules.calendars import personal
+        rate_limiter.enforce(request, "calendar:sync", max_requests=20, window_seconds=3600)
+        return guard(lambda: personal.sync_source(_graph(request), source_id))
+
+    @router.delete("/calendar/sources/{source_id}")
+    def calendar_source_remove(request: Request, source_id: str):
+        from modules.calendars import personal
+        return guard(lambda: personal.remove_source(_graph(request), source_id))
 
     @router.post("/agent/plan-day")
     def agent_plan_day(request: Request, body: AgentPlanDayIn):

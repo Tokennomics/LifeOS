@@ -234,6 +234,14 @@ def run_once(graph: Graph, *, places_fetch=None, geocode_fetch=None,
                                "status": f"error: {type(exc).__name__}"})
     steps["places"] = place_runs
 
+    # Everyone's own calendars, so busy times are current when the agent plans a day.
+    try:
+        from modules.calendars import personal
+        cal = personal.sync_all(graph, source=source)
+        steps["calendars"] = {"synced": cal["calendars"], "ok": cal["ok"]}
+    except Exception as exc:
+        steps["calendars"] = {"error": f"{type(exc).__name__}: {exc}"}
+
     record = {"type": RUN_RECORD, "started_at": started, "finished_at": now_iso(),
               "steps": steps}
     session = _sys(graph)
