@@ -1,6 +1,7 @@
 // LifeOS Travel Mode service worker: cache the whole shell so it loads with no
 // network at all. There is no API here — all data lives in IndexedDB, never cached.
 const CACHE = "lifeos-travel-v6";
+const SHELL_FINGERPRINT = "1ec23bde4033a8f2";  // see tests/test_sw_fingerprint.py
 const SHELL = [
   "./travel.html", "./travel.js", "./horizon-core.js", "./travel-stats.js", "./travel-coach.js",
   "./style.css", "./travel.css", "./travel.webmanifest",

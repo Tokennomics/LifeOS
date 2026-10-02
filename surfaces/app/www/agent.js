@@ -41,7 +41,10 @@
   }
 
   function bubble(m) {
-    const extra = m.open ? `<a class="agent-open" href="${draftHref(m.open)}">Open draft</a>` : "";
+    // A drafted message opens your mail app; a planned stop links to its listing (tickets
+    // are yours to buy). safeUrl lets only http(s) through.
+    const extra = (m.open ? `<a class="agent-open" href="${draftHref(m.open)}">Open draft</a>` : "")
+      + (m.link ? `<a class="agent-open" href="${safeUrl(m.link)}" target="_blank" rel="noopener">Listing and tickets</a>` : "");
     return `<div class="agent-msg ${m.who === "you" ? "you" : "agent"}">${esc(m.text).replace(/\n/g, "<br>")}${extra}</div>`;
   }
 
@@ -82,12 +85,13 @@
         "Running without a model: goals, plans, memory and check-ins work; open questions need ANTHROPIC_API_KEY on the server."}</p>
       <div class="agent-log" id="agent-log">${log}</div>
       <div class="agent-inline">
-        <input class="field" id="agent-input" data-agent-input="ask" placeholder="I want to… / remember… / what's next?" maxlength="2000" autocomplete="off">
+        <input class="field" id="agent-input" data-agent-input="ask" placeholder="I want to… / plan Saturday in Lisbon / remember…" maxlength="2000" autocomplete="off">
         <button class="ghost agent-small" data-agent="mic" aria-label="Speak">🎙️</button>
         <button class="primary agent-small" data-agent="send">Send</button>
       </div>
       <div class="agent-chips">
         <button class="pill" data-agent="chip" data-text="What's next?">What's next?</button>
+        <button class="pill" data-agent="chip" data-text="Plan today">Plan today</button>
         <button class="pill" data-agent="chip" data-text="I want to ">New goal</button>
         <button class="pill" data-agent="chip" data-text="Remember ">Remember…</button>
         <button class="pill" data-agent="chip" data-text="What do you know about me?">What you know</button>
@@ -140,7 +144,7 @@
     return run(card, async () => {
       const r = await api("/v1/agent/ask", { message: text });
       let reply = r.reply || "";
-      if (r.proposals && r.proposals.length) reply += `\n${r.proposals.length} action(s) waiting for your approval below.`;
+      if (r.intent !== "plan" && r.proposals && r.proposals.length) reply += `\n${r.proposals.length} action(s) waiting for your approval below.`;
       A.log.push({ who: "agent", text: reply });
       saveLog();
     });
@@ -189,7 +193,7 @@
         run(card, async () => {
           const r = await api(`/v1/agent/proposals/${encodeURIComponent(id)}/approve`, {});
           const res = r.result || {};
-          A.log.push({ who: "agent", text: "Done: " + (res.what || "approved"), open: res.open || "" });
+          A.log.push({ who: "agent", text: "Done: " + (res.what || "approved"), open: res.open || "", link: res.url || "" });
           saveLog();
         });
       } else if (what === "reject") {
