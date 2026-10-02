@@ -67,6 +67,12 @@ def system(graph: Graph, *, account_id: str = "") -> dict:
          "available": _configured("LIFEOS_RESEND_KEY"),
          "detail": "Verification and password reset. Without it, those flows print the "
                    "link rather than sending it"},
+        {"name": "push notifications", "needs": None, "available": True,
+         "detail": "Web Push; keys are generated on first use. A device has to turn it on, "
+                   "and on iPhone the app must be added to the Home Screen first"},
+        {"name": "morning check-ins", "needs": "LIFEOS_PUSH_CHECKINS",
+         "available": _configured("LIFEOS_PUSH_CHECKINS"),
+         "detail": "The agent's check-in, pushed at 08:00 local, only when something needs you"},
         {"name": "dating surface", "needs": "LIFEOS_DATING_ENABLED",
          "available": _configured("LIFEOS_DATING_ENABLED"),
          "detail": "Off by default; answers 503 when off"},

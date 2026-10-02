@@ -23,13 +23,14 @@
   }
 
   async function load() {
-    const [checkin, goals, proposals, memory] = await Promise.all([
+    const [checkin, goals, proposals, memory, push] = await Promise.all([
       api("/v1/agent/checkin").catch(() => null),
       api("/v1/agent/goals").then((r) => r.goals).catch(() => []),
       api("/v1/agent/proposals").then((r) => r.proposals).catch(() => []),
       api("/v1/agent/memory").then((r) => r.memory).catch(() => []),
+      api("/v1/push/subscriptions").catch(() => null),
     ]);
-    A.data = { checkin, goals, proposals, memory };
+    A.data = { checkin, goals, proposals, memory, push };
     return A.data;
   }
 
@@ -73,6 +74,49 @@
     </details>`;
   }
 
+  /* The morning check-in. Shown as what is true: whether this browser can receive push at
+     all, whether a device is subscribed, and what the last send returned. */
+  function pushSupported() {
+    return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+  }
+
+  function pushBlock(push) {
+    if (!pushSupported()) {
+      return `<p class="hint agent-push">Morning check-in: this browser cannot receive notifications. On iPhone, add the app to your Home Screen first.</p>`;
+    }
+    const subs = (push && push.subscriptions) || [];
+    const on = subs.length > 0;
+    const last = subs.map((x) => x.last_result).filter(Boolean)[0] || "";
+    return `<div class="agent-row agent-push">
+      <div class="agent-row-text">Morning check-in · ${on ? `on, ${subs.length} device${subs.length === 1 ? "" : "s"}, ${String((push && push.checkin_hour) || 8).padStart(2, "0")}:00 your time${push && !push.checkins_running ? " (not scheduled on this server yet)" : ""}` : "off"}${last ? `<br><span class="agent-meta">last send: ${esc(last)}</span>` : ""}</div>
+      <div class="agent-row-acts">${on
+        ? `<button class="ghost agent-small" data-agent="push-test">Test</button><button class="ghost agent-small" data-agent="push-off">Turn off</button>`
+        : `<button class="primary agent-small" data-agent="push-on">Turn on</button>`}</div>
+    </div>`;
+  }
+
+  async function pushOn() {
+    const allowed = await Notification.requestPermission();
+    if (allowed !== "granted") throw new Error("Notifications were not allowed in this browser.");
+    const reg = await navigator.serviceWorker.ready;
+    const { public_key } = await api("/v1/push/key");
+    const pad = "=".repeat((4 - (public_key.length % 4)) % 4);
+    const raw = atob((public_key + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    const key = Uint8Array.from(raw, (c) => c.charCodeAt(0));
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    await api("/v1/push/subscribe", { subscription: sub.toJSON(), timezone });
+  }
+
+  async function pushOff() {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) {
+      await apiDelete("/v1/push/subscribe", { endpoint: sub.endpoint });
+      await sub.unsubscribe();
+    }
+  }
+
   function inner() {
     const d = A.data || { checkin: null, goals: [], proposals: [], memory: [] };
     const needs = (d.checkin && d.checkin.needs_you || []).filter((i) => i.kind !== "approval");
@@ -99,6 +143,7 @@
       ${d.proposals.length ? `<h3 class="agent-h">Waiting for your approval</h3>${d.proposals.map(proposalRow).join("")}` : ""}
       ${needs.length ? `<h3 class="agent-h">Needs you</h3>${needs.map((i) => `<div class="agent-row"><div class="agent-row-text">${esc(i.why)}</div></div>`).join("")}` : ""}
       ${d.goals.length ? `<h3 class="agent-h">Goals</h3>${d.goals.map(goalBlock).join("")}` : ""}
+      ${pushBlock(d.push)}
       <details class="agent-goal">
         <summary><span>What I remember</span><span class="agent-meta">${d.memory.length}</span></summary>
         ${d.memory.length ? d.memory.map((f) => `<div class="agent-row"><div class="agent-row-text">${esc(f.text)}</div>
@@ -209,6 +254,18 @@
         const title = input ? input.value.trim() : "";
         if (!title) return toast("Write the step first.");
         run(card, () => api(`/v1/agent/goals/${encodeURIComponent(el.dataset.goal)}/steps`, { title }));
+      } else if (what === "push-on") {
+        run(card, pushOn);
+      } else if (what === "push-off") {
+        run(card, pushOff);
+      } else if (what === "push-test") {
+        run(card, async () => {
+          const r = await api("/v1/push/test", {});
+          A.log.push({ who: "agent", text: r.push_delivered
+            ? `Sent to ${r.delivered} of ${r.devices} device(s). It should appear in a moment.`
+            : `Not delivered: ${r.why || (r.results && r.results[0] && r.results[0].why) || "unknown"}` });
+          saveLog();
+        });
       } else if (what === "forget") {
         run(card, () => apiDelete(`/v1/agent/memory/${encodeURIComponent(id)}`));
       }

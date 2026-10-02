@@ -1,6 +1,6 @@
 // LifeOS service worker: cache the shell, never cache the API.
-const CACHE = "lifeos-shell-v6";
-const SHELL_FINGERPRINT = "786a484ba36d47c6";  // see tests/test_sw_fingerprint.py
+const CACHE = "lifeos-shell-v7";
+const SHELL_FINGERPRINT = "af85ed5a80aedb26";  // see tests/test_sw_fingerprint.py
 const SHELL = ["./", "./index.html", "./style.css", "./app.js", "./agent.js", "./manifest.webmanifest",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
@@ -28,4 +28,25 @@ self.addEventListener("fetch", (e) => {
       return resp;
     }))
   );
+});
+
+// Web Push: the agent's morning check-in (modules/notifications/checkins.py). The payload
+// arrives already decrypted by the browser; show it, and open the app when it is tapped.
+self.addEventListener("push", (e) => {
+  let msg = {};
+  try { msg = e.data ? e.data.json() : {}; } catch (err) { msg = { body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(msg.title || "LifeOS", {
+    body: msg.body || "", tag: msg.tag || "lifeos", data: { url: msg.url || "./" },
+    icon: "./icons/icon-192.png", badge: "./icons/icon-192.png",
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const target = new URL((e.notification.data && e.notification.data.url) || "./", self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+    const open = wins.find((w) => w.url.startsWith(self.registration.scope));
+    if (open) { open.focus(); return open.navigate ? open.navigate(target) : null; }
+    return self.clients.openWindow(target);
+  }));
 });
