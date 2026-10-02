@@ -955,6 +955,15 @@ def create_app(cfg: dict | None = None) -> FastAPI:
         html_content = INVITE_HTML.format(crew_name=crew_name, token=token)
         return Response(content=html_content, media_type="text/html")
 
+    @app.get("/calendar/me/{token}.ics", include_in_schema=False)
+    def personal_calendar_feed(token: str):
+        """Your own LifeOS events, for your phone's calendar app. Unauthenticated for the
+        same reason as the crew feed below: a calendar app can only send a URL. The token
+        is hashed, expiring and revocable; any token that opens nothing gets an empty
+        calendar. See modules/calendars/personal.py."""
+        from modules.calendars import personal
+        return Response(content=personal.feed(graph, token), media_type="text/calendar")
+
     @app.get("/calendar/{token}.ics", include_in_schema=False)
     def crew_calendar_feed(token: str):
         """A crew's calendar, for a calendar client.
