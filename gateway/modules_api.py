@@ -2052,6 +2052,21 @@ def build_router(auth) -> APIRouter:
         from modules.feeds import ingest
         return guard(lambda: ingest.sync_all(_graph(request)))
 
+    @router.get("/feeds/autosync")
+    def feeds_autosync_status(request: Request):
+        """Whether listings refresh on their own, when they last did, and what happened."""
+        from modules.feeds import autosync
+        graph = _graph(request)
+        return {**autosync.status(graph), "recent": autosync.runs(graph, limit=5)}
+
+    @router.post("/feeds/autosync/run")
+    def feeds_autosync_run(request: Request):
+        """One refresh pass now. It reaches every venue, provider and map service the box
+        covers, so it is limited harder than a single feed sync."""
+        rate_limiter.enforce(request, "feeds:autosync", max_requests=2, window_seconds=3600)
+        from modules.feeds import autosync
+        return autosync.run_once(_graph(request))
+
     @router.get("/feeds/seeds")
     def feeds_seeds(request: Request):
         """City packs available to load. See seeds/README.md for why none are real yet."""

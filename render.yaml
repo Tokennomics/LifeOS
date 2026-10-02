@@ -80,6 +80,16 @@ services:
       - key: LIFEOS_DATING_ENABLED
         value: ""
 
+      # Refresh venue feeds, listings and places on their own, every N hours. Unset or 0
+      # means only by hand. See modules/feeds/autosync.py.
+      - key: LIFEOS_AUTOSYNC_HOURS
+        value: "6"
+      # Cities to keep fresh even before anyone has subscribed a venue there,
+      # comma-separated, e.g. "Lisbon, Berlin". Places come from OpenStreetMap with no key.
+      - key: LIFEOS_SYNC_CITIES
+        value: ""
+
+      # Free key from developer.ticketmaster.com; adds ticketed listings for every city above.
       - key: LIFEOS_TICKETMASTER_KEY
         sync: false
       - key: ANTHROPIC_API_KEY

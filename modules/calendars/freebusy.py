@@ -11,6 +11,7 @@ CLI:  python -m modules.calendars.freebusy [--config path]
 import argparse
 import datetime
 import json
+import re
 
 from substrate import safefetch
 from substrate.graph import Graph
@@ -41,6 +42,20 @@ def parse_ics(text: str, default_tz: str = "UTC") -> list[dict]:
             current = {}
             continue
         if line == "END:VEVENT":
+            if current and "start" in current and "end" not in current:
+                # RFC 5545 §3.6.1: DTEND is optional. Without it the event lasts DURATION,
+                # or one day if DTSTART is a date, or no time at all. Requiring DTEND
+                # dropped every such event from venue feeds, and plenty of public
+                # calendars omit it.
+                start = datetime.datetime.fromisoformat(current["start"])
+                span = current.pop("_duration", None)
+                if span is None:
+                    span = datetime.timedelta(days=1) if current.pop("_all_day", False) \
+                        else datetime.timedelta(0)
+                current["end"] = (start + span).isoformat()
+            if current:
+                current.pop("_duration", None)
+                current.pop("_all_day", None)
             if current and "start" in current and "end" in current:
                 current.setdefault("uid", f"noduid-{current['start']}")
                 current.setdefault("title", "")
@@ -67,7 +82,28 @@ def parse_ics(text: str, default_tz: str = "UTC") -> list[dict]:
             dt = _parse_dt(value.strip(), params, default_tz)
             if dt is not None:
                 current["start" if name == "DTSTART" else "end"] = dt.isoformat()
+                if name == "DTSTART" and ("VALUE=DATE" in params
+                                          or (len(value.strip()) == 8 and value.strip().isdigit())):
+                    current["_all_day"] = True
+        elif name == "DURATION":
+            span = _parse_duration(value.strip())
+            if span is not None:
+                current["_duration"] = span
     return events
+
+
+_DURATION = re.compile(r"^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$")
+
+
+def _parse_duration(value: str):
+    """RFC 5545 §3.3.6, e.g. PT2H30M, P1D, P1W. None for anything else."""
+    m = _DURATION.match(value.upper())
+    if not m or not any(m.groups()[1:]):
+        return None
+    weeks, days, hours, minutes, seconds = (int(g or 0) for g in m.groups()[1:])
+    span = datetime.timedelta(weeks=weeks, days=days, hours=hours, minutes=minutes,
+                              seconds=seconds)
+    return -span if m.group(1) == "-" else span
 
 
 def _unescape(value: str) -> str:

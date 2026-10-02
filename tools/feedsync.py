@@ -35,7 +35,14 @@ def _graph(cfg: dict) -> Graph:
 
 
 def run_once(graph: Graph, min_interval_minutes: int = DEFAULT_INTERVAL_MINUTES) -> dict:
-    return ingest.sync_all(graph, min_interval_minutes=min_interval_minutes)
+    """Every account's subscriptions, not just the config owner's.
+
+    `_graph` scopes to the config owner, and `sync_all` lists feeds through whatever slice
+    it is given, so a venue somebody else subscribed to was never refreshed by this loop.
+    The events are public and system-owned either way; the subscriptions are not.
+    """
+    from modules.feeds import autosync
+    return ingest.sync_all(autosync._graph_all(graph), min_interval_minutes=min_interval_minutes)
 
 
 def describe(result: dict, now: datetime.datetime | None = None) -> str:
