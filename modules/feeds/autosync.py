@@ -109,9 +109,52 @@ def cities(graph: Graph) -> list[dict]:
         add(name, CITIES_VAR)
     for feed in ingest.feeds(_graph_all(graph), limit=500):
         add(feed.get("city", ""), "venue feed")
+    for label in _arrival_cities(graph):
+        add(label, "someone is there")
+    for label in _trip_cities(graph):
+        add(label, "trip planned")
     for row in _sys(graph).find_entities("content", {"type": "city_place"}, limit=5000):
         add(row["attrs"].get("city_label") or row["attrs"].get("city", ""), "places seeded")
     return list(found.values())[:MAX_CITIES]
+
+
+def _arrival_cities(graph: Graph) -> list[str]:
+    """Cities somebody has said they are in, while that is still true. City names only —
+    never who, which is what makes using them here safe."""
+    from modules.city import arrival
+
+    now = _now()
+    rows = Graph(graph.conn, graph.bus, default_owner=SYSTEM_OWNER).session(
+        MODULE, SCOPES).find_entities("content", {"type": arrival.RECORD}, limit=2000)
+    return [r["attrs"].get("city", "") for r in rows if arrival._live(r, now)]
+
+
+def _trip_cities(graph: Graph) -> list[str]:
+    """Destinations of trips that have not ended. An intent is private to its owner; only
+    the city name leaves it, as a reason to keep that city's listings current."""
+    today = _now().date().isoformat()
+    rows = _graph_all(graph).session(MODULE, SCOPES).find_entities(
+        "content", {"type": "travel_intent"}, limit=2000)
+    return [r["attrs"].get("city", "") for r in rows
+            if not str(r["attrs"].get("ends", "")).strip()
+            or str(r["attrs"].get("ends", ""))[:10] >= today]
+
+
+def refresh_listings(graph: Graph, city: str, *, source: str = MODULE) -> list[dict]:
+    """Listings for one city, now. Used when somebody arrives or plans a trip, so the
+    first look at a new city is not six hours stale. Unconfigured providers write nothing."""
+    from modules.feeds import ingest, providers
+
+    out = []
+    for prov in providers.status():
+        if prov["kind"] != "events" or not prov["configured"]:
+            continue
+        try:
+            r = ingest.sync_provider(graph, prov["name"], city=city, source=source)
+        except Exception as exc:
+            r = {"provider": prov["name"], "city": city, "status": f"error: {type(exc).__name__}"}
+        out.append({k: r.get(k) for k in ("provider", "city", "status", "added", "updated")})
+    return out
 
 
 def _graph_all(graph: Graph) -> Graph:

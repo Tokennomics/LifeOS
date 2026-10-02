@@ -1061,7 +1061,7 @@ function todayView() {
     <p class="hint" style="margin-bottom:8px;">Put a city on the map from OpenStreetMap, and build a short plan out of what is on it. Seeding is the operator's — it writes public rows and calls a volunteer-run service.</p>
     <input class="field" id="tp-city" placeholder="Which city?" style="margin-bottom:8px;">
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px;">
-      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="stream-auto-events">Stream Event Feeds (284) 📡</button>
+      <button class="primary" style="background:linear-gradient(135deg, #06b6d4, #3b82f6);" data-act="stream-auto-events">Keep listings fresh 📡</button>
       <button class="primary" data-act="synth-ai-outing">Build an evening 🤖</button>
       <input id="seed-theme" placeholder="a theme, if you have one" style="flex:1; min-width:140px;">
       <button class="primary" style="background:linear-gradient(135deg, #10b981, #059669);" data-act="load-third-places">Seed a city's map 📍</button>
@@ -5466,22 +5466,44 @@ function wire(root) {
      and Dice, none of which this app integrates, on a sync frequency it invented. It runs
      the calendar feeds and the ticket provider this deployment actually has, and reports
      what each one returned. */
-  on("[data-act=stream-auto-events]", () => act(async () => {
-    const city = state.city || ($("#seed-city") ? $("#seed-city").value.trim() : "");
-    if (!city) { toast("Which city?"); return; }
-    const res = await api("/v1/seeding/auto-event-pipeline", { city });
+  /* The label read "Stream Event Feeds (284)" — a count nobody counted. It now shows the
+     refresh that actually runs: whether it is on, when it last ran, what each source did,
+     and which cities it covers and why. "Refresh now" runs one pass. */
+  function renderAutosync(st, ran) {
     const out = $("#content-pipeline-output");
     if (!out) return;
-    const feeds = res.feeds || {};
-    out.innerHTML = `
-      <div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
-        <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${esc(res.city || city)}</div>
-        <div style="font-size:13px; margin-bottom:4px;">Added from calendar feeds: <strong>${feeds.added != null ? feeds.added : 0}</strong></div>
-        ${res.provider ? `<div style="font-size:13px; margin-bottom:4px;">${esc(res.provider)}: ${esc(String(res.status || ""))}</div>` : ""}
-        ${res.added != null ? `<div style="font-size:12px; color:var(--muted);">${res.added} in total.</div>` : ""}
-      </div>
-    `;
+    const count = (v) => Number(v) || 0;
+    const last = ran || st.last_run;
+    const steps = (last && last.steps) || {};
+    const feeds = steps.venue_feeds || {};
+    const lines = [];
+    if (feeds.error) lines.push(`Venue calendars: ${esc(feeds.error)}`);
+    else if (last) lines.push(`Venue calendars: ${count(feeds.synced)} synced, ${count(feeds.added)} new events, ${count(feeds.skipped_recent)} still fresh`);
+    (steps.listings || []).forEach((l) => lines.push(l.status === "not_configured"
+      ? `${esc(l.provider)}: off until ${esc(l.needs)} is set`
+      : `${esc(l.provider)} · ${esc(l.city)}: ${esc(l.status)}${l.added != null ? `, ${count(l.added)} new` : ""}`));
+    (steps.places || []).forEach((p) => lines.push(`Places · ${esc(p.city)}: ${esc(p.status)}${p.added != null ? `, ${count(p.added)} new` : ""}`));
+    const cities = (st.cities || []).map((c) => `${esc(c.label)} <span style="color:var(--muted);">(${esc(c.why.join(", "))})</span>`);
+    out.innerHTML = `<div style="background:var(--surface-2s); padding:12px; border-radius:12px; border:1px solid var(--line-soft);">
+      <div style="font-size:14px; font-weight:700; margin-bottom:4px;">${st.enabled ? `Refreshing every ${count(st.interval_hours)}h` : "Not refreshing on its own"}</div>
+      ${st.why ? `<div style="font-size:12px; color:var(--muted); margin-bottom:6px;">${esc(st.why)}</div>` : ""}
+      <div style="font-size:12px; margin-bottom:6px;">${last ? `Last pass ${esc(whenLabel(last.finished_at))}` : "No pass has run yet."}${st.next_due ? ` · next ${esc(whenLabel(st.next_due))}` : ""}</div>
+      ${lines.map((l) => `<div style="font-size:12px;">· ${l}</div>`).join("")}
+      <div style="font-size:12px; margin-top:8px;">${cities.length ? `Covering: ${cities.join(" · ")}` : esc(st.suggestion || "")}</div>
+      <button class="ghost" data-act="autosync-run" style="margin-top:10px;">Refresh now</button>
+    </div>`;
+    bindLater(out);
+  }
+
+  on("[data-act=stream-auto-events]", () => act(async () => {
+    renderAutosync(await api("/v1/feeds/autosync"));
   }));
+
+  on("[data-act=autosync-run]", () => act(async () => {
+    toast("Refreshing… this reaches every venue and map service, give it a minute");
+    const ran = await api("/v1/feeds/autosync/run", {});
+    renderAutosync(await api("/v1/feeds/autosync"), ran);
+  }, "Refreshed"));
 
   /* Returned four numbered stops with a time and a "vibe" for each, plus an estimated
      split, for a theme it had defaulted. The route assembles an itinerary from places and
