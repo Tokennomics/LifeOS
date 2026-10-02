@@ -1502,9 +1502,13 @@ def build_router(auth) -> APIRouter:
         return {"intents": discover.intents(_graph(request))}
 
     @router.post("/discover/intents")
-    def discover_set_intent(request: Request, body: IntentIn):
-        return guard(lambda: discover.set_intent(
+    def discover_set_intent(request: Request, tasks: BackgroundTasks, body: IntentIn):
+        """A trip you are planning. The destination is seeded and its listings fetched in
+        the background, so the city is populated before you land, not after."""
+        saved = guard(lambda: discover.set_intent(
             _graph(request), body.city, body.interests, body.starts, body.ends))
+        _autoseed(request, tasks, body.city)
+        return saved
 
     @router.get("/discover/personalized-event-feed")
     def personalized_event_feed_endpoint(request: Request):
@@ -1605,6 +1609,13 @@ def build_router(auth) -> APIRouter:
         def run() -> None:
             try:
                 autoseed.drain(graph, limit=1)
+            except Exception:
+                pass
+            # Listings too, so the first look at a new city is not six hours stale. A
+            # provider with no key writes nothing; see modules/feeds/autosync.py.
+            try:
+                from modules.feeds import autosync
+                autosync.refresh_listings(graph, city)
             except Exception:
                 pass
 
